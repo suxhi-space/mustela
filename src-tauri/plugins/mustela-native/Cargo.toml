@@ -1,0 +1,14 @@
+[package]
+name = "tauri-plugin-mustela-native"
+version = "0.1.0"
+description = "Android-only helpers for Mustela: system accent color and a call that survives the app being swiped away."
+edition = "2021"
+links = "tauri-plugin-mustela-native"
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

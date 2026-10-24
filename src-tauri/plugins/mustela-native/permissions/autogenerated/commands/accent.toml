@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-accent"
+description = "Enables the accent command without any pre-configured scope."
+commands.allow = ["accent"]
+
+[[permission]]
+identifier = "deny-accent"
+description = "Denies the accent command without any pre-configured scope."
+commands.deny = ["accent"]

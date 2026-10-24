@@ -1,0 +1,32 @@
+[package]
+name = "mustela"
+version = "0.1.0"
+description = "A compact chat client for Stoat"
+edition = "2021"
+
+[lib]
+name = "mustela_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+url = "2"
+tauri-plugin-mustela-native = { path = "plugins/mustela-native" }
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+window-vibrancy = "0.6"
+
+# Small, fast binaries. panic=abort + LTO + strip are the big wins.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
