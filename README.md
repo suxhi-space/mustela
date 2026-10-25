@@ -2,7 +2,7 @@
 
 <h1 align="center">Mustela</h1>
 
-<p align="center">A <a href="https://stoat.chat">Stoat</a> chat client for Windows, macOS, Linux and Android,<br>with Discord-style profile customization and a tactile, 3D look.</p>
+<p align="center">A <a href="https://stoat.chat">Stoat</a> chat client for Windows, macOS, Linux and Android,<br>with style profile customization and a tactile, 3D look.</p>
 
 <p align="center"><img src="docs/screenshots/server-dark.png" width="820" alt="Mustela showing a server channel in dark mode"></p>
 <p align="center"><img src="docs/screenshots/dm-light.png" width="520" alt="A direct message in light mode"> <img src="docs/screenshots/phone.png" width="200" alt="Mustela on a phone"></p>
