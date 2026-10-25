@@ -1,0 +1,17 @@
+// Adds JitPack so Gradle can resolve com.github.davidliu:audioswitch,
+// a dependency of io.livekit:livekit-android (used by the mustela-native plugin).
+// Installed to ~/.gradle/init.d/ by scripts/apply-android-fixes.sh
+
+// Used when the project relies on settings-level repositories
+settingsEvaluated { settings ->
+    settings.dependencyResolutionManagement.repositories {
+        maven { url = 'https://jitpack.io' }
+    }
+}
+
+// Used when projects declare their own repositories (Tauri's generated template does)
+allprojects {
+    repositories {
+        maven { url = 'https://jitpack.io' }
+    }
+}
