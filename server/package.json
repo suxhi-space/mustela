@@ -1,0 +1,9 @@
+{
+  "name": "mustela-sync-server",
+  "version": "1.0.0",
+  "description": "Self-hostable sync server for Mustela profiles and activity",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node server.mjs", "test": "node --test" }
+}

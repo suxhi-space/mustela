@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openBridge, type Snapshot } from "./bridge";
 
-const snap: Snapshot = { active: true, channelName: "Lounge", mic: true, cam: false, screen: false, people: [{ id: "a", name: "A" }], speaking: ["a"], error: "" };
+const snap: Snapshot = { active: true, channel: { id: "c", name: "Lounge" }, mic: true, cam: false, screen: false, people: [{ id: "a", name: "A" }], speaking: ["a"], error: "" };
 const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 describe("call bridge", () => {

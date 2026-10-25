@@ -12,13 +12,25 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 url = "2"
 tauri-plugin-mustela-native = { path = "plugins/mustela-native" }
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+# Desktop only: game detection and the Rich Presence socket (src/activity.rs).
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+serde_json = "1"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "macros", "rt"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Only to switch on WebRTC / getUserMedia in the Linux webview (off by default in WebKitGTK).
+webkit2gtk = { version = "2", features = ["v2_40"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 window-vibrancy = "0.6"

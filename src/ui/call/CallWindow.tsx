@@ -1,45 +1,39 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { Avatar } from "../Avatar";
+import { createSignal, onMount, Show } from "solid-js";
+import type { ChannelInfo, Person } from "../../lib/backend/types";
 import { Icon } from "../icons";
-import { openBridge, type Cmd, type Snapshot } from "./bridge";
-
-const EMPTY: Snapshot = { active: false, channelName: "", mic: false, cam: false, screen: false, people: [], speaking: [], error: "" };
+import { CallStage } from "./CallStage";
+import { call, startPopout } from "./state";
 
 /**
- * The pop-out window. It owns no call: it shows what the main window sends
- * and sends back button presses. If the main window goes away, it says so.
+ * The pop-out call window. It holds the call itself (picked up from the main
+ * window), so cameras and shared screens play here. A thin title bar like
+ * Discord's: the channel, keep-on-top, and the window buttons. Closing it
+ * hands the call back to the main window.
  */
 export function CallWindow() {
-  const [s, setS] = createSignal<Snapshot>(EMPTY);
-  const [seen, setSeen] = createSignal(false);
-  const bridge = openBridge((m) => { if (m.t === "state") { setS(m.s); setSeen(true); if (!m.s.active) void close(); } });
-  onCleanup(() => bridge.close());
-  onMount(() => { bridge.send({ t: "hello" }); });
-  const cmd = (c: Cmd) => bridge.send({ t: "cmd", c });
-  async function close() {
-    try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("close_popout"); } catch { window.close(); }
-  }
-  const btn = (c: Exclude<Cmd, "leave">, icon: string, label: string) => (
-    <button class="ctl" classList={{ on: s()[c] }} aria-pressed={s()[c]} onClick={() => cmd(c)}><Icon name={icon} />{label}</button>
-  );
+  const [, setMe] = createSignal<Person | null>(null);
+  const [onTop, setOnTop] = createSignal(false);
+  let win: any;
+  onMount(async () => {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    win = getCurrentWindow();
+    void startPopout(setMe, () => {});
+  });
+  const ch = (): ChannelInfo => call.channel() ?? { id: "", name: "Call", kind: "voice" };
   return (
     <main class="popout">
-      <header class="bar"><Icon name="speaker" size={18} class="muted" /><h2>{s().channelName || "Call"}</h2><span class="grow" />
-        <button class="btn small" onClick={() => void close()}>Bring back</button></header>
-      <Show when={seen()} fallback={<p class="empty center">Waiting for the call…</p>}>
-        <div class="people mini">
-          <For each={s().people}>{(p) => (
-            <div class="tile" classList={{ talking: s().speaking.includes(p.id) }}>
-              <Avatar person={{ id: p.id, name: p.name, avatarUrl: p.avatarUrl }} size={48} profile={null} presence={false} />
-              <span class="name">{p.name}</span>
-            </div>
-          )}</For>
-        </div>
-        <Show when={s().error}><p class="err center">{s().error}</p></Show>
-        <div class="controls" role="toolbar" aria-label="Call controls">
-          {btn("mic", "mic", "Mic")}{btn("cam", "video", "Camera")}{btn("screen", "screen", "Share")}
-          <button class="ctl danger" onClick={() => cmd("leave")}><Icon name="hangup" />Leave</button>
-        </div>
+      <header class="pop-bar" data-tauri-drag-region>
+        <Icon name="speaker" size={14} />
+        <span class="pop-title" data-tauri-drag-region>{call.channel()?.name ?? "Connecting…"}</span>
+        <span class="grow" data-tauri-drag-region />
+        <button class="tb-tool" classList={{ on: onTop() }} title={onTop() ? "Stop keeping on top" : "Keep on top"} aria-pressed={onTop()}
+          onClick={() => { const v = !onTop(); setOnTop(v); void win?.setAlwaysOnTop(v); }}><Icon name="pin" size={14} /></button>
+        <button class="tb-win" aria-label="Minimize" onClick={() => void win?.minimize()}><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5.5h8" /></svg></button>
+        <button class="tb-win" aria-label="Maximize" onClick={() => void win?.toggleMaximize()}><svg viewBox="0 0 10 10" aria-hidden="true"><rect x="1.5" y="1.5" width="7" height="7" rx="1" /></svg></button>
+        <button class="tb-win tb-close" aria-label="Close and bring the call back" title="Bring the call back" onClick={() => void win?.close()}><svg viewBox="0 0 10 10" aria-hidden="true"><path d="m2 2 6 6M8 2 2 8" /></svg></button>
+      </header>
+      <Show when={call.channel()} fallback={<div class="cstage-idle"><div class="spinner" /><p class="muted">Moving the call here…</p></div>}>
+        <CallStage channel={ch()} />
       </Show>
     </main>
   );

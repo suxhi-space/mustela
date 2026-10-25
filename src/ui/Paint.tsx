@@ -37,7 +37,7 @@ export function EffectCanvas(props: { slot: Accessor<SlotConfig>; w: number; h: 
 }
 
 export function FrameCanvas(props: { slot: Accessor<SlotConfig>; w: number; h: number; animate: boolean; radius?: number }) {
-  return <PaintCanvas class="fx" w={props.w} h={props.h} animate={props.animate} staticT={PAINT_STATIC_T}
+  return <PaintCanvas class="frame" w={props.w} h={props.h} animate={props.animate} staticT={PAINT_STATIC_T}
     draw={(ctx, t) => paintFrame(ctx, props.slot(), t, props.w, props.h, props.radius)} />;
 }
 

@@ -1,16 +1,30 @@
 import { inTauri } from "../../lib/platform";
 
-/** What the pop-out window needs to draw. Plain data, so it can cross windows. */
+import type { Person, VoiceMember } from "../../lib/backend/types";
+
+/** The call's state, sent from whichever window holds the call. Plain data, so it can cross windows. */
 export interface Snapshot {
   active: boolean;
-  channelName: string;
-  mic: boolean; cam: boolean; screen: boolean;
-  people: { id: string; name: string; avatarUrl?: string }[];
+  channel: { id: string; name: string } | null;
+  mic: boolean; cam: boolean; screen: boolean; deaf?: boolean;
+  people: VoiceMember[];
   speaking: string[];
   error: string;
 }
-export type Cmd = "mic" | "cam" | "screen" | "leave";
-export type Wire = { t: "state"; s: Snapshot } | { t: "cmd"; c: Cmd } | { t: "hello" };
+/** Everything the other window needs to carry on the call: LiveKit credentials and who's who. */
+export interface Handoff {
+  auth: { url: string; token: string };
+  channel: { id: string; name: string; kind: string };
+  me: Person;
+  people: Record<string, Pick<Person, "id" | "name" | "avatarUrl">>;
+  at: number;
+}
+export type Cmd = "mic" | "cam" | "screen" | "deaf" | "leave";
+export type Wire =
+  | { t: "state"; s: Snapshot } | { t: "cmd"; c: Cmd } | { t: "react"; emoji: string }
+  | { t: "taken" } | { t: "failed"; error: string } | { t: "left" }
+  | { t: "return-request" } | { t: "returned"; handoff: Handoff }
+  | { t: "who"; ids: string[] } | { t: "names"; people: Record<string, Pick<Person, "id" | "name" | "avatarUrl">> };
 
 const EVENT = "mustela:call";
 

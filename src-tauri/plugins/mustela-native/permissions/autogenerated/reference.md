@@ -9,6 +9,7 @@ Accent color and native voice call commands
 - `allow-end-call`
 - `allow-set-mic`
 - `allow-call-state`
+- `allow-pip`
 
 ## Permission Table
 
@@ -93,6 +94,32 @@ Enables the end_call command without any pre-configured scope.
 <td>
 
 Denies the end_call command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-pip`
+
+</td>
+<td>
+
+Enables the pip command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-pip`
+
+</td>
+<td>
+
+Denies the pip command without any pre-configured scope.
 
 </td>
 </tr>

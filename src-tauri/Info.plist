@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Merged into the app bundle by Tauri. macOS shows these when Mustela first asks. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Mustela uses your microphone for voice calls.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Mustela uses your camera for video calls.</string>
+</dict>
+</plist>

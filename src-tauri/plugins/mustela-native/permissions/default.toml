@@ -1,3 +1,3 @@
 [default]
 description = "Accent color and native voice call commands"
-permissions = ["allow-accent", "allow-start-call", "allow-end-call", "allow-set-mic", "allow-call-state"]
+permissions = ["allow-accent", "allow-start-call", "allow-end-call", "allow-set-mic", "allow-call-state", "allow-pip"]

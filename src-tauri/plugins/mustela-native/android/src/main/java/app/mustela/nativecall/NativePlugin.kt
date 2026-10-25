@@ -2,7 +2,10 @@ package app.mustela.nativecall
 
 import android.Manifest
 import android.app.Activity
+import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Rational
 import app.tauri.PermissionState
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -24,6 +27,14 @@ class StartCallArgs {
     var token: String = ""
     var channelId: String = ""
     var channelName: String = ""
+}
+
+@InvokeArg
+class PipArgs {
+    var enter: Boolean = false
+    var auto: Boolean = false
+    var width: Int = 16
+    var height: Int = 9
 }
 
 @InvokeArg
@@ -106,6 +117,32 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun callState(invoke: Invoke) = invoke.resolve(state())
+
+    /** Floating call window. Needs Android 8+; auto-enter on leaving the app needs Android 12+. */
+    @Command
+    fun pip(invoke: Invoke) {
+        val args = invoke.parseArgs(PipArgs::class.java)
+        val ret = JSObject()
+        if (Build.VERSION.SDK_INT < 26 || !activity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            ret.put("supported", false); invoke.resolve(ret); return
+        }
+        activity.runOnUiThread {
+            try {
+                val w = args.width.coerceIn(1, 239); val h = args.height.coerceIn(1, 239)
+                // Android only accepts shapes between 1:2.39 and 2.39:1.
+                val ratio = if (w.toFloat() / h > 2.39f) Rational(239, 100) else if (h.toFloat() / w > 2.39f) Rational(100, 239) else Rational(w, h)
+                val b = PictureInPictureParams.Builder().setAspectRatio(ratio)
+                if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(args.auto).setSeamlessResizeEnabled(true)
+                val params = b.build()
+                activity.setPictureInPictureParams(params)
+                if (args.enter) activity.enterPictureInPictureMode(params)
+                ret.put("supported", true)
+                invoke.resolve(ret)
+            } catch (t: Throwable) {
+                invoke.reject(t.message ?: "Picture-in-picture isn't available.")
+            }
+        }
+    }
 
     private fun state(): JSObject {
         val o = JSObject()

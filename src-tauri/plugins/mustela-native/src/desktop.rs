@@ -16,5 +16,6 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn start_call(&self, _: StartCall) -> Result<CallState> { Err(Error::Unsupported) }
   pub fn end_call(&self) -> Result<()> { Ok(()) }
   pub fn set_mic(&self, _: SetMic) -> Result<CallState> { Err(Error::Unsupported) }
+  pub fn pip(&self, _: Pip) -> Result<PipResult> { Ok(PipResult { supported: false }) }
   pub fn call_state(&self) -> Result<CallState> { Ok(CallState::default()) }
 }

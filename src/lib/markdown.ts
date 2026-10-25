@@ -1,3 +1,4 @@
+import { fmtDate, fmtTime } from "./time";
 /**
  * Stoat-flavoured markdown -> a small AST. Rendering happens in the UI by
  * building DOM nodes from this tree, never with innerHTML, so message text
@@ -213,7 +214,7 @@ function pushText(out: Inline[], v: string) {
 
 /* ---------------- helpers ---------------- */
 
-const EMOJI_ONLY = /^(?:\s|\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|:[0-9A-HJKMNP-TV-Z]{26}:|:[a-z0-9_+-]{1,32}:)+$/u;
+const EMOJI_ONLY = /^(?:\s|[\uE0E0-\uE0E6]|\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|:[0-9A-HJKMNP-TV-Z]{26}:|:[a-z0-9_+-]{1,32}:)+$/u;
 
 /** Messages made only of emoji (up to ~27) are shown large, like Stoat and Discord. */
 export function isJumbo(text: string): boolean {
@@ -254,9 +255,9 @@ export function formatTime(unix: number, style: string, now = Date.now()): strin
   const d = new Date(unix * 1000);
   if (Number.isNaN(d.getTime())) return "Invalid date";
   switch (style) {
-    case "t": return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    case "T": return d.toLocaleTimeString();
-    case "d": return d.toLocaleDateString();
+    case "t": return fmtTime(d);
+    case "T": return fmtTime(d, true);
+    case "d": return fmtDate(d);
     case "D": return d.toLocaleDateString([], { dateStyle: "long" });
     case "F": return d.toLocaleString([], { dateStyle: "full", timeStyle: "short" });
     case "R": {

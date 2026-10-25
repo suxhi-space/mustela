@@ -1,9 +1,10 @@
-import { batch, createEffect, createResource, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import type { ChannelInfo, Msg, Person } from "../lib/backend/types";
 import { Composer } from "./chat/Composer";
 import { MessageRow } from "./chat/Message";
 import { Icon } from "./icons";
 import { backend } from "./store";
+import { jumpRequest, setJumpRequest } from "./nav";
 
 const day = (d: Date) => d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
 
@@ -12,7 +13,7 @@ const day = (d: Date) => d.toLocaleDateString([], { weekday: "long", month: "lon
  * live updates, typing, replies, edits. Keeps you pinned to the bottom unless
  * you've scrolled up to read.
  */
-export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(p: Person): void; onOpenChannel(id: string): void }) {
+export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(p: Person): void; onOpenChannel(id: string): void; banner?: JSX.Element }) {
   const [msgs, setMsgs] = createSignal<Msg[]>([]);
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading");
   const [more, setMore] = createSignal(false);
@@ -22,10 +23,15 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   const [typers, setTypers] = createSignal<Person[]>([]);
   const [pinned, setPinned] = createSignal(true); // stuck to the bottom
   const [hl, setHl] = createSignal<string | null>(null);
-  let list!: HTMLDivElement, inner!: HTMLDivElement, top!: HTMLDivElement;
+  /** Showing an older stretch of history (after a jump), not the newest messages. */
+  const [detached, setDetached] = createSignal(false);
+  const [loadingNewer, setLoadingNewer] = createSignal(false);
+  let jumping = 0; // while a jump settles: no paging, no snapping to the bottom
+  let list!: HTMLDivElement, inner!: HTMLDivElement, top!: HTMLDivElement, bottom!: HTMLDivElement;
 
   const b = () => backend()!;
-  const id = () => props.channel.id;
+  // A memo, so a refreshed channel object with the same id doesn't reload the conversation.
+  const id = createMemo(() => props.channel.id);
   const toBottom = () => { if (list) list.scrollTop = list.scrollHeight; };
   const ack = () => { if (document.hasFocus() && pinned()) b().ack(id()); };
 
@@ -41,7 +47,7 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
 
   // (Re)load when the channel changes.
   createEffect(on(id, (cid) => {
-    batch(() => { setMsgs([]); setState("loading"); setReplyTo(null); setEditing(null); setTypers([]); setPinned(true); setMore(false); });
+    batch(() => { setMsgs([]); setState("loading"); setReplyTo(null); setEditing(null); setTypers([]); setPinned(true); setMore(false); setDetached(false); });
     let alive = true;
     b().messages(cid).then((page) => {
       if (!alive) return;
@@ -55,7 +61,7 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   createEffect(on(id, (cid) => {
     const off = b().onEvent((e) => {
       if (e.t === "message" && e.m.channelId === cid) {
-        if (msgs().some((m) => m.id === e.m.id)) return;
+        if (msgs().some((m) => m.id === e.m.id) || detached()) return;
         setMsgs([...msgs(), e.m]);
         setTypers(typers().filter((p) => p.id !== e.m.author.id));
         if (pinned() || e.m.author.id === b().me.id) queueMicrotask(toBottom);
@@ -73,17 +79,20 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
 
   // Keep the bottom in view while images load, if you were at the bottom.
   onMount(() => {
-    const ro = new ResizeObserver(() => { if (pinned()) toBottom(); });
+    const ro = new ResizeObserver(() => { if (pinned() && Date.now() > jumping) toBottom(); });
     ro.observe(inner);
     const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) void older(); }, { root: list, rootMargin: "400px 0px 0px 0px" });
     io.observe(top);
+    const io2 = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) void newer(); }, { root: list, rootMargin: "0px 0px 400px 0px" });
+    io2.observe(bottom);
+    onCleanup(() => io2.disconnect());
     const focus = () => ack();
     addEventListener("focus", focus);
     onCleanup(() => { ro.disconnect(); io.disconnect(); removeEventListener("focus", focus); });
   });
 
   async function older() {
-    if (!more() || loadingOlder() || state() !== "ready" || !msgs().length) return;
+    if (!more() || loadingOlder() || state() !== "ready" || !msgs().length || Date.now() < jumping) return;
     setLoadingOlder(true);
     const cid = id();
     try {
@@ -98,19 +107,60 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     finally { setLoadingOlder(false); }
   }
 
-  function jump(mid: string) {
-    const el = document.getElementById(`msg-${mid}`);
-    if (!el) return;
-    el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  /** Reading forward after a jump: load the next page until we reach the newest message. */
+  async function newer() {
+    if (!detached() || loadingNewer() || !msgs().length || Date.now() < jumping) return;
+    setLoadingNewer(true);
+    const cid = id();
+    try {
+      const page = await b().messagesAfter(cid, msgs()[msgs().length - 1]!.id);
+      if (cid !== id()) return;
+      const known = new Set(msgs().map((m) => m.id));
+      batch(() => { setMsgs([...msgs(), ...page.filter((m) => !known.has(m.id))]); if (page.length < 25) setDetached(false); });
+    } catch { /* retry on next scroll */ }
+    finally { setLoadingNewer(false); }
+  }
+
+  /** Back to the newest messages, reloading if we'd jumped into history. */
+  async function present() {
+    if (detached()) {
+      const page = await b().messages(id()).catch(() => null);
+      if (page) batch(() => { setMsgs(page); setMore(page.length >= 25); setDetached(false); });
+    }
+    queueMicrotask(() => { toBottom(); setPinned(true); ack(); });
+  }
+
+  async function jump(mid: string) {
+    let el = document.getElementById(`msg-${mid}`);
+    let instant = false;
+    if (!el) {
+      instant = true;
+      jumping = Date.now() + 1200;
+      // Not loaded: fetch the stretch of history around it.
+      const page = await b().messagesAround(id(), mid).catch(() => []);
+      if (!page.some((m) => m.id === mid)) return;
+      batch(() => { setMsgs(page); setMore(true); setDetached(true); setPinned(false); });
+      await new Promise((r) => requestAnimationFrame(r));
+      el = document.getElementById(`msg-${mid}`);
+      if (!el) return;
+    }
+    el.scrollIntoView({ block: "center", behavior: instant || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     setHl(mid);
     setTimeout(() => hl() === mid && setHl(null), 1800);
   }
 
-  async function send(text: string, files: File[], mention: boolean) {
+  async function send(text: string, files: File[], mention: boolean, onProgress: (f: number) => void) {
     const r = replyTo();
-    await b().send(id(), { text, files, replies: r ? [{ id: r.id, mention }] : undefined });
+    await b().send(id(), { text, files, replies: r ? [{ id: r.id, mention }] : undefined, onProgress });
     setReplyTo(null);
   }
+
+  // Jumps asked for from elsewhere (search results, pinned messages, links).
+  createEffect(on([jumpRequest, state] as const, ([r, st]) => {
+    if (!r || r.channelId !== id() || st !== "ready") return;
+    setJumpRequest(null);
+    void jump(r.id);
+  }));
 
   const editLast = () => {
     const mine = [...msgs()].reverse().find((m) => m.author.id === b().me.id && !m.system);
@@ -129,13 +179,24 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     onProfile: props.onProfile,
     onReply: (m: Msg) => { setReplyTo(m); setEditing(null); (document.querySelector(".composer textarea") as HTMLTextAreaElement | null)?.focus(); },
     onEdit: (m: Msg | null) => setEditing(m?.id ?? null),
-    onJump: jump,
+    onJump: (mid: string) => void jump(mid),
     local: (mid: string) => msgs().find((m) => m.id === mid),
     ctx: { onUser: (uid: string) => props.onProfile(b().person(uid)), onChannel: props.onOpenChannel },
+    get serverId() { return props.spaceId && props.spaceId !== "home" ? props.spaceId : undefined; },
   };
 
+  /* Drop files anywhere on the chat. Counting enter/leave because they fire for every child element. */
+  const [dropping, setDropping] = createSignal(0);
+  const [dropped, setDropped] = createSignal<File[] | null>(null);
+  const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes("Files");
+
   return (
-    <>
+    <div class="chat"
+      onDragEnter={(e) => { if (hasFiles(e)) { e.preventDefault(); setDropping(dropping() + 1); } }}
+      onDragOver={(e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer!.dropEffect = "copy"; } }}
+      onDragLeave={(e) => { if (hasFiles(e)) setDropping(Math.max(0, dropping() - 1)); }}
+      onDrop={(e) => { if (!hasFiles(e)) return; e.preventDefault(); setDropping(0); setDropped([...(e.dataTransfer?.files ?? [])]); }}>
+      {props.banner}
       <div class="messages" ref={list} role="log" aria-live="polite" aria-relevant="additions"
         onScroll={() => setPinned(list.scrollHeight - list.scrollTop - list.clientHeight < 80)}>
         <div ref={inner} class="messages-inner">
@@ -159,16 +220,25 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
               </>
             );
           }}</For>
+          <Show when={loadingNewer()}><div class="loading-row"><div class="spinner small" /></div></Show>
+          <div ref={bottom} class="newer-sentinel" />
         </div>
       </div>
-      <Show when={!pinned()}>
-        <button class="jump-present panel" onClick={() => { toBottom(); setPinned(true); ack(); }}><Icon name="down" size={16} />Jump to present</button>
+      <Show when={detached()} fallback={<Show when={!pinned()}><button class="jump-present panel" onClick={() => void present()}><Icon name="down" size={16} />Jump to present</button></Show>}>
+        <div class="older-bar" role="status"><span>You're viewing older messages</span><button class="btn small primary" onClick={() => void present()}>Jump to present</button></div>
       </Show>
       <div class="typing" aria-live="polite">
         <Show when={typingText()}><span class="dots" aria-hidden="true"><i /><i /><i /></span>{typingText()}</Show>
       </div>
       <Composer channel={props.channel} people={people} replyTo={replyTo()} onCancelReply={() => setReplyTo(null)}
-        onEditLast={editLast} onSent={() => { setPinned(true); queueMicrotask(toBottom); }} send={send} />
-    </>
+        onEditLast={editLast} onSent={() => void present()} send={send}
+        incoming={dropped} onIncomingTaken={() => setDropped(null)}
+        sendGif={(url) => b().send(id(), { text: url }).then(() => { setPinned(true); queueMicrotask(toBottom); })} />
+      <Show when={dropping() > 0}>
+        <div class="drop-zone" aria-hidden="true">
+          <div class="dz-card panel"><Icon name="plus-circle" size={34} /><strong>Upload to {props.channel.kind === "dm" ? props.channel.name : `#${props.channel.name}`}</strong><small>Up to 5 files, 20 MB each</small></div>
+        </div>
+      </Show>
+    </div>
   );
 }

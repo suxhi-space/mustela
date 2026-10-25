@@ -3,27 +3,31 @@ import type { Rating } from "../lib/decor/spec";
 import { Icon } from "./icons";
 
 /** iOS-style grouped table: an optional title, rounded container, hairline-separated rows. */
-export function Group(props: { title?: string; hint?: string; children: JSX.Element }) {
+export function Group(props: { title?: string; count?: number; hint?: string; children: JSX.Element }) {
   return (
     <section class="group">
-      <Show when={props.title}><h3 class="group-title">{props.title}</h3></Show>
+      <Show when={props.title}><h3 class="group-title">{props.title}<Show when={props.count}><span class="count">{props.count}</span></Show></h3></Show>
       <div class="group-body">{props.children}</div>
       <Show when={props.hint}><p class="group-hint">{props.hint}</p></Show>
     </section>
   );
 }
 
-export function Row(props: { label: JSX.Element; hint?: string; children?: JSX.Element; onClick?: () => void; chevron?: boolean; disabled?: boolean }) {
+export function Row(props: { label: JSX.Element; hint?: string; icon?: string; children?: JSX.Element; onClick?: () => void; chevron?: boolean; disabled?: boolean; danger?: boolean }) {
   const inner = (
     <>
+      <Show when={props.icon}><span class="row-icon"><Icon name={props.icon!} size={18} /></span></Show>
       <span class="row-label">{props.label}<Show when={props.hint}><small>{props.hint}</small></Show></span>
       <span class="row-ctl">{props.children}</span>
       <Show when={props.chevron}><Icon name="right" size={16} class="row-chev" /></Show>
     </>
   );
+  // A div acting as a button, so rows can hold their own small buttons (a real <button> can't contain one).
   return props.onClick
-    ? <button class="row tap" disabled={props.disabled} onClick={props.onClick}>{inner}</button>
-    : <div class="row" classList={{ off: props.disabled }}>{inner}</div>;
+    ? <div class="row tap" classList={{ off: props.disabled, danger: !!props.danger }} role="button" tabIndex={props.disabled ? -1 : 0} aria-disabled={props.disabled}
+        onClick={(e) => { if (!props.disabled && !(e.target as HTMLElement).closest(".row-ctl button, .row-ctl input, .row-ctl select")) props.onClick!(); }}
+        onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget && !props.disabled) { e.preventDefault(); props.onClick!(); } }}>{inner}</div>
+    : <div class="row" classList={{ off: props.disabled, danger: !!props.danger }}>{inner}</div>;
 }
 
 export function Switch(props: { on: boolean; onChange(v: boolean): void; label: string; disabled?: boolean }) {

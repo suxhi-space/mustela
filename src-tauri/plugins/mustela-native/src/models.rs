@@ -17,6 +17,21 @@ pub struct StartCall {
   pub channel_name: String,
 }
 
+/// Picture-in-picture: `auto` lets Android shrink the app into a floating window when you
+/// leave it during a call; `enter` does it now. Width/height are the window's shape.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Pip {
+  pub enter: bool,
+  pub auto: bool,
+  pub width: u32,
+  pub height: u32,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PipResult {
+  pub supported: bool,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SetMic {
   pub on: bool,

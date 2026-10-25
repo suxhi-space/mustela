@@ -42,3 +42,21 @@ export function searchEmoji(q: string, limit = 40): EmojiEntry[] {
 }
 
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"];
+
+const BY_CHAR = new Map<string, string>();
+for (const g of EMOJI_GROUPS) for (const e of g.items) { const k = e.char.replace(/\uFE0F/g, ""); if (!BY_CHAR.has(k)) BY_CHAR.set(k, e.name); }
+/** Shortcode for a unicode emoji ("🔥" → "fire"), if it's one we know. */
+export const emojiName = (char: string) => BY_CHAR.get(char.replace(/\uFE0F/g, "")) ?? null;
+
+/** Emoji sequences (with skin tones, ZWJ families and flags) inside plain text. */
+export const EMOJI_RE = /(?:\p{Regional_Indicator}{2}|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu;
+
+/* ---------------------------------------------------------------- Stoat emoji packs */
+
+/** Stoat lets a message pick the pack for the emoji after it with one of these private-use characters. */
+export const PACK_PUA: Record<string, string> = { "": "fluent-3d", "": "fluent-3d", "": "fluent-flat", "": "mutant", "": "noto", "": "twemoji" };
+/** Same as EMOJI_RE, but also takes Stoat's optional pack prefix. */
+export const PACKED_EMOJI_RE = new RegExp(`[\\uE0E0-\\uE0E6]?(?:${EMOJI_RE.source})`, "gu");
+/** Stoat's file naming: each code point in hex, joined with dashes. */
+export const toCodepoint = (s: string) => [...s].map((c) => c.codePointAt(0)!.toString(16)).join("-");
+export const emojiUrl = (pack: string, char: string) => `https://static.stoat.chat/emoji/${pack}/${toCodepoint(char)}.svg?v=1`;

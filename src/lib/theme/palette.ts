@@ -1,4 +1,7 @@
-import { argbFromHex, hexFromArgb, themeFromSourceColor, TonalPalette } from "@material/material-color-utilities";
+import {
+  argbFromHex, DynamicScheme, Hct, hexFromArgb, MaterialDynamicColors,
+  SchemeContent, SchemeExpressive, SchemeFidelity, SchemeFruitSalad, SchemeMonochrome, SchemeNeutral, SchemeRainbow, SchemeTonalSpot, SchemeVibrant,
+} from "@material/material-color-utilities";
 
 /**
  * Material You (M3) color roles from a single seed color.
@@ -36,78 +39,59 @@ export function getTheme(id: string): ThemeDef {
   return THEMES.find((t) => t.id === id) ?? THEMES[0]!;
 }
 
-interface Palettes {
-  primary: TonalPalette; secondary: TonalPalette; tertiary: TonalPalette;
-  neutral: TonalPalette; neutralVariant: TonalPalette; error: TonalPalette;
-}
-
-function palettesFor(seedHex: string, neutral: boolean): Palettes {
-  const t = themeFromSourceColor(argbFromHex(seedHex));
-  const p = t.palettes;
-  if (!neutral) return p as Palettes;
-  const hue = p.primary.hue;
-  return {
-    primary: TonalPalette.fromHueAndChroma(hue, 10),
-    secondary: TonalPalette.fromHueAndChroma(hue, 6),
-    tertiary: TonalPalette.fromHueAndChroma(hue + 60, 10),
-    neutral: TonalPalette.fromHueAndChroma(hue, 2),
-    neutralVariant: TonalPalette.fromHueAndChroma(hue, 4),
-    error: p.error,
-  };
-}
+export type Variant = "tonal" | "vibrant" | "expressive" | "fidelity" | "content" | "neutral" | "monochrome" | "rainbow" | "fruit";
 
 export interface BuildOptions {
   /** Pure-black surfaces in dark mode (OLED). */
   amoled?: boolean;
+  /** Theme asks for a near-neutral look (Graphite) */
   neutral?: boolean;
+  /** Material You scheme style; default Tonal Spot (what Android uses) */
+  variant?: Variant;
+  /** -1 reduced, 0 normal, 0.5 more, 1 high */
+  contrast?: number;
+}
+
+const SCHEMES: Record<Variant, new (hct: Hct, dark: boolean, contrast: number) => DynamicScheme> = {
+  tonal: SchemeTonalSpot, vibrant: SchemeVibrant, expressive: SchemeExpressive, fidelity: SchemeFidelity, content: SchemeContent,
+  neutral: SchemeNeutral, monochrome: SchemeMonochrome, rainbow: SchemeRainbow, fruit: SchemeFruitSalad,
+};
+
+const ROLES = [
+  "primary", "onPrimary", "primaryContainer", "onPrimaryContainer",
+  "secondary", "onSecondary", "secondaryContainer", "onSecondaryContainer",
+  "tertiary", "onTertiary", "tertiaryContainer", "onTertiaryContainer",
+  "error", "onError", "errorContainer", "onErrorContainer",
+  "surface", "onSurface", "surfaceVariant", "onSurfaceVariant",
+  "surfaceContainerLowest", "surfaceContainerLow", "surfaceContainer", "surfaceContainerHigh", "surfaceContainerHighest",
+  "outline", "outlineVariant", "inverseSurface", "inverseOnSurface",
+] as const;
+
+/** The scheme for a seed, so a second color (gradients) can be read at the same tones. */
+export function schemeFor(seedHex: string, mode: Mode, opts: BuildOptions = {}): DynamicScheme {
+  const variant: Variant = opts.neutral && opts.variant !== "monochrome" ? "neutral" : opts.variant ?? "tonal";
+  const contrast = Math.max(-1, Math.min(1, opts.contrast ?? 0));
+  return new SCHEMES[variant](Hct.fromInt(argbFromHex(seedHex)), mode === "dark", contrast);
 }
 
 export function buildRoles(seedHex: string, mode: Mode, opts: BuildOptions = {}): Roles {
-  const P = palettesFor(seedHex, !!opts.neutral);
-  const h = (p: TonalPalette, tone: number) => hexFromArgb(p.tone(tone));
-  const dark = mode === "dark";
-  const r: Roles = dark
-    ? {
-        primary: h(P.primary, 80), onPrimary: h(P.primary, 20),
-        primaryContainer: h(P.primary, 30), onPrimaryContainer: h(P.primary, 90),
-        secondary: h(P.secondary, 80), onSecondary: h(P.secondary, 20),
-        secondaryContainer: h(P.secondary, 30), onSecondaryContainer: h(P.secondary, 90),
-        tertiary: h(P.tertiary, 80), onTertiary: h(P.tertiary, 20),
-        tertiaryContainer: h(P.tertiary, 30), onTertiaryContainer: h(P.tertiary, 90),
-        error: h(P.error, 80), onError: h(P.error, 20),
-        errorContainer: h(P.error, 30), onErrorContainer: h(P.error, 90),
-        surface: h(P.neutral, 6), onSurface: h(P.neutral, 90),
-        surfaceVariant: h(P.neutralVariant, 30), onSurfaceVariant: h(P.neutralVariant, 80),
-        surfaceContainerLowest: h(P.neutral, 4), surfaceContainerLow: h(P.neutral, 10),
-        surfaceContainer: h(P.neutral, 12), surfaceContainerHigh: h(P.neutral, 17),
-        surfaceContainerHighest: h(P.neutral, 22),
-        outline: h(P.neutralVariant, 60), outlineVariant: h(P.neutralVariant, 30),
-        inverseSurface: h(P.neutral, 90), inverseOnSurface: h(P.neutral, 20),
-      }
-    : {
-        primary: h(P.primary, 40), onPrimary: h(P.primary, 100),
-        primaryContainer: h(P.primary, 90), onPrimaryContainer: h(P.primary, 10),
-        secondary: h(P.secondary, 40), onSecondary: h(P.secondary, 100),
-        secondaryContainer: h(P.secondary, 90), onSecondaryContainer: h(P.secondary, 10),
-        tertiary: h(P.tertiary, 40), onTertiary: h(P.tertiary, 100),
-        tertiaryContainer: h(P.tertiary, 90), onTertiaryContainer: h(P.tertiary, 10),
-        error: h(P.error, 40), onError: h(P.error, 100),
-        errorContainer: h(P.error, 90), onErrorContainer: h(P.error, 10),
-        surface: h(P.neutral, 98), onSurface: h(P.neutral, 10),
-        surfaceVariant: h(P.neutralVariant, 90), onSurfaceVariant: h(P.neutralVariant, 30),
-        surfaceContainerLowest: h(P.neutral, 100), surfaceContainerLow: h(P.neutral, 96),
-        surfaceContainer: h(P.neutral, 94), surfaceContainerHigh: h(P.neutral, 92),
-        surfaceContainerHighest: h(P.neutral, 90),
-        outline: h(P.neutralVariant, 50), outlineVariant: h(P.neutralVariant, 80),
-        inverseSurface: h(P.neutral, 20), inverseOnSurface: h(P.neutral, 95),
-      };
-  if (dark && opts.amoled) {
+  const scheme = schemeFor(seedHex, mode, opts);
+  const r: Roles = {};
+  const M = MaterialDynamicColors as unknown as Record<string, { getArgb(s: DynamicScheme): number }>;
+  for (const k of ROLES) r[k] = hexFromArgb(M[k]!.getArgb(scheme));
+  if (mode === "dark" && opts.amoled) {
     Object.assign(r, {
       surface: "#000000", surfaceContainerLowest: "#000000", surfaceContainerLow: "#0a0a0a",
       surfaceContainer: "#101010", surfaceContainerHigh: "#181818", surfaceContainerHighest: "#212121",
     });
   }
   return r;
+}
+
+/** A second seed's primary at the first scheme's primary tone: the far end of an accent gradient. */
+export function gradientEnd(seed2Hex: string, mode: Mode, opts: BuildOptions = {}): string {
+  const s = schemeFor(seed2Hex, mode, opts);
+  return hexFromArgb(MaterialDynamicColors.primary.getArgb(s));
 }
 
 const kebab = (s: string) => s.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());

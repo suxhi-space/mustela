@@ -1,18 +1,18 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import type { Attachment, Embed, Msg, Person, Reaction } from "../../lib/backend/types";
 import { plain } from "../../lib/markdown";
+import { fmtStamp, fmtTime } from "../../lib/time";
 import { Avatar, NameText } from "../Avatar";
 import { Icon } from "../icons";
 import { backend, device } from "../store";
 import { Markdown, type MdCtx } from "./Markdown";
-import { openEmojiPicker, openLightbox } from "./overlays";
+import { isFav, openEmojiPicker, openLightbox, toggleFav } from "./overlays";
+import { messageMenu } from "../menus";
+import { copy } from "../menu";
+import { UEmoji } from "./UEmoji";
 
-const time = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-const stamp = (d: Date) => {
-  const today = new Date(), y = new Date(Date.now() - 86_400_000);
-  const day = d.toDateString() === today.toDateString() ? "Today" : d.toDateString() === y.toDateString() ? "Yesterday" : d.toLocaleDateString();
-  return `${day} at ${time(d)}`;
-};
+const time = (d: Date) => fmtTime(d);
+const stamp = (d: Date) => fmtStamp(d);
 const size = (n?: number) => (n === undefined ? "" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 /** Stoat role colours can be plain colours or CSS gradients. */
 export const roleStyle = (c?: string): Record<string, string> =>
@@ -29,8 +29,8 @@ function ReactionChip(props: { r: Reaction; onToggle(on: boolean): void }) {
   const who = () => props.r.users.slice(0, 6).map((u) => backend()!.person(u).name).join(", ") + (props.r.users.length > 6 ? ` and ${props.r.users.length - 6} more` : "");
   return (
     <button class="reaction" classList={{ on: me() }} aria-pressed={me()} title={who()} onClick={() => props.onToggle(!me())}>
-      <Show when={isCustom(props.r.emoji)} fallback={<span class="re">{props.r.emoji}</span>}>
-        <img class="cemoji" src={backend()!.emojiUrl(props.r.emoji)} alt="" />
+      <Show when={isCustom(props.r.emoji)} fallback={<span class="re" data-emoji={props.r.emoji}><UEmoji e={props.r.emoji} /></span>}>
+        <img class="cemoji" data-emoji-id={props.r.emoji} src={backend()!.emojiUrl(props.r.emoji)} alt="" />
       </Show>
       <span class="rc">{props.r.users.length}</span>
     </button>
@@ -66,25 +66,87 @@ function AttachmentView(props: { a: Attachment }) {
   );
 }
 
+/** A GIF plays like a GIF: looping, silent, no controls. Star it to keep it in your favourites. */
+function GifEmbed(props: { e: Embed }) {
+  const src = () => props.e.video?.url ?? props.e.image?.url ?? "";
+  const w = () => props.e.video?.width ?? props.e.image?.width ?? 300, h = () => props.e.video?.height ?? props.e.image?.height ?? 200;
+  const fav = () => ({ url: props.e.url ?? src(), preview: src(), w: w(), h: h() });
+  const scale = () => Math.min(1, 320 / w(), 280 / h());
+  return (
+    <div class="media gif" style={{ width: `${Math.round(w() * scale())}px`, "aspect-ratio": `${w()} / ${h()}` }}>
+      <Show when={props.e.video} fallback={<img src={src()} alt="GIF" loading="lazy" />}>
+        <video src={src()} autoplay loop muted playsinline preload="auto" aria-label="GIF" />
+      </Show>
+      <button class="gif-star" classList={{ on: isFav(fav().url) }} aria-pressed={isFav(fav().url)} aria-label={isFav(fav().url) ? "Remove from favourite GIFs" : "Add to favourite GIFs"}
+        title={isFav(fav().url) ? "Remove from favourites" : "Add to favourites"} onClick={() => toggleFav(fav())}><Icon name="star" size={16} /></button>
+    </div>
+  );
+}
+
+const SPECIAL_LABEL: Record<string, string> = { YouTube: "Watch on YouTube", Twitch: "Watch on Twitch", Spotify: "Open in Spotify", Soundcloud: "Listen on SoundCloud", Bandcamp: "Listen on Bandcamp", AppleMusic: "Open in Apple Music", Streamable: "Watch on Streamable", Lightspeed: "Watch on Lightspeed" };
+
 function EmbedView(props: { e: Embed }) {
   const e = () => props.e;
   return (
-    <Show when={e().kind === "website" || e().kind === "text"} fallback={
-      <Show when={e().image} fallback={<Show when={e().video}><video class="media" controls preload="metadata" src={e().video!.url} /></Show>}>
-        <img class="media embed-img" src={e().image!.url} alt="" loading="lazy" onClick={() => openLightbox(e().image!.url, e().url ?? "image")} />
-      </Show>
-    }>
-      <div class="embed panel-inset" style={e().colour ? { "--embed": e().colour } : {}}>
-        <Show when={e().siteName}><div class="em-site"><Show when={e().iconUrl}><img src={e().iconUrl} alt="" /></Show>{e().siteName}</div></Show>
-        <Show when={e().title}>
-          <Show when={e().url} fallback={<div class="em-title">{e().title}</div>}>
-            <a class="em-title" href={e().url} target="_blank" rel="noopener noreferrer nofollow">{e().title}</a>
-          </Show>
+    <Show when={!e().gif} fallback={<GifEmbed e={e()} />}>
+      <Show when={e().kind === "website" || e().kind === "text"} fallback={
+        <Show when={e().image} fallback={<Show when={e().video}><video class="media" controls preload="metadata" src={e().video!.url} /></Show>}>
+          <img class="media embed-img" src={e().image!.url} alt="" loading="lazy" onClick={() => openLightbox(e().image!.url, e().url ?? "image")} />
         </Show>
-        <Show when={e().description}><div class="em-desc">{e().description!.slice(0, 350)}</div></Show>
-        <Show when={e().image && e().kind === "website"}><img class="em-img" src={e().image!.url} alt="" loading="lazy" onClick={() => openLightbox(e().image!.url, e().title ?? "image")} /></Show>
-      </div>
+      }>
+        <div class="embed panel-inset" style={e().colour && /^#[0-9a-f]{3,8}$/i.test(e().colour!) ? { "--embed": e().colour } : {}}>
+          <Show when={e().siteName}><div class="em-site"><Show when={e().iconUrl}><img src={e().iconUrl} alt="" /></Show>{e().siteName}</div></Show>
+          <Show when={e().title}>
+            <Show when={e().url} fallback={<div class="em-title">{e().title}</div>}>
+              <a class="em-title" href={e().url} target="_blank" rel="noopener noreferrer nofollow">{e().title}</a>
+            </Show>
+          </Show>
+          <Show when={e().description}><div class="em-desc">{e().description!.slice(0, 350)}</div></Show>
+          <Show when={e().image && e().kind === "website"}>
+            <Show when={e().special && e().url} fallback={<img class="em-img" src={e().image!.url} alt="" loading="lazy" onClick={() => openLightbox(e().image!.url, e().title ?? "image")} />}>
+              <a class="em-player" href={e().url} target="_blank" rel="noopener noreferrer nofollow" aria-label={SPECIAL_LABEL[e().special!.type] ?? "Open link"}>
+                <img class="em-img" src={e().image!.url} alt="" loading="lazy" />
+                <span class="em-play"><Icon name="play" size={22} /></span>
+              </a>
+            </Show>
+          </Show>
+        </div>
+      </Show>
     </Show>
+  );
+}
+
+/** Stoat invite links: stt.gg/CODE, rvlt.gg/CODE, or …/invite/CODE on a Stoat/Revolt host. */
+const INVITE_RE = /https?:\/\/(?:(?:www\.)?(?:stt|rvlt)\.gg|(?:app\.|www\.)?(?:stoat\.chat|revolt\.chat))\/(?:invite\/)?([A-Za-z0-9]{4,32})(?![\w/])/g;
+export const inviteCodes = (text: string) => [...new Set([...text.matchAll(INVITE_RE)].map((m) => m[1]!))].slice(0, 3);
+
+export function InviteCard(props: { code: string }) {
+  const [info] = createResource(() => props.code, (c) => backend()!.invite(c));
+  const [state, setState] = createSignal<"idle" | "busy" | "err" | "joined">("idle");
+  async function join() {
+    setState("busy");
+    try { await backend()!.joinInvite(props.code); setState("joined"); } catch { setState("err"); }
+  }
+  return (
+    <div class="invite-card panel-inset">
+      <p class="label">You've been invited to join a server</p>
+      <Show when={info()} fallback={<p class="muted small">{info.loading ? "Loading invite…" : "This invite is invalid or has expired."}</p>}>
+        {(i) => (
+          <div class="ic-row">
+            <span class="ic-icon">
+              <Show when={i().iconUrl} fallback={<span>{i().serverName.split(/\s+/).map((w) => w[0]).join("").slice(0, 3)}</span>}><img src={i().iconUrl} alt="" /></Show>
+            </span>
+            <span class="ic-text">
+              <strong>{i().serverName}</strong>
+              <small><Show when={i().memberCount !== undefined}><span class="ic-dot" />{i().memberCount} members</Show><Show when={i().channelName}><span class="ic-chan">#{i().channelName}</span></Show></small>
+            </span>
+            <button class="btn small" classList={{ primary: !i().joined && state() !== "joined" }} disabled={i().joined || state() === "busy" || state() === "joined"} onClick={() => void join()}>
+              {i().joined || state() === "joined" ? "Joined" : state() === "busy" ? "Joining…" : state() === "err" ? "Try again" : "Join"}
+            </button>
+          </div>
+        )}
+      </Show>
+    </div>
   );
 }
 
@@ -111,6 +173,8 @@ export interface MessageActions {
   onJump(id: string): void;
   local(id: string): Msg | undefined;
   ctx: MdCtx;
+  /** The server this chat belongs to, for permission-aware menus */
+  serverId?: string;
 }
 
 export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: MessageActions; highlight?: boolean }) {
@@ -121,6 +185,14 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
   const [confirmDel, setConfirmDel] = createSignal(false);
   const [draft, setDraft] = createSignal("");
   const b = () => backend()!;
+  const invites = createMemo(() => inviteCodes(m().text));
+  /** A message that's only a GIF link or only invite links shows the GIF/card, not the URL (like Stoat and Discord). */
+  const linkOnly = createMemo(() => {
+    const t = m().text.trim();
+    if (!t || /\s/.test(t) || !/^https?:\/\//.test(t)) return false;
+    return (m().embeds ?? []).some((e) => e.gif) || invites().length > 0;
+  });
+  const menu = (e: MouseEvent) => messageMenu(e, m(), { reply: props.act.onReply, edit: (x) => props.act.onEdit(x), askDelete: () => setConfirmDel(true) }, props.act.serverId);
   const react = (emoji: string, on: boolean) => void b().react(m().channelId, m().id, emoji, on).catch(() => {});
 
   async function saveEdit() {
@@ -135,7 +207,7 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
       <div class="msg system" id={`msg-${m().id}`}><Icon name="arrow-in" size={16} /><span>{m().system}</span><time>{time(m().at)}</time></div>
     }>
       <article class="msg" id={`msg-${m().id}`} classList={{ head: head(), tight: compact(), mentioned: !!m().mentionsMe, pending: !!m().pending, hl: !!props.highlight }}
-        data-own={mine() || undefined}>
+        data-own={mine() || undefined} onContextMenu={(e) => { if (props.editing || m().pending) return; menu(e); }}>
         <Show when={m().replyIds?.length}>
           <div class="msg-replies"><For each={m().replyIds}>{(id) => <ReplyPreview channelId={m().channelId} id={id} local={props.act.local} onJump={props.act.onJump} />}</For></div>
         </Show>
@@ -158,7 +230,9 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
           </Show>
           <Show when={props.editing} fallback={
             <Show when={m().text}>
-              <div class="msg-text"><Markdown text={m().text} ctx={props.act.ctx} /><Show when={m().editedAt}><span class="edited" title={stamp(m().editedAt!)}>(edited)</span></Show></div>
+              <Show when={!linkOnly()} fallback={<Show when={m().editedAt}><span class="edited" title={stamp(m().editedAt!)}>(edited)</span></Show>}>
+                <div class="msg-text"><Markdown text={m().text} ctx={props.act.ctx} /><Show when={m().editedAt}><span class="edited" title={stamp(m().editedAt!)}>(edited)</span></Show></div>
+              </Show>
             </Show>
           }>
             <div class="edit-box">
@@ -169,11 +243,12 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
             </div>
           </Show>
           <Show when={m().attachments?.length}><div class="attachments"><For each={m().attachments}>{(a) => <AttachmentView a={a} />}</For></div></Show>
+          <Show when={invites().length}><div class="embeds"><For each={invites()}>{(c) => <InviteCard code={c} />}</For></div></Show>
           <Show when={m().embeds?.length}><div class="embeds"><For each={m().embeds}>{(e) => <EmbedView e={e} />}</For></div></Show>
           <Show when={m().reactions?.length}>
             <div class="reactions">
               <For each={m().reactions}>{(r) => <ReactionChip r={r} onToggle={(on) => react(r.emoji, on)} />}</For>
-              <button class="reaction add" aria-label="Add reaction" onClick={(e) => openEmojiPicker(e.currentTarget, (x) => react(x, true))}><Icon name="smile-plus" size={16} /></button>
+              <button class="reaction add" aria-label="Add reaction" onClick={(e) => openEmojiPicker(e.currentTarget, ({ key }) => react(key, true))}><Icon name="smile-plus" size={16} /></button>
             </div>
           </Show>
           <Show when={m().failed}><small class="err">Couldn't send. Check your connection.</small></Show>
@@ -187,11 +262,11 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
         </div>
         <Show when={!m().pending && !props.editing}>
           <div class="msg-tools panel" role="toolbar" aria-label="Message actions">
-            <button aria-label="Add reaction" title="Add reaction" onClick={(e) => openEmojiPicker(e.currentTarget, (x) => react(x, true))}><Icon name="smile-plus" size={18} /></button>
+            <button aria-label="Add reaction" title="Add reaction" onClick={(e) => openEmojiPicker(e.currentTarget, ({ key }) => react(key, true))}><Icon name="smile-plus" size={18} /></button>
             <button aria-label="Reply" title="Reply" onClick={() => props.act.onReply(m())}><Icon name="reply" size={18} /></button>
             <Show when={mine()}><button aria-label="Edit" title="Edit" onClick={() => props.act.onEdit(m())}><Icon name="pencil" size={18} /></button></Show>
-            <button aria-label="Copy text" title="Copy text" onClick={() => void navigator.clipboard?.writeText(m().text).catch(() => {})}><Icon name="copy" size={18} /></button>
-            <Show when={mine()}><button class="danger" aria-label="Delete" title="Delete" onClick={() => setConfirmDel(true)}><Icon name="trash" size={18} /></button></Show>
+            <button aria-label="Copy text" title="Copy text" onClick={() => void copy(m().text)}><Icon name="copy" size={18} /></button>
+            <button aria-label="More" title="More" aria-haspopup="menu" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); menu(new MouseEvent("contextmenu", { clientX: r.left - 200, clientY: r.bottom + 4 })); }}><Icon name="dots" size={18} /></button>
           </div>
         </Show>
       </article>

@@ -4,6 +4,9 @@ import { CallWindow } from "./ui/call/CallWindow";
 import { startAppearance, loadLocalAppearance } from "./ui/store";
 import "@fontsource-variable/nunito";
 import "./ui/styles.css";
+import { installGlobalContextMenu } from "./ui/menu";
+
+installGlobalContextMenu();
 
 const popout = new URLSearchParams(location.search).has("popout");
 if (popout) {

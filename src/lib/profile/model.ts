@@ -27,7 +27,7 @@ export interface ProfileConfig {
 }
 
 export const DEFAULT_PROFILE: ProfileConfig = {
-  decor: slotFromPreset("decor", 1),
+  decor: { ...NONE_SLOT },
   effect: { ...NONE_SLOT },
   frame: { ...NONE_SLOT },
   plate: { ...NONE_SLOT },

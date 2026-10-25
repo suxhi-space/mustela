@@ -1,3 +1,5 @@
+import { PACKED_EMOJI_RE } from "../../lib/emoji";
+import { UEmoji } from "./UEmoji";
 import { createMemo, createSignal, For, Match, Switch, type JSX } from "solid-js";
 import { formatTime, isJumbo, parse, type Block, type Inline } from "../../lib/markdown";
 import { backend } from "../store";
@@ -17,11 +19,28 @@ function Spoiler(props: { children: JSX.Element }) {
   );
 }
 
+/** Wraps unicode emoji in spans so hovering one can say what it is. */
+function TextWithEmoji(props: { v: string }) {
+  const parts = createMemo(() => {
+    const out: { t: string; e?: boolean }[] = [];
+    let last = 0;
+    for (const m of props.v.matchAll(PACKED_EMOJI_RE)) {
+      if (m.index! > last) out.push({ t: props.v.slice(last, m.index) });
+      out.push({ t: m[0], e: true });
+      last = m.index! + m[0].length;
+    }
+    if (last < props.v.length) out.push({ t: props.v.slice(last) });
+    return out;
+  });
+  return <For each={parts()}>{(p) => (p.e ? <span class="uemoji" data-emoji={p.t.replace(/^[\uE0E0-\uE0E6]/, "")}><UEmoji e={p.t} /></span> : p.t.replace(/[\uE0E0-\uE0E6]/g, ""))}</For>;
+}
+const customName = (id: string) => backend()?.emojis().find((e) => e.id === id)?.name ?? "emoji";
+
 function Inlines(props: { nodes: Inline[]; ctx: MdCtx }): JSX.Element {
   return (
     <For each={props.nodes}>{(n) => (
       <Switch>
-        <Match when={n.t === "text"}>{(n as { v: string }).v}</Match>
+        <Match when={n.t === "text"}><TextWithEmoji v={(n as { v: string }).v} /></Match>
         <Match when={n.t === "br"}><br /></Match>
         <Match when={n.t === "b"}><strong><Inlines nodes={(n as any).c} ctx={props.ctx} /></strong></Match>
         <Match when={n.t === "i"}><em><Inlines nodes={(n as any).c} ctx={props.ctx} /></em></Match>
@@ -39,7 +58,7 @@ function Inlines(props: { nodes: Inline[]; ctx: MdCtx }): JSX.Element {
         </Match>
         <Match when={n.t === "role"}><span class="mention">@role</span></Match>
         <Match when={n.t === "emoji"}>
-          <img class="cemoji" src={backend()?.emojiUrl((n as any).id)} alt={`:${(n as any).id}:`} loading="lazy" draggable={false} />
+          <img class="cemoji" data-emoji-id={(n as any).id} src={backend()?.emojiUrl((n as any).id)} alt={`:${customName((n as any).id)}:`} loading="lazy" draggable={false} />
         </Match>
         <Match when={n.t === "time"}>
           <time class="ts" title={new Date((n as any).unix * 1000).toLocaleString()}>{formatTime((n as any).unix, (n as any).style)}</time>

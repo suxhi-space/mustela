@@ -99,7 +99,8 @@ describe("sanitize", () => {
   });
   it("isPlain", () => {
     expect(isPlain(sanitizeProfile({ decor: { preset: 0 } }))).toBe(true);
-    expect(isPlain(DEFAULT_PROFILE)).toBe(false);
+    expect(isPlain(DEFAULT_PROFILE)).toBe(true); // nothing is switched on until you choose it
+    expect(isPlain(sanitizeProfile({ decor: { preset: 1 } }))).toBe(false);
   });
 });
 

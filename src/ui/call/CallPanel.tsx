@@ -17,7 +17,8 @@ export function CallPanel(props: { onOpen(): void }) {
             <Icon name={call.popped() ? "back" : "popout"} size={18} />
           </button>
         </Show>
-        <button class="icon-btn" classList={{ on: call.on().mic }} aria-pressed={call.on().mic} onClick={() => void toggleCall("mic")} aria-label="Microphone" title="Microphone"><Icon name="mic" size={18} /></button>
+        <button class="icon-btn" classList={{ danger: !call.on().mic }} aria-pressed={!call.on().mic} onClick={() => void toggleCall("mic")} aria-label={call.on().mic ? "Mute" : "Unmute"} title={call.on().mic ? "Mute" : "Unmute"}><Icon name={call.on().mic ? "mic" : "mic-off"} size={18} /></button>
+        <button class="icon-btn" classList={{ danger: call.on().deaf }} aria-pressed={call.on().deaf} onClick={() => void toggleCall("deaf")} aria-label={call.on().deaf ? "Undeafen" : "Deafen"} title={call.on().deaf ? "Undeafen" : "Deafen"}><Icon name={call.on().deaf ? "headphones-off" : "headphones"} size={18} /></button>
         <button class="icon-btn danger" onClick={() => void leaveCall()} aria-label="Leave call" title="Leave call"><Icon name="hangup" size={18} /></button>
       </div>
     </Show>

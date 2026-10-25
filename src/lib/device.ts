@@ -1,3 +1,29 @@
+import type { VoicePrefs } from "./backend/types";
+
+export const DEFAULT_VOICE_PREFS: VoicePrefs = {
+  inputDevice: "", outputDevice: "", videoDevice: "", echoCancellation: true, noiseSuppression: true, autoGain: true,
+  outputVolume: 100, screenQuality: "720p30", joinMuted: false, joinDeafened: false, autoSensitivity: true, threshold: -55, soundboardVolume: 80, entrySound: "",
+};
+
+function sanitizeVoice(raw: unknown): VoicePrefs {
+  const d = DEFAULT_VOICE_PREFS;
+  if (!raw || typeof raw !== "object") return { ...d };
+  const r = raw as Record<string, unknown>;
+  const str = (x: unknown) => (typeof x === "string" && x.length < 300 ? x : "");
+  return {
+    inputDevice: str(r.inputDevice), outputDevice: str(r.outputDevice), videoDevice: str(r.videoDevice),
+    echoCancellation: r.echoCancellation !== false, noiseSuppression: r.noiseSuppression !== false, autoGain: r.autoGain !== false,
+    outputVolume: typeof r.outputVolume === "number" && Number.isFinite(r.outputVolume) ? Math.max(0, Math.min(200, Math.round(r.outputVolume))) : d.outputVolume,
+    screenQuality: (["720p30", "1080p30", "1080p60"] as const).includes(r.screenQuality as any) ? (r.screenQuality as VoicePrefs["screenQuality"]) : d.screenQuality,
+    joinMuted: r.joinMuted === true,
+    joinDeafened: r.joinDeafened === true,
+    autoSensitivity: r.autoSensitivity !== false,
+    threshold: typeof r.threshold === "number" && Number.isFinite(r.threshold) ? Math.max(-100, Math.min(0, Math.round(r.threshold))) : d.threshold,
+    soundboardVolume: typeof r.soundboardVolume === "number" && Number.isFinite(r.soundboardVolume) ? Math.max(0, Math.min(100, Math.round(r.soundboardVolume))) : d.soundboardVolume,
+    entrySound: str(r.entrySound),
+  };
+}
+
 /**
  * Settings that belong to one device and are never synced: a phone and a
  * desktop want different density, and window materials only exist on desktop.
@@ -7,7 +33,7 @@ export type MessageLayout = "cozy" | "compact";
 export type Style = "classic" | "flat";
 /** Android calls: native keeps running when the app is swiped away (voice only); web has camera and screen share. */
 export type CallEngine = "native" | "web";
-export type Material = "none" | "mica" | "acrylic" | "blur" | "vibrancy" | "see-through";
+export type Material = "none" | "mica" | "acrylic" | "blur" | "vibrancy";
 
 export interface DeviceSettings {
   v: 1;
@@ -24,15 +50,33 @@ export interface DeviceSettings {
   callEngine: CallEngine;
   /** Desktop/phone notifications for DMs and mentions */
   notifications: boolean;
+  /** Show the message text in notifications (off = "New message" only) */
+  notifyPreview: boolean;
+  /** Sounds: new message, someone joins/leaves your call, mute/deafen clicks */
+  sounds: { message: boolean; call: boolean; toggles: boolean };
+  /** Flash the taskbar / dock badge for unread mentions */
+  badge: boolean;
   /** What's drawn behind the panels: a starfield, a plain color, or your own picture */
   backdrop: "stars" | "plain" | "image";
+  /** Microphone, speakers, camera and processing (Settings > Voice & Video) */
+  voice: VoicePrefs;
+  /** Game detection and Discord Rich Presence (desktop) */
+  activity: { detect: boolean; rpc: boolean; share: boolean; hidden: string[] };
+  /** Voice channels: show the text chat beside the call */
+  voiceChat: boolean;
+  /** Direct messages: show the other person's profile beside the chat */
+  dmProfile: boolean;
+  /** Text and message display, like Stoat's Appearance page */
+  text: { size: number; spacing: number; font: string };
+  /** Desktop: closing the window keeps Mustela running in the tray */
+  closeToTray: boolean;
   /** Collapsed channel categories, by "serverId/category" */
   collapsed: string[];
 }
 
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
-  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "native", notifications: true, collapsed: [], backdrop: "stars",
+  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "native", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "stars", voice: { ...DEFAULT_VOICE_PREFS },
 };
 
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
@@ -47,12 +91,28 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     layout: oneOf(r.layout, ["cozy", "compact"], d.layout),
     style: oneOf(r.style, ["classic", "flat"], d.style),
     colorSource: oneOf(r.colorSource, ["theme", "system"], d.colorSource),
-    material: oneOf(r.material, ["none", "mica", "acrylic", "blur", "vibrancy", "see-through"], d.material),
+    material: oneOf(r.material, ["none", "mica", "acrylic", "blur", "vibrancy"], d.material),
     opacity: typeof r.opacity === "number" && Number.isFinite(r.opacity) ? Math.min(100, Math.max(40, Math.round(r.opacity))) : d.opacity,
     showMembers: r.showMembers !== false,
     callEngine: oneOf(r.callEngine, ["native", "web"], d.callEngine),
     notifications: r.notifications !== false,
+    notifyPreview: r.notifyPreview !== false,
+    sounds: { message: (r.sounds as any)?.message !== false, call: (r.sounds as any)?.call !== false, toggles: (r.sounds as any)?.toggles !== false },
+    badge: r.badge !== false,
+    closeToTray: r.closeToTray !== false,
+    voiceChat: r.voiceChat !== false,
+    dmProfile: r.dmProfile !== false,
+    text: {
+      size: typeof (r.text as any)?.size === "number" ? Math.min(20, Math.max(12, Math.round((r.text as any).size))) : d.text.size,
+      spacing: typeof (r.text as any)?.spacing === "number" ? Math.min(24, Math.max(0, Math.round((r.text as any).spacing))) : d.text.spacing,
+      font: typeof (r.text as any)?.font === "string" && ["system", "serif", "rounded"].includes((r.text as any).font) ? (r.text as any).font : "",
+    },
+    activity: {
+      detect: (r.activity as any)?.detect !== false, rpc: (r.activity as any)?.rpc !== false, share: (r.activity as any)?.share !== false,
+      hidden: Array.isArray((r.activity as any)?.hidden) ? ((r.activity as any).hidden as unknown[]).filter((x): x is string => typeof x === "string" && x.length < 200).slice(0, 200) : [],
+    },
     backdrop: oneOf(r.backdrop, ["stars", "plain", "image"], d.backdrop),
+    voice: sanitizeVoice(r.voice),
     collapsed: Array.isArray(r.collapsed) ? r.collapsed.filter((x): x is string => typeof x === "string").slice(0, 200) : [],
   };
 }

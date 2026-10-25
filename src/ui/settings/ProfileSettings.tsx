@@ -14,13 +14,13 @@ import { ProfileCard } from "../Profile";
 import { AccountEditor } from "./AccountEditor";
 import { backend, book, meNow, settings, updateSettings } from "../store";
 
-const KINDS: SlotKind[] = ["decor", "effect", "frame", "plate"];
+export const KINDS: SlotKind[] = ["decor", "effect", "frame", "plate"];
 const NONE: SlotConfig = { preset: 0, hue: 0, speed: 8, intensity: 8 };
 const FAKE = { id: "preview", name: "A", online: undefined as boolean | undefined };
 const only = (kind: SlotKind, slot: SlotConfig): ProfileConfig => ({ ...DEFAULT_PROFILE, decor: NONE, effect: NONE, frame: NONE, plate: NONE, [kind]: slot });
 
 /** A small still preview of one slot, on a neutral dark tile so colors read the same in any theme. */
-function Thumb(props: { kind: SlotKind; slot: SlotConfig; size?: number; live?: boolean }) {
+export function Thumb(props: { kind: SlotKind; slot: SlotConfig; size?: number; live?: boolean }) {
   const s = () => props.size ?? 52;
   return (
     <span class="thumb" classList={{ wide: props.kind === "plate" }} style={{ width: `${props.kind === "plate" ? s() * 1.6 : s()}px`, height: `${props.kind === "plate" ? s() * 0.55 : s()}px` }}>
@@ -34,33 +34,42 @@ function Thumb(props: { kind: SlotKind; slot: SlotConfig; size?: number; live?: 
   );
 }
 
-function Picker(props: { kind: SlotKind; onBack(): void }) {
-  const kind = () => props.kind;
-  const slot = () => settings().profile[kind()] ?? NONE; // may be read once more while closing
-  const preset = () => getSlotPreset(kind(), slot().preset);
-  const part = () => ratingOf(settings().profile).parts[kind()];
-  const set = (s: SlotConfig) => updateSettings((x) => ({ ...x, profile: { ...x.profile, [kind()]: s } }));
+/** The tiles and knobs for one slot. Controlled: the caller owns the value. */
+export function SlotPicker(props: { kind: SlotKind; slot: SlotConfig; profile: ProfileConfig; onChange(s: SlotConfig): void; size?: number }) {
+  const preset = () => getSlotPreset(props.kind, props.slot.preset);
+  const part = () => ratingOf(props.profile).parts[props.kind];
+  const set = (s: SlotConfig) => props.onChange(s);
+  const size = () => props.size ?? 64;
   return (
-    <div class="page">
-      <button class="back-link" onClick={props.onBack}><Icon name="back" size={18} />{SLOT_LABEL[kind()]}</button>
-      <div class="tiles" role="radiogroup" aria-label={SLOT_LABEL[kind()]}>
-        <button class="tile-pick" role="radio" aria-checked={slot().preset === 0} classList={{ on: slot().preset === 0 }} onClick={() => set(NONE)}>
-          <Thumb kind={kind()} slot={NONE} size={64} /><span>None</span>
+    <>
+      <div class="tiles" role="radiogroup" aria-label={SLOT_LABEL[props.kind]}>
+        <button class="tile-pick" role="radio" aria-checked={props.slot.preset === 0} classList={{ on: props.slot.preset === 0 }} onClick={() => set(NONE)}>
+          <Thumb kind={props.kind} slot={NONE} size={size()} /><span>None</span>
         </button>
-        <For each={SLOT_PRESETS[kind()]}>{(p) => (
-          <button class="tile-pick" role="radio" aria-checked={slot().preset === p.id} classList={{ on: slot().preset === p.id }} onClick={() => set(slotFromPreset(kind(), p.id))}>
-            <Thumb kind={kind()} slot={slot().preset === p.id ? slot() : slotFromPreset(kind(), p.id)} size={64} live={slot().preset === p.id} /><span>{p.name}</span>
+        <For each={SLOT_PRESETS[props.kind]}>{(p) => (
+          <button class="tile-pick" role="radio" aria-checked={props.slot.preset === p.id} classList={{ on: props.slot.preset === p.id }} onClick={() => set(slotFromPreset(props.kind, p.id))}>
+            <Thumb kind={props.kind} slot={props.slot.preset === p.id ? props.slot : slotFromPreset(props.kind, p.id)} size={size()} live={props.slot.preset === p.id} /><span>{p.name}</span>
           </button>
         )}</For>
       </div>
       <Show when={preset()}>
         <Group title="Adjust" hint={part().reasons.join(" ") || undefined}>
-          <Show when={preset()!.knobs.includes("hue")}><Row label="Color"><Slider hue label="Color" min={0} max={359} value={slot().hue} onChange={(hue) => set({ ...slot(), hue })} suffix="°" /></Row></Show>
-          <Show when={preset()!.knobs.includes("speed")}><Row label="Speed"><Slider label="Speed" min={0} max={15} value={slot().speed} onChange={(speed) => set({ ...slot(), speed })} /></Row></Show>
-          <Show when={preset()!.knobs.includes("intensity")}><Row label="Intensity"><Slider label="Intensity" min={0} max={15} value={slot().intensity} onChange={(intensity) => set({ ...slot(), intensity })} /></Row></Show>
+          <Show when={preset()!.knobs.includes("hue")}><Row label="Color"><Slider hue label="Color" min={0} max={359} value={props.slot.hue} onChange={(hue) => set({ ...props.slot, hue })} suffix="°" /></Row></Show>
+          <Show when={preset()!.knobs.includes("speed")}><Row label="Speed"><Slider label="Speed" min={0} max={15} value={props.slot.speed} onChange={(speed) => set({ ...props.slot, speed })} /></Row></Show>
+          <Show when={preset()!.knobs.includes("intensity")}><Row label="Intensity"><Slider label="Intensity" min={0} max={15} value={props.slot.intensity} onChange={(intensity) => set({ ...props.slot, intensity })} /></Row></Show>
           <Row label="Performance"><RatingBadge rating={part().rating} label={part().label} /></Row>
         </Group>
       </Show>
+    </>
+  );
+}
+
+function Picker(props: { kind: SlotKind; onBack(): void }) {
+  const slot = () => settings().profile[props.kind] ?? NONE;
+  return (
+    <div class="page">
+      <button class="back-link" onClick={props.onBack}><Icon name="back" size={18} />{SLOT_LABEL[props.kind]}</button>
+      <SlotPicker kind={props.kind} slot={slot()} profile={settings().profile} onChange={(s) => updateSettings((x) => ({ ...x, profile: { ...x.profile, [props.kind]: s } }))} />
     </div>
   );
 }
@@ -81,7 +90,7 @@ export function ProfileSettings() {
   async function publish() {
     setPub("busy");
     try {
-      await backend()!.publishProfile(p());
+      await backend()!.publishProfile(p(), undefined, { banner: settings().cloud.banner });
       const j = JSON.stringify(p());
       try { localStorage.setItem(pubKey(), j); } catch { /* fine */ }
       setPublished(j); setPub("done");

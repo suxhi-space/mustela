@@ -17,4 +17,7 @@ pub(crate) async fn end_call<R: Runtime>(app: AppHandle<R>) -> Result<()> { app.
 pub(crate) async fn set_mic<R: Runtime>(app: AppHandle<R>, payload: SetMic) -> Result<CallState> { app.mustela_native().set_mic(payload) }
 
 #[command]
+pub(crate) async fn pip<R: Runtime>(app: AppHandle<R>, payload: Pip) -> Result<PipResult> { app.mustela_native().pip(payload) }
+
+#[command]
 pub(crate) async fn call_state<R: Runtime>(app: AppHandle<R>) -> Result<CallState> { app.mustela_native().call_state() }

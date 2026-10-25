@@ -1,16 +1,33 @@
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type Accessor } from "solid-js";
 import type { ChannelInfo, Msg, Person } from "../../lib/backend/types";
 import { searchEmoji } from "../../lib/emoji";
 import { plain } from "../../lib/markdown";
 import { Avatar, NameText } from "../Avatar";
 import { Icon } from "../icons";
 import { backend } from "../store";
-import { openEmojiPicker } from "./overlays";
+import { openEmojiPicker, openGifPicker } from "./overlays";
 
 const MAX_FILES = 5;
 const MAX_BYTES = 20 * 1024 * 1024; // Stoat's default attachment limit
 
-type Suggest = { kind: "emoji"; items: { label: string; insert: string; char: string }[] } | { kind: "user"; items: { label: string; insert: string; person: Person }[] };
+type Pending = { id: number; file: File; thumb?: string };
+let pendingId = 0;
+
+/** A small thumbnail made off the main thread, so a 40-megapixel photo doesn't stall the window. */
+async function thumbnail(f: File): Promise<string | undefined> {
+  if (!/^image\/(png|jpe?g|gif|webp|avif|bmp)$/.test(f.type)) return undefined;
+  try {
+    const bmp = await createImageBitmap(f, { resizeWidth: 240, resizeQuality: "low" } as ImageBitmapOptions);
+    const cv = document.createElement("canvas");
+    cv.width = bmp.width; cv.height = bmp.height;
+    cv.getContext("2d")!.drawImage(bmp, 0, 0);
+    bmp.close();
+    const blob = await new Promise<Blob | null>((r) => cv.toBlob(r, "image/jpeg", 0.8));
+    return blob ? URL.createObjectURL(blob) : undefined;
+  } catch { return undefined; }
+}
+
+type Suggest = { kind: "emoji"; items: { label: string; insert: string; char: string; img?: string }[] } | { kind: "user"; items: { label: string; insert: string; person: Person }[] };
 
 /**
  * Message box: Enter sends, Shift+Enter makes a new line, Up edits your last
@@ -23,10 +40,16 @@ export function Composer(props: {
   onCancelReply(): void;
   onEditLast(): void;
   onSent(): void;
-  send(text: string, files: File[], mention: boolean): Promise<void>;
+  send(text: string, files: File[], mention: boolean, onProgress: (f: number) => void): Promise<void>;
+  /** Files dropped anywhere on the chat */
+  incoming?: Accessor<File[] | null>;
+  onIncomingTaken?(): void;
+  /** Sends a GIF link straight away, like Stoat */
+  sendGif?(url: string): Promise<void>;
 }) {
   const [text, setText] = createSignal("");
-  const [files, setFiles] = createSignal<File[]>([]);
+  const [files, setFiles] = createSignal<Pending[]>([]);
+  const [progress, setProgress] = createSignal<number | null>(null);
   const [err, setErr] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [mention, setMention] = createSignal(true);
@@ -56,7 +79,10 @@ export function Composer(props: {
     const t = token();
     if (!t) return null;
     if (t.kind === "emoji") {
-      const items = searchEmoji(t.q, 8).map((e) => ({ label: `:${e.name}:`, insert: e.char, char: e.char }));
+      const q = t.q.toLowerCase();
+      const custom = (backend()?.emojis() ?? []).filter((e) => e.name.toLowerCase().startsWith(q)).slice(0, 4)
+        .map((e) => ({ label: `:${e.name}:`, insert: `:${e.id}:`, char: "", img: e.url }));
+      const items = [...custom, ...searchEmoji(t.q, 8 - custom.length).map((e) => ({ label: `:${e.name}:`, insert: e.char, char: e.char, img: undefined as string | undefined }))];
       return items.length ? { kind: "emoji", items } : null;
     }
     const q = t.q.toLowerCase();
@@ -82,13 +108,19 @@ export function Composer(props: {
   /* ---------- files ---------- */
   function addFiles(list: FileList | File[] | null | undefined) {
     if (!list) return;
-    const incoming = [...list];
+    const incoming = [...list].filter((f) => f.size > 0 || f.type); // folders arrive as empty entries
     const big = incoming.find((f) => f.size > MAX_BYTES);
     if (big) { setErr(`${big.name} is over 20 MB, the server's limit.`); return; }
-    const next = [...files(), ...incoming].slice(0, MAX_FILES);
-    if (files().length + incoming.length > MAX_FILES) setErr(`You can attach up to ${MAX_FILES} files per message.`); else setErr("");
-    setFiles(next);
+    const room = MAX_FILES - files().length;
+    if (incoming.length > room) setErr(`You can attach up to ${MAX_FILES} files per message.`); else setErr("");
+    const added = incoming.slice(0, Math.max(0, room)).map((file) => ({ id: ++pendingId, file }));
+    setFiles([...files(), ...added]);
+    for (const p of added) void thumbnail(p.file).then((thumb) => { if (thumb) setFiles(files().map((x) => (x.id === p.id ? { ...x, thumb } : x))); });
+    box?.focus();
   }
+  const dropFile = (id: number) => { const p = files().find((x) => x.id === id); if (p?.thumb) URL.revokeObjectURL(p.thumb); setFiles(files().filter((x) => x.id !== id)); };
+  onCleanup(() => files().forEach((p) => p.thumb && URL.revokeObjectURL(p.thumb)));
+  createEffect(on(() => props.incoming?.(), (f) => { if (f?.length) { addFiles(f); props.onIncomingTaken?.(); } }));
 
   async function submit() {
     const t = text().trim();
@@ -96,14 +128,17 @@ export function Composer(props: {
     if (t.length > 2000) { setErr(`Messages can be up to 2000 characters. This one is ${t.length}.`); return; }
     setBusy(true); setErr(""); stopTyping();
     const f = files();
-    setText(""); setFiles([]); box.value = ""; fit();
+    setText(""); box.value = ""; fit();
+    if (f.length) setProgress(0);
     try {
-      await props.send(t, f, mention());
+      await props.send(t, f.map((p) => p.file), mention(), (x) => setProgress(x));
+      f.forEach((p) => p.thumb && URL.revokeObjectURL(p.thumb));
+      setFiles([]);
       props.onSent();
-    } catch {
-      setText(t); setFiles(f); box.value = t; fit();
-      setErr("Couldn't send. Check your connection and try again.");
-    } finally { setBusy(false); box.focus(); }
+    } catch (e) {
+      setText(t); box.value = t; fit();
+      setErr(e instanceof Error && e.message ? e.message : "Couldn't send. Check your connection and try again.");
+    } finally { setBusy(false); setProgress(null); box.focus(); }
   }
 
   function keydown(e: KeyboardEvent) {
@@ -121,12 +156,12 @@ export function Composer(props: {
   const placeholder = () => props.channel.kind === "dm" ? `Message @${props.channel.name}` : props.channel.kind === "group" ? `Message ${props.channel.name}` : `Message #${props.channel.name}`;
 
   return (
-    <div class="composer-wrap" onDragOver={(e) => { e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer?.files); }}>
+    <div class="composer-wrap">
       <Show when={suggest()}>{(s) => (
         <div class="suggest panel" role="listbox" aria-label={s().kind === "emoji" ? "Emoji" : "People"}>
           <For each={s().items as any[]}>{(it, i) => (
             <button role="option" aria-selected={sel() === i()} classList={{ on: sel() === i() }} onMouseDown={(e) => { e.preventDefault(); accept(i()); }}>
-              <Show when={s().kind === "user"} fallback={<span class="sg-emoji">{it.char}</span>}>
+              <Show when={s().kind === "user"} fallback={<span class="sg-emoji"><Show when={it.img} fallback={it.char}><img class="cemoji" src={it.img} alt="" /></Show></span>}>
                 <Avatar person={it.person} size={22} presence={false} still profile={null} />
               </Show>
               <span>{it.label}</span>
@@ -147,15 +182,20 @@ export function Composer(props: {
       )}</Show>
       <Show when={files().length}>
         <div class="pending-files">
-          <For each={files()}>{(f, i) => (
+          <For each={files()}>{(p) => (
             <div class="pf panel-inset">
-              <Show when={f.type.startsWith("image/")} fallback={<Icon name="file" size={26} />}>
-                <img src={URL.createObjectURL(f)} alt="" onLoad={(e) => URL.revokeObjectURL(e.currentTarget.src)} />
+              <Show when={p.thumb} fallback={<Icon name="file" size={26} />}>
+                <img src={p.thumb} alt="" decoding="async" />
               </Show>
-              <span class="pf-name">{f.name}</span>
-              <button class="icon-btn" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files().filter((_, j) => j !== i()))}><Icon name="close" size={14} /></button>
+              <span class="pf-name">{p.file.name}</span>
+              <Show when={!busy()}><button class="icon-btn" aria-label={`Remove ${p.file.name}`} onClick={() => dropFile(p.id)}><Icon name="close" size={14} /></button></Show>
             </div>
           )}</For>
+        </div>
+      </Show>
+      <Show when={progress() !== null}>
+        <div class="upload-bar" role="progressbar" aria-label="Uploading" aria-valuenow={Math.round((progress() ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100}>
+          <span style={{ width: `${Math.round((progress() ?? 0) * 100)}%` }} /><small>Uploading… {Math.round((progress() ?? 0) * 100)}%</small>
         </div>
       </Show>
       <Show when={err()}><p class="err composer-err" role="alert">{err()}</p></Show>
@@ -167,7 +207,10 @@ export function Composer(props: {
           onClick={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyUp={(e) => { if (!["ArrowUp", "ArrowDown", "Enter", "Tab"].includes(e.key)) setCaret(e.currentTarget.selectionStart); }}
           onKeyDown={keydown} onPaste={(e) => { if (e.clipboardData?.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }} />
-        <button type="button" class="icon-btn" aria-label="Emoji" title="Emoji" onClick={(e) => openEmojiPicker(e.currentTarget, (x) => {
+        <Show when={props.sendGif}>
+          <button type="button" class="icon-btn" aria-label="GIF" title="GIF" onClick={(e) => openGifPicker(e.currentTarget, (url) => void props.sendGif!(url))}><Icon name="gif" size={22} /></button>
+        </Show>
+        <button type="button" class="icon-btn" aria-label="Emoji" title="Emoji" onClick={(e) => openEmojiPicker(e.currentTarget, ({ text: x }) => {
           const pos = box.selectionStart ?? text().length;
           const v = text().slice(0, pos) + x + text().slice(pos);
           setText(v); box.value = v; box.focus(); box.setSelectionRange(pos + x.length, pos + x.length); fit();

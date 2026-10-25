@@ -1,13 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Camera in calls with the web call engine -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
+        <!-- Merged into the app's own activity: calls can continue in a floating
+             picture-in-picture window (like Discord) with camera and screen share. -->
+        <activity
+            android:name="app.mustela.client.MainActivity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            tools:node="merge" />
         <!-- stopWithTask=false: swiping Mustela out of recents must not stop the call.
              The foreground service keeps the process (and the call) alive. -->
         <service

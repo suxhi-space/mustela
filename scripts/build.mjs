@@ -19,7 +19,7 @@
  * GitHub Actions workflow, which runs each platform on its own machine.
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import * as tc from "./toolchain.mjs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -76,6 +76,7 @@ const PLATFORMS = {
   linux: { label: "Linux", host: "linux", note: "AppImage and .deb", bundles: "appimage,deb" },
   android: { label: "Android", host: "any", note: "Installable .apk (and .aab for Play Store)" },
   web: { label: "Web", host: "any", note: "Static site in dist/ (demo + Stoat login in a browser)" },
+  server: { label: "Sync server", host: "any", note: "Package the self-hostable profile/activity server (Node or Docker)" },
 };
 const canBuild = (p) => PLATFORMS[p].host === "any" || PLATFORMS[p].host === HOST;
 
@@ -128,6 +129,14 @@ function icons() {
   if (!src) { warn("No icons/app-icon.png found; keeping the current icons."); return; }
   step(`Generating app icons from ${relative(ROOT, src)}`);
   must(npx(["tauri", "icon", src]), "Icon generation", "icons/app-icon.png must be a square PNG, ideally 1024x1024 with transparency.");
+  // macOS gets its own version on a rounded tile (the only platform where that shape is expected).
+  const mac = join(ROOT, "icons", "app-icon-macos.png");
+  if (existsSync(mac)) {
+    const tmp = join(ROOT, "release", ".icons-macos");
+    rmSync(tmp, { recursive: true, force: true });
+    if (npx(["tauri", "icon", mac, "-o", tmp]).ok && existsSync(join(tmp, "icon.icns"))) { copyFileSync(join(tmp, "icon.icns"), join(TAURI, "icons", "icon.icns")); ok("macOS icon from icons/app-icon-macos.png"); }
+    rmSync(tmp, { recursive: true, force: true });
+  }
   // Optional hand-made overrides for platforms that need special shapes.
   const overrides = [
     ["icon.ico", "icon.ico"], ["icon.icns", "icon.icns"], ["32x32.png", "32x32.png"], ["128x128.png", "128x128.png"], ["128x128@2x.png", "128x128@2x.png"],
@@ -240,6 +249,18 @@ async function buildAndroid() {
   return collect("android", [...(signed.length ? signed : apks), ...aabs]);
 }
 
+function buildServer() {
+  step("Packaging the sync server");
+  const dest = join(OUT, "mustela-sync-server");
+  rmSync(dest, { recursive: true, force: true });
+  mkdirSync(dest, { recursive: true });
+  for (const f of ["server.mjs", "package.json", "Dockerfile"]) cpSync(join(ROOT, "server", f), join(dest, f));
+  console.log(dim("\n  Run it:     node server.mjs            (Node 20+, listens on port 8787)"));
+  console.log(dim("  Or Docker:  docker build -t mustela-sync . && docker run -p 8787:8787 -v mustela-data:/data mustela-sync"));
+  console.log(dim("  Then put it behind HTTPS and add its address in Mustela > Settings > Sync & servers."));
+  return [dest];
+}
+
 function buildWeb() {
   step("Building the web version");
   must(run(IS_WIN ? "npm.cmd" : "npm", ["run", "build"]), "The web build");
@@ -262,16 +283,16 @@ if (!canBuild(platform)) {
 step("Checking your setup");
 tc.setAssumeYes(YES);
 checkNode();
-if (platform !== "web") await tc.ensureRust();
+if (platform !== "web" && platform !== "server") await tc.ensureRust();
 if (platform === "linux") await tc.ensureLinuxLibs();
 if (platform === "windows") await tc.ensureMsvc();
 if (platform === "macos") { await tc.ensureXcodeTools(); tc.ensureRustTargets(["aarch64-apple-darwin", "x86_64-apple-darwin"]); }
 
-install();
-if (platform !== "android" && platform !== "web") icons();
+if (platform !== "server") install();
+if (platform !== "android" && platform !== "web" && platform !== "server") icons();
 
 const t0 = Date.now();
-const files = platform === "web" ? buildWeb() : platform === "android" ? await buildAndroid() : buildDesktop(platform);
+const files = platform === "server" ? buildServer() : platform === "web" ? buildWeb() : platform === "android" ? await buildAndroid() : buildDesktop(platform);
 const mins = ((Date.now() - t0) / 60000).toFixed(1);
 
 console.log(`\n${green("✓")} ${bold(`Mustela ${VERSION} for ${PLATFORMS[platform].label} is ready`)} ${dim(`(${mins} min)`)}\n`);

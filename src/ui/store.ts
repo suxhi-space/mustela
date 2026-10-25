@@ -1,3 +1,4 @@
+import { setTimePrefs } from "../lib/time";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
 import type { ChatBackend, StoredSession } from "../lib/backend/types";
 import { DemoBackend } from "../lib/backend/mock";
@@ -11,7 +12,7 @@ import {
 } from "../lib/session/book";
 import { revokeSession } from "../lib/session/revoke";
 import { DEFAULT_SETTINGS, parseRemote, resolve, sanitize, type MustelaSettings } from "../lib/sync/settings";
-import { buildRoles, getTheme, toCssVars } from "../lib/theme/palette";
+import { buildRoles, getTheme, gradientEnd, toCssVars } from "../lib/theme/palette";
 import { getSystemSeed } from "../lib/theme/system";
 
 /* ---------- storage (every access is guarded: private mode, quota, blocked) ---------- */
@@ -32,7 +33,10 @@ export const [phase, setPhase] = createSignal<Phase>("boot");
 export const [error, setError] = createSignal("");
 export const [book, setBookSig] = createSignal<Book>(loadBook(kv));
 export const [backend, setBackend] = createSignal<ChatBackend | null>(null);
-export const [settings, setSettings] = createSignal<MustelaSettings>(structuredClone(DEFAULT_SETTINGS));
+const [settings, setSettingsRaw] = createSignal<MustelaSettings>(structuredClone(DEFAULT_SETTINGS));
+export { settings };
+/** Every settings change passes through here so non-UI helpers (time formatting) stay in step. */
+export const setSettings = (s: MustelaSettings) => { setTimePrefs(s.locale); return setSettingsRaw(s); };
 export const [device, setDevice] = createSignal<DeviceSettings>(sanitizeDevice(safeJson(kv.getItem(DEVICE_KEY))));
 export const [syncState, setSyncState] = createSignal<"local" | "syncing" | "synced" | "error">("local");
 export const [systemSeed, setSystemSeed] = createSignal<string | null>(null);
@@ -214,12 +218,15 @@ export async function refreshSystemSeed() { setSystemSeed(await getSystemSeed())
 /* ---------- appearance: roles -> CSS variables, density, material ---------- */
 export function startAppearance() {
   createRoot(() => {
+    // Keep the backend's sync-server list in step with settings.
+    createEffect(() => { const b = backend(); if (b) b.cloud.setServers(settings().cloud.servers); });
     const mq = matchMedia("(prefers-color-scheme: dark)");
     const [sysDark, setSysDark] = createSignal(mq.matches);
     mq.addEventListener("change", (e) => setSysDark(e.matches));
     const root = document.documentElement;
     root.dataset.platform = platform;
     if (inTauri()) root.classList.add("tauri");
+    if (inTauri() && (platform === "windows" || platform === "mac" || platform === "linux")) root.dataset.titlebar = platform;
 
     createEffect(() => {
       const l = settings().look, d = device();
@@ -228,8 +235,16 @@ export function startAppearance() {
       const seed = sys ?? (l.theme === "custom" ? l.seed : def.seed);
       const neutral = !sys && l.theme !== "custom" && !!def.neutral;
       const dark = l.mode === "auto" ? sysDark() : l.mode === "dark";
-      const roles = buildRoles(seed, dark ? "dark" : "light", { amoled: l.amoled, neutral });
+      const opts = { amoled: l.amoled, neutral, variant: l.variant, contrast: l.contrast };
+      const roles = buildRoles(seed, dark ? "dark" : "light", opts);
       for (const [k, v] of Object.entries(toCssVars(roles))) root.style.setProperty(k, v);
+      // Accent gradient: primary fills run from the primary into a second color at the same tone.
+      if (l.gradient.on) {
+        const end = gradientEnd(l.gradient.seed2, dark ? "dark" : "light", opts);
+        root.style.setProperty("--pri-2", end);
+        root.style.setProperty("--pri-grad", `linear-gradient(${l.gradient.angle}deg, ${roles.primary}, ${end})`);
+        root.dataset.gradient = "";
+      } else { root.style.removeProperty("--pri-grad"); root.style.removeProperty("--pri-2"); delete root.dataset.gradient; }
       root.dataset.mode = dark ? "dark" : "light";
       setSurfaceInt(parseHex(roles.surfaceContainerLow!) ?? 0x1b1b1f);
     });
@@ -242,6 +257,10 @@ export function startAppearance() {
       if (d.backdrop === "image" && img) root.style.setProperty("--backdrop-img", `url("${img}")`); else root.style.removeProperty("--backdrop-img");
       root.dataset.layout = d.layout;
       for (const [k, v] of Object.entries(DENSITY_VARS[d.density])) root.style.setProperty(k, v);
+      // Stoat's "Display & Text": message size and the gap between message groups.
+      root.style.setProperty("--msg-font", `${d.text.size}px`);
+      root.style.setProperty("--msg-gap", `${d.text.spacing}px`);
+      if (d.text.font) root.dataset.font = d.text.font; else root.removeAttribute("data-font");
     });
 
     createEffect(() => {

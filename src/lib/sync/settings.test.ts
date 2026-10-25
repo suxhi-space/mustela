@@ -70,3 +70,22 @@ describe("device settings", () => {
     expect(sanitizeDevice({ opacity: 1000 }).opacity).toBe(100);
   });
 });
+
+describe("v3 migration", () => {
+  it("drops the Halo that v2 turned on by default, keeps a chosen one", () => {
+    const halo = { preset: 1, hue: 210, speed: 6, intensity: 9 };
+    expect(sanitize({ v: 2, profile: { decor: halo } }).profile.decor.preset).toBe(0);
+    expect(sanitize({ v: 2, profile: { decor: { ...halo, hue: 30 } } }).profile.decor.preset).toBe(1);
+    expect(sanitize({ v: 3, profile: { decor: halo } }).profile.decor.preset).toBe(1);
+  });
+  it("accepts v2 and v3 remotes and sanitises new fields", () => {
+    expect(parseRemote(JSON.stringify({ v: 2 }))?.v).toBe(3);
+    const s = sanitize({ v: 3, look: { variant: "bogus", contrast: 7, gradient: { on: true, seed2: "zzz", angle: 999 } },
+      favGifs: [{ url: "javascript:x", preview: "https://a" }, { url: "https://gifbox.me/view/a", preview: "https://p" }], cloud: { servers: ["ftp://x", "https://sync.example"] } });
+    expect(s.look.variant).toBe("vibrant");
+    expect(s.look.contrast).toBe(0);
+    expect(s.look.gradient).toEqual({ on: true, seed2: "#a05cf0", angle: 360 });
+    expect(s.favGifs.map((g) => g.url)).toEqual(["https://gifbox.me/view/a"]);
+    expect(s.cloud.servers).toEqual(["https://sync.example"]);
+  });
+});

@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { activeAccount } from "../lib/session/book";
 import type { Presence } from "../lib/backend/types";
 import { backend, book, bumpMe, meNow, removeAccountById, setAddingAccount, switchAccount } from "./store";
@@ -27,6 +27,7 @@ export function AccountMenu(props: { onClose(): void; onSettings(): void }) {
             </button>
           )}</For>
         </div>
+        <StatusEditor />
         <div class="menu-sep" />
         <For each={book().accounts}>{(a) => {
           const active = () => a.id === activeAccount(book())?.id;
@@ -45,6 +46,31 @@ export function AccountMenu(props: { onClose(): void; onSettings(): void }) {
         <button class="menu-item" role="menuitem" onClick={() => { props.onSettings(); props.onClose(); }}><Icon name="gear" size={18} />Settings</button>
       </div>
     </div>
+  );
+}
+
+/** Custom status message, right in the account menu. Enter saves, Escape clears the field. */
+export function StatusEditor() {
+  const [text, setText] = createSignal(meNow()?.status ?? "");
+  const [state, setState] = createSignal<"" | "saving" | "saved" | "err">("");
+  const dirty = () => text().trim() !== (meNow()?.status ?? "");
+  async function save(v = text()) {
+    setState("saving");
+    try { await backend()!.updateMe({ status: v.trim() }); bumpMe(); setText(v.trim()); setState("saved"); setTimeout(() => state() === "saved" && setState(""), 1400); }
+    catch { setState("err"); }
+  }
+  return (
+    <form class="status-edit" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <Icon name="smile" size={18} class="muted" />
+      <input value={text()} maxLength={128} placeholder="Set a status message" aria-label="Status message"
+        onInput={(e) => { setText(e.currentTarget.value); setState(""); }}
+        onKeyDown={(e) => { if (e.key === "Escape" && text()) { e.stopPropagation(); setText(meNow()?.status ?? ""); } }} />
+      <Show when={dirty()} fallback={<Show when={meNow()?.status}><button type="button" class="icon-btn" aria-label="Clear status message" title="Clear" onClick={() => void save("")}><Icon name="close" size={15} /></button></Show>}>
+        <button class="btn small primary" disabled={state() === "saving"}>{state() === "saving" ? "Saving…" : "Save"}</button>
+      </Show>
+      <Show when={state() === "saved"}><Icon name="check" size={16} class="ok-ic" /></Show>
+      <Show when={state() === "err"}><small class="err">Couldn't save</small></Show>
+    </form>
   );
 }
 

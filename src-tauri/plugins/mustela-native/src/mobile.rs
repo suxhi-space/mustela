@@ -5,6 +5,7 @@ use tauri::{
 };
 
 use crate::models::*;
+#[allow(unused_imports)] // Error is only used off Android
 use crate::{Error, Result};
 
 /// Registers the Kotlin class `app.mustela.nativecall.NativePlugin`.
@@ -26,5 +27,6 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn start_call(&self, p: StartCall) -> Result<CallState> { self.0.run_mobile_plugin("startCall", p).map_err(Into::into) }
   pub fn end_call(&self) -> Result<()> { self.0.run_mobile_plugin("endCall", ()).map_err(Into::into) }
   pub fn set_mic(&self, p: SetMic) -> Result<CallState> { self.0.run_mobile_plugin("setMic", p).map_err(Into::into) }
+  pub fn pip(&self, p: Pip) -> Result<PipResult> { self.0.run_mobile_plugin("pip", p).map_err(Into::into) }
   pub fn call_state(&self) -> Result<CallState> { self.0.run_mobile_plugin("callState", ()).map_err(Into::into) }
 }

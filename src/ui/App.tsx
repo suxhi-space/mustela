@@ -3,6 +3,9 @@ import { Login } from "./Login";
 import { routeExternalLinks } from "../lib/notify";
 import { startCallBridge } from "./call/state";
 import { Shell } from "./Shell";
+import { ContextMenu, Dialogs, Toast } from "./menu";
+import { hasTitleBar, TitleBar } from "./TitleBar";
+import { PipView } from "./call/PipView";
 import { activeAccount } from "../lib/session/book";
 import { addingAccount, book, boot, error, openAccount, phase, removeAccountById, setAddingAccount, startAppearance } from "./store";
 
@@ -12,6 +15,7 @@ export function App() {
   routeExternalLinks();
   onMount(() => void boot());
   return (
+    <>
     <Switch>
       <Match when={phase() === "boot" || phase() === "connecting"}>
         <main class="splash" aria-busy="true"><div class="spinner" /><p class="muted">{phase() === "boot" ? "Starting…" : "Connecting…"}</p></main>
@@ -38,5 +42,11 @@ export function App() {
         <Show when={addingAccount()}><div class="scrim full"><Login /></div></Show>
       </Match>
     </Switch>
+    <Show when={hasTitleBar()}><TitleBar /></Show>
+    <PipView />
+    <ContextMenu />
+    <Dialogs />
+    <Toast />
+    </>
   );
 }
