@@ -35,7 +35,9 @@ impl<R: Runtime, T: Manager<R>> MustelaNativeExt<R> for T {
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
   Builder::new("mustela-native")
     .invoke_handler(tauri::generate_handler![
-      commands::accent, commands::start_call, commands::end_call, commands::set_mic, commands::call_state, commands::pip
+      commands::accent, commands::start_call, commands::end_call, commands::set_mic, commands::call_state, commands::pip, commands::background,
+      commands::call_audio, commands::set_call_overlay, commands::overlay_allowed, commands::request_overlay,
+      commands::screen_start, commands::screen_ack, commands::screen_stop
     ])
     .setup(|app, api| {
       #[cfg(mobile)]

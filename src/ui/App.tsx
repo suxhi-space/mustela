@@ -4,7 +4,8 @@ import { routeExternalLinks } from "../lib/notify";
 import { startCallBridge } from "./call/state";
 import { Shell } from "./Shell";
 import { ContextMenu, Dialogs, Toast } from "./menu";
-import { hasTitleBar, TitleBar } from "./TitleBar";
+import { CropperHost } from "./Cropper";
+import { applyWindowFrame, hasTitleBar, TitleBar } from "./TitleBar";
 import { PipView } from "./call/PipView";
 import { activeAccount } from "../lib/session/book";
 import { addingAccount, book, boot, error, openAccount, phase, removeAccountById, setAddingAccount, startAppearance } from "./store";
@@ -13,7 +14,7 @@ export function App() {
   startAppearance();
   startCallBridge();
   routeExternalLinks();
-  onMount(() => void boot());
+  onMount(() => { void boot(); void applyWindowFrame(); });
   return (
     <>
     <Switch>
@@ -46,6 +47,7 @@ export function App() {
     <PipView />
     <ContextMenu />
     <Dialogs />
+    <CropperHost />
     <Toast />
     </>
   );

@@ -7,6 +7,8 @@
  *
  * Platforms: windows, macos, linux, android, web
  * Options:
+ *   --version 1.2.3    the version to stamp on this build (asked if not given)
+ *   --repo owner/repo  the GitHub repository the app checks for updates (a github.com link works too; "none" turns it off)
  *   --debug            debug build (faster to compile, slower to run)
  *   --bundles a,b      desktop installer types (default per platform, see below)
  *   --skip-install     don't run npm install
@@ -19,7 +21,7 @@
  * GitHub Actions workflow, which runs each platform on its own machine.
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import * as tc from "./toolchain.mjs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -30,7 +32,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TAURI = join(ROOT, "src-tauri");
 const OUT = join(ROOT, "release");
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-const VERSION = pkg.version;
+let VERSION = pkg.version;
+/** "owner/repo" whose GitHub releases the app checks for updates; empty means update checks are off. */
+let UPDATE_REPO = "";
 const IS_WIN = process.platform === "win32";
 const HOST = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 
@@ -103,6 +107,75 @@ async function choosePlatform() {
   if (!k) fail(`"${a}" isn't one of the options.`);
   return k;
 }
+
+/* ------------------------------------------------------------------ version and update repository */
+const BUILD_PREFS = join(ROOT, ".build.json");
+const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+
+/** Accepts owner/repo or any github.com link to it (…/releases/latest included). */
+function parseRepo(input) {
+  const t = String(input ?? "").trim().replace(/\.git$/, "");
+  if (!t || /^(none|off|no)$/i.test(t)) return "";
+  const m = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)/i.exec(t) ?? /^([\w.-]+)\/([\w.-]+)$/.exec(t);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+async function askRelease() {
+  let prefs = {};
+  try { prefs = JSON.parse(readFileSync(BUILD_PREFS, "utf8")); } catch {}
+  let version = opt("version") ?? process.env.MUSTELA_VERSION;
+  let repo = opt("repo") ?? process.env.MUSTELA_UPDATE_REPO;
+  const interactive = !YES && process.stdin.isTTY;
+  if (interactive && (version === undefined || repo === undefined)) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    if (version === undefined) version = (await rl.question(`\nVersion for this build [${VERSION}]: `)).trim() || VERSION;
+    if (repo === undefined) {
+      const def = prefs.repo ?? "";
+      console.log(dim("  The app checks this repository's GitHub releases for updates. Type none to turn update checks off."));
+      repo = (await rl.question(`GitHub repository or link${def ? ` [${def}]` : ""}: `)).trim() || def;
+    }
+    rl.close();
+  }
+  version = version || VERSION;
+  if (!SEMVER.test(version)) fail(`"${version}" isn't a version number.`, "Use three numbers like 0.2.0, optionally with a suffix like 0.2.0-beta.1 or 0.2.0-build.2 (four numbers like 0.1.3.7 aren't allowed).");
+  if (!msiVersion(version)) fail(`"${version}" is too big for a Windows installer.`, "The first two numbers can be at most 255 and the third at most 65535.");
+  const parsed = parseRepo(repo ?? prefs.repo ?? "");
+  if (parsed === null) fail(`"${repo}" isn't a GitHub repository.`, "Use owner/repo or a link like https://github.com/owner/repo/releases/latest");
+  VERSION = version;
+  UPDATE_REPO = parsed;
+  stampVersion(version);
+  try { writeFileSync(BUILD_PREFS, JSON.stringify({ repo: parsed }, null, 2) + "\n"); } catch {}
+  ok(`Version ${version}`);
+  ok(UPDATE_REPO ? `Updates from github.com/${UPDATE_REPO}/releases` : "Update checks off");
+}
+
+/** Writes the version everywhere it lives, so the installer, the app and Android's versionCode agree. */
+function stampVersion(v) {
+  const edit = (file, fn) => { const p = join(ROOT, file); const t = readFileSync(p, "utf8"); const n = fn(t); if (n !== t) writeFileSync(p, n); };
+  edit("package.json", (t) => t.replace(/("version":\s*")[^"]+(")/, `$1${v}$2`));
+  edit("src-tauri/tauri.conf.json", (t) => t.replace(/("version":\s*")[^"]+(")/, `$1${v}$2`));
+  edit("src-tauri/Cargo.toml", (t) => t.replace(/^(version\s*=\s*")[^"]+(")/m, `$1${v}$2`));
+  // The MSI installer only takes numbers (major.minor.patch.build): 0.1.3-build2 becomes 0.1.3.2.
+  edit("src-tauri/tauri.windows.conf.json", (t) => {
+    const j = JSON.parse(t);
+    j.bundle ??= {}; j.bundle.windows ??= {}; j.bundle.windows.wix ??= {};
+    j.bundle.windows.wix.version = msiVersion(v);
+    return JSON.stringify(j, null, 2) + "\n";
+  });
+}
+
+/** The version as Windows Installer wants it: four numbers, the last from any suffix (0.2.0-beta.3 → 0.2.0.3). */
+function msiVersion(v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)(?:-(.*))?$/.exec(v);
+  if (!m) return null;
+  const [maj, min, pat] = [+m[1], +m[2], +m[3]];
+  const build = m[4] ? Math.min(65535, +(/(\d+)(?!.*\d)/.exec(m[4])?.[1] ?? 0)) : 0;
+  if (maj > 255 || min > 255 || pat > 65535) return null;
+  return `${maj}.${min}.${pat}.${build}`;
+}
+
+/** Passed to every build: Rust reads them at compile time, the interface through Vite. */
+const releaseEnv = () => ({ MUSTELA_UPDATE_REPO: UPDATE_REPO, VITE_MUSTELA_UPDATE_REPO: UPDATE_REPO });
 
 /* ------------------------------------------------------------------ prerequisite checks */
 function checkNode() {
@@ -183,7 +256,7 @@ function buildDesktop(platform) {
   if (DEBUG) a.push("--debug");
   step(`Building Mustela for ${p.label}${DEBUG ? " (debug)" : ""}`);
   // AppImage tooling needs FUSE unless told to unpack itself; this works everywhere.
-  const env = platform === "linux" ? { APPIMAGE_EXTRACT_AND_RUN: "1", NO_STRIP: "true" } : {};
+  const env = { ...releaseEnv(), ...(platform === "linux" ? { APPIMAGE_EXTRACT_AND_RUN: "1", NO_STRIP: "true" } : {}) };
   must(npx(a, { env }), "The build", "Scroll up for the first error. Most often it's a missing system library (see https://tauri.app/start/prerequisites/).");
   const base = join(TAURI, "target", platform === "macos" ? "universal-apple-darwin" : "", DEBUG ? "debug" : "release", "bundle");
   return collect(platform, findFiles(base, /\.(AppImage|deb|rpm|exe|msi|dmg)$|\.app$/));
@@ -211,6 +284,28 @@ function androidKeystore() {
   return { path, pass, alias: "mustela", keyPass: pass };
 }
 
+// LiveKit's Android SDK depends on com.github.davidliu:audioswitch, which is only published on JitPack.
+// Declare the repository inside the generated project so the build works on any machine and CI, and never
+// clashes with a leftover ~/.gradle/init.d/jitpack.init.gradle (delete that old file if you have one).
+function ensureJitpack(gen) {
+  // An older Mustela fix put JitPack in ~/.gradle/init.d/. Gradle refuses projects that declare their own
+  // repositories when an init script adds one ("prefer settings repositories"), so retire that file.
+  const old = join(os.homedir(), ".gradle", "init.d", "jitpack.init.gradle");
+  if (existsSync(old) && readFileSync(old, "utf8").includes("jitpack.io")) {
+    renameSync(old, `${old}.disabled`);
+    warn(`Turned off ${old} (renamed to .disabled). Mustela now declares JitPack itself.`);
+  }
+  const line = 'maven { url = uri("https://jitpack.io") }';
+  for (const f of ["build.gradle.kts", "settings.gradle.kts"]) {
+    const p = join(gen, f);
+    if (!existsSync(p)) continue;
+    let t = readFileSync(p, "utf8");
+    if (t.includes("jitpack.io")) continue;
+    const next = t.replace(/(repositories\s*\{[^}]*?mavenCentral\(\))/g, `$1\n        ${line}`);
+    if (next !== t) writeFileSync(p, next);
+  }
+}
+
 async function buildAndroid() {
   step("Android toolchain");
   await tc.ensureJava();
@@ -221,11 +316,12 @@ async function buildAndroid() {
     step("Creating the Android project (first build only)");
     must(npx(["tauri", "android", "init", "--ci"]), "Android project setup");
   }
+  ensureJitpack(gen); // LiveKit's audioswitch lives on JitPack; declared in the project, no ~/.gradle init script needed
   icons(); // after init, so the launcher icons land in the Android project too
   step(`Building Mustela for Android${DEBUG ? " (debug)" : ""}`);
   const a = ["tauri", "android", "build", "--apk", "--aab"];
   if (DEBUG) a.push("--debug");
-  must(npx(a), "The Android build", "Scroll up for the first error. Check that the SDK Platform and NDK are installed (see README > Android).");
+  must(npx(a, { env: releaseEnv() }), "The Android build", "Scroll up for the first error. Check that the SDK Platform and NDK are installed (see README > Android).");
   const outputs = join(gen, "app", "build", "outputs");
   const apks = findFiles(join(outputs, "apk"), /\.apk$/);
   const aabs = findFiles(join(outputs, "bundle"), /\.aab$/);
@@ -263,7 +359,7 @@ function buildServer() {
 
 function buildWeb() {
   step("Building the web version");
-  must(run(IS_WIN ? "npm.cmd" : "npm", ["run", "build"]), "The web build");
+  must(run(IS_WIN ? "npm.cmd" : "npm", ["run", "build"], { env: releaseEnv() }), "The web build");
   const dest = join(OUT, "web");
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
@@ -279,6 +375,8 @@ if (!canBuild(platform)) {
     `  • Run this script on a ${{ windows: "Windows PC", macos: "Mac", linux: "Linux machine" }[PLATFORMS[platform].host]}, or\n` +
     `  • Push to GitHub and run the "Release" workflow (Actions tab), choosing "${platform}".`);
 }
+
+if (platform !== "server") { step("Version and updates"); await askRelease(); }
 
 step("Checking your setup");
 tc.setAssumeYes(YES);

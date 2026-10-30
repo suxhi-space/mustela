@@ -1,8 +1,9 @@
 import { PACKED_EMOJI_RE } from "../../lib/emoji";
 import { UEmoji } from "./UEmoji";
-import { createMemo, createSignal, For, Match, Switch, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Match, Switch, type JSX } from "solid-js";
+import { stillOf } from "../stillImage";
 import { formatTime, isJumbo, parse, type Block, type Inline } from "../../lib/markdown";
-import { backend } from "../store";
+import { backend, device } from "../store";
 
 export interface MdCtx {
   onUser?(id: string): void;
@@ -19,8 +20,8 @@ function Spoiler(props: { children: JSX.Element }) {
   );
 }
 
-/** Wraps unicode emoji in spans so hovering one can say what it is. */
-function TextWithEmoji(props: { v: string }) {
+/** Wraps unicode emoji in spans so hovering one can say what it is, drawn in your emoji style. */
+export function TextWithEmoji(props: { v: string }) {
   const parts = createMemo(() => {
     const out: { t: string; e?: boolean }[] = [];
     let last = 0;
@@ -35,6 +36,18 @@ function TextWithEmoji(props: { v: string }) {
   return <For each={parts()}>{(p) => (p.e ? <span class="uemoji" data-emoji={p.t.replace(/^[\uE0E0-\uE0E6]/, "")}><UEmoji e={p.t} /></span> : p.t.replace(/[\uE0E0-\uE0E6]/g, ""))}</For>;
 }
 const customName = (id: string) => backend()?.emojis().find((e) => e.id === id)?.name ?? "emoji";
+
+/** A custom emoji. Animated ones hold still when Performance says so, and play while you point at them. */
+function CustomEmoji(props: { id: string }) {
+  const url = () => backend()?.emojiUrl(props.id) ?? "";
+  const animated = () => !!backend()?.emojis().find((e) => e.id === props.id)?.animated;
+  const [still, setStill] = createSignal<string | null>(null);
+  const [hover, setHover] = createSignal(false);
+  createEffect(() => { if (animated() && !device().perf.gifs) void stillOf(url()).then(setStill); });
+  const src = () => (animated() && !device().perf.gifs && !hover() && still()) || url();
+  return <img class="cemoji" data-emoji-id={props.id} src={src()} alt={`:${customName(props.id)}:`} loading="lazy" draggable={false}
+    onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)} />;
+}
 
 function Inlines(props: { nodes: Inline[]; ctx: MdCtx }): JSX.Element {
   return (
@@ -56,10 +69,10 @@ function Inlines(props: { nodes: Inline[]; ctx: MdCtx }): JSX.Element {
         <Match when={n.t === "channel"}>
           <button class="mention" onClick={(e) => { e.stopPropagation(); props.ctx.onChannel?.((n as any).id); }}>#{backend()?.channelName((n as any).id) ?? "channel"}</button>
         </Match>
-        <Match when={n.t === "role"}><span class="mention">@role</span></Match>
-        <Match when={n.t === "emoji"}>
-          <img class="cemoji" data-emoji-id={(n as any).id} src={backend()?.emojiUrl((n as any).id)} alt={`:${customName((n as any).id)}:`} loading="lazy" draggable={false} />
+        <Match when={n.t === "role"}>
+          {(() => { const r = backend()?.role((n as any).id); const c = r?.colour && !r.colour.includes("gradient") ? r.colour : undefined; return <span class="mention role" style={c ? { color: c } : undefined}>@{r?.name ?? "role"}</span>; })()}
         </Match>
+        <Match when={n.t === "emoji"}><CustomEmoji id={(n as any).id} /></Match>
         <Match when={n.t === "time"}>
           <time class="ts" title={new Date((n as any).unix * 1000).toLocaleString()}>{formatTime((n as any).unix, (n as any).style)}</time>
         </Match>

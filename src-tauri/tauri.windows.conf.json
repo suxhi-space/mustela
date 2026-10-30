@@ -11,8 +11,16 @@
         "minHeight": 520,
         "transparent": true,
         "dragDropEnabled": false,
-        "decorations": false
+        "decorations": false,
+        "create": false
       }
     ]
+  },
+  "bundle": {
+    "windows": {
+      "wix": {
+        "version": "0.1.3.4"
+      }
+    }
   }
 }

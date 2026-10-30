@@ -1,5 +1,5 @@
 import { Cloud } from "../cloud";
-import type { AccountApi, BotRow, SessionRow, Attachment, BanRow, InviteRow, NotifyLevel, Role, ServerInfo, CustomEmoji, GifCategory, GifResult, InviteInfo, ChatBackend, ChatEvent, ChannelInfo, Friends, MeUpdate, MemberGroup, Msg, Person, ProfileInfo, SendOptions, Space, StoredSession, VoiceHandle, ServerFolder } from "./types";
+import type { AccountApi, BotRow, SessionRow, Attachment, BanRow, InviteRow, NotifyLevel, Role, ServerInfo, CustomEmoji, GifCategory, GifResult, InviteInfo, ChatBackend, ChatEvent, ChannelInfo, Friends, MeUpdate, MemberGroup, Msg, Person, ProfileInfo, SendOptions, Space, StoredSession, VoiceHandle, ServerFolder, CategoryInfo, ChannelDetails, DiscoverState, Override, ServerDetails, WebhookRow } from "./types";
 import { sanitizeProfile } from "../profile/model";
 import { parseRemote, type MustelaSettings } from "../sync/settings";
 
@@ -174,6 +174,13 @@ export class DemoBackend implements ChatBackend {
     const old: Msg[] = [];
     for (let i = 0; i < 40; i++) old.push(seed("c1", ["u1", "u2", "u4", "u5"][i % 4]!, ["earlier chatter", "older message", "scroll-back works", "history page"][i % 4] + ` #${40 - i}`, 2000 - i * 20, me));
     this.store.c1 = [...old, ...this.store.c1!];
+    // Where you'd stopped reading, so "new messages since…" has something to show.
+    this.readUpTo = { c1: welcome.id, d1: this.store.d1![1]!.id };
+  }
+  private readUpTo: Record<string, string> = {};
+  lastRead(channelId: string) { return this.read.has(channelId) ? this.store[channelId]?.at(-1)?.id : this.readUpTo[channelId]; }
+  mentionIds() {
+    return Object.entries(this.store).filter(([cid]) => !this.read.has(cid)).map(([channelId, list]) => ({ channelId, ids: list.filter((m) => m.mentionsMe).map((m) => m.id) })).filter((x) => x.ids.length);
   }
 
   private emit(e: ChatEvent) { this.listeners.forEach((l) => l(e)); }
@@ -181,7 +188,16 @@ export class DemoBackend implements ChatBackend {
 
   session(): StoredSession | null { return null; }
   private read = new Set<string>();
-  async spaces() { return ordered([...spacesFor(), ...extraServers]).map((s) => ({ ...s, channels: s.channels.map((c) => ({ ...(this.read.has(c.id) ? { ...c, unread: false, mentions: undefined } : c), muted: c.muted || this.isMuted("channel", c.id) || this.isMuted("server", s.id) })) })); }
+  async spaces() {
+    return ordered([...spacesFor(), ...extraServers]).map((s) => {
+      const cats = s.home ? [] : this.categories(s.id);
+      const catOf = (id: string) => cats.find((c) => c.channels.includes(id));
+      // Like Stoat's orderedChannels: channels in no category first, then each category in order.
+      const rank = (id: string) => { const i = cats.findIndex((c) => c.channels.includes(id)); return i < 0 ? -1 : i * 1000 + cats[i]!.channels.indexOf(id); };
+      const chans = s.home ? s.channels : [...s.channels].sort((x, y) => rank(x.id) - rank(y.id));
+      return { ...s, channels: chans.map((c) => ({ ...(this.read.has(c.id) ? { ...c, unread: false, mentions: undefined } : c), category: s.home ? c.category : catOf(c.id)?.title, categoryId: catOf(c.id)?.id, muted: c.muted || this.isMuted("channel", c.id) || this.isMuted("server", s.id) })) };
+    });
+  }
   async members(spaceId: string): Promise<MemberGroup[]> {
     if (spaceId === "home") return [];
     const all = [this.me, ...people.map((p) => P(p.id))];
@@ -307,7 +323,52 @@ export class DemoBackend implements ChatBackend {
   async kick() { throw new Error("Kicking needs a real Stoat account."); }
   async ban() { throw new Error("Banning needs a real Stoat account."); }
   async createChannel(): Promise<string> { throw new Error("Creating channels needs a real Stoat account."); }
-  async editChannel() {}
+  async editChannel(cid: string, p: { name?: string; description?: string; slowmode?: number; mature?: boolean }) {
+    const d = this.chanExtra[cid] ?? (this.chanExtra[cid] = { slowmode: 0, mature: false, defaultPerms: { allow: 0, deny: 0 }, rolePerms: {} });
+    if (p.slowmode !== undefined) d.slowmode = p.slowmode;
+    if (p.mature !== undefined) d.mature = p.mature;
+  }
+  private chanExtra: Record<string, { slowmode: number; mature: boolean; defaultPerms: Override; rolePerms: Record<string, Override> }> = {};
+  private hooks: Record<string, WebhookRow[]> = {};
+  private cats: Record<string, CategoryInfo[]> = {};
+  private serverExtra: Record<string, ServerDetails> = {};
+  channelDetails(cid: string): ChannelDetails | null {
+    const s = spacesFor().find((x) => !x.home && x.channels.some((c) => c.id === cid));
+    const c = s?.channels.find((x) => x.id === cid);
+    if (!s || !c || (c.kind !== "text" && c.kind !== "voice")) return null;
+    const d = this.chanExtra[cid] ?? { slowmode: 0, mature: false, defaultPerms: { allow: 0, deny: 0 }, rolePerms: {} };
+    return { id: cid, name: c.name, kind: c.kind, serverId: s.id, description: c.description, slowmode: d.slowmode, mature: d.mature, defaultPerms: d.defaultPerms, rolePerms: d.rolePerms, canManage: true, canManagePerms: true, canManageWebhooks: true };
+  }
+  async setChannelPermissions(cid: string, roleId: string, o: Override) {
+    await this.editChannel(cid, {});
+    const d = this.chanExtra[cid]!;
+    if (roleId === "default") d.defaultPerms = o; else d.rolePerms[roleId] = o;
+  }
+  async webhooks(cid: string) { return [...(this.hooks[cid] ?? [])]; }
+  async createWebhook(cid: string, name: string) { const w = { id: `w${Date.now()}`, name, url: `https://example.invalid/webhooks/demo/${Math.random().toString(36).slice(2)}` }; (this.hooks[cid] ??= []).push(w); return w; }
+  async deleteWebhook(cid: string, id: string) { this.hooks[cid] = (this.hooks[cid] ?? []).filter((w) => w.id !== id); }
+  categories(sid: string): CategoryInfo[] {
+    if (this.cats[sid]) return this.cats[sid]!.map((c) => ({ ...c, channels: [...c.channels] }));
+    const s = spacesFor().find((x) => x.id === sid);
+    const out: CategoryInfo[] = [];
+    for (const c of s?.channels ?? []) {
+      if (!c.category) continue;
+      let cat = out.find((x) => x.title === c.category);
+      if (!cat) out.push(cat = { id: `cat-${out.length}`, title: c.category, channels: [] });
+      cat.channels.push(c.id);
+    }
+    return out;
+  }
+  async saveCategories(sid: string, cats: CategoryInfo[]) { this.cats[sid] = cats; this.emit({ t: "activity" }); }
+  serverDetails(sid: string): ServerDetails | null {
+    return this.serverExtra[sid] ??= { systemMessages: {}, discoverable: false, defaultPerms: Number((1n << 20n) | (1n << 21n) | (1n << 22n) | (1n << 29n) | (1n << 30n) | (1n << 31n) | (1n << 36n)), rolePerms: Object.fromEntries(this.roleList.map((r) => [r.id, { allow: 0, deny: 0 }])) };
+  }
+  async editServerExtras(sid: string, p: { systemMessages?: ServerDetails["systemMessages"] }) { const d = this.serverDetails(sid)!; if (p.systemMessages) d.systemMessages = p.systemMessages; }
+  async setServerPermissions(sid: string, roleId: string, o: Override | number) { const d = this.serverDetails(sid)!; if (roleId === "default") d.defaultPerms = o as number; else d.rolePerms[roleId] = o as Override; }
+  async discoverState(): Promise<DiscoverState> { return "none"; }
+  async requestDiscover() { throw new Error("Discover requests need a real Stoat account."); }
+  async deleteServer() { throw new Error("The demo servers can't be deleted."); }
+  async memberSince(_sid: string, uid: string) { return new Date(Date.now() - (uid.charCodeAt(uid.length - 1) % 20 + 3) * 86_400_000 * 9); }
   async deleteChannel() { throw new Error("Deleting channels needs a real Stoat account."); }
   private nick: Record<string, string> = {};
   private memberRoleMap: Record<string, string[]> = { u1: ["r1"], u2: ["r2"] };
@@ -363,7 +424,19 @@ export class DemoBackend implements ChatBackend {
     return { config: raw ? sanitizeProfile(raw) : null, bio: bios[id], bannerUrl: banners[id], activity: id === "u2" ? { kind: "playing", name: "Stardew Valley", details: "Year 2, Summer", state: "Fishing at the beach", startedAt: Date.now() - 47 * 60_000 } : null };
   }
   async publishProfile() { /* nothing to publish to in demo mode */ }
+  /** Demo: looks stay in this device's settings; banners as local picture links. */
+  private demoBanners = new Map<string, string>();
+  async saveServerLook(sid: string, _look: unknown, banner: Blob | null | undefined) {
+    if (banner === undefined) return undefined;
+    if (banner === null) { this.demoBanners.delete(sid); return 0; }
+    this.demoBanners.set(sid, URL.createObjectURL(banner));
+    return Date.now();
+  }
+  screenQualities(): ("720p30" | "1080p30" | "1080p60")[] { return ["720p30", "1080p30"]; }
+  async serverBanner(_uid: string, sid: string) { return this.demoBanners.get(sid) ?? null; }
   private get key() { return `mustela:demo-sync:${this.persona}`; }
+  async pullExt() { return null; }
+  async pushExt() {}
   async pullSettings() { try { return parseRemote(localStorage.getItem(this.key)); } catch { return null; } }
   async pushSettings(s: MustelaSettings) { try { localStorage.setItem(this.key, JSON.stringify(s)); } catch { /* ignore */ } }
   person(id: string): Person {
@@ -372,6 +445,9 @@ export class DemoBackend implements ChatBackend {
     const r = this.rel[id];
     return { ...P(id), relation: r === "friends" ? "friend" : r === "blocked" ? "blocked" : r === "incoming" ? "incoming" : r === "outgoing" ? "outgoing" : "none" };
   }
+  channelsIn(serverId: string) { return (spacesFor().find((s) => s.id === serverId)?.channels ?? []).filter((c) => c.kind === "text" || c.kind === "voice").map((c) => ({ id: c.id, name: c.name, kind: c.kind as "text" | "voice" })); }
+  role(id: string) { return this.roleList.find((r) => r.id === id); }
+  channelRules(_id: string) { return { canSend: true, canUpload: true, canReact: true, canManage: true, slowmode: 0 }; }
   channelName(id: string) { return spacesFor().flatMap((s) => s.channels).find((c) => c.id === id)?.name; }
 
   /** A pretend call: two friends, one sharing a screen (drawn on a canvas), talking in turns. */

@@ -48,6 +48,8 @@ export interface DeviceSettings {
   opacity: number;
   showMembers: boolean;
   callEngine: CallEngine;
+  /** Android: leaving the app mid-call shows the voice bubble, or floats the call (picture-in-picture) */
+  callOverlay: "bubble" | "pip";
   /** Desktop/phone notifications for DMs and mentions */
   notifications: boolean;
   /** Show the message text in notifications (off = "New message" only) */
@@ -70,13 +72,37 @@ export interface DeviceSettings {
   text: { size: number; spacing: number; font: string };
   /** Desktop: closing the window keeps Mustela running in the tray */
   closeToTray: boolean;
+  /** Calls: show only cameras and streams (and you) */
+  hideNoVideo: boolean;
+  /** Settings > Mustela > Performance */
+  perf: PerfPrefs;
+  /** Desktop: Mustela's thin title bar, or the system's own window frame */
+  titleBar: "mustela" | "system";
+  /** Look for a new release on start and every few hours (builds made with an update repository) */
+  autoUpdate: boolean;
   /** Collapsed channel categories, by "serverId/category" */
   collapsed: string[];
 }
 
+export interface PerfPrefs {
+  /** Decorations, effects, frames and nameplates: moving, slower and lighter, or still */
+  anim: "full" | "reduced" | "off";
+  /** Animate less while you're in a call, and less again while sharing or watching a stream */
+  lighterInCalls: boolean;
+  /** Keep animating while another window (a game) is in front */
+  background: boolean;
+  /** GIFs and animated emoji play by themselves (off: they play when you point at them) */
+  gifs: boolean;
+  /** Blur behind menus, settings and pop-ups */
+  blur: boolean;
+}
+/** Linux's WebKitGTK is the slowest engine at blur and canvas, and some GPU drivers crash with it, so it starts lighter. */
+const isLinux = () => typeof navigator !== "undefined" && /Linux|X11/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
+export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "full", lighterInCalls: true, background: false, gifs: true, blur: !isLinux() });
+
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
-  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "native", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "stars", voice: { ...DEFAULT_VOICE_PREFS },
+  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "native", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "stars", voice: { ...DEFAULT_VOICE_PREFS },
 };
 
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
@@ -95,11 +121,25 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     opacity: typeof r.opacity === "number" && Number.isFinite(r.opacity) ? Math.min(100, Math.max(40, Math.round(r.opacity))) : d.opacity,
     showMembers: r.showMembers !== false,
     callEngine: oneOf(r.callEngine, ["native", "web"], d.callEngine),
+    callOverlay: oneOf(r.callOverlay, ["bubble", "pip"], d.callOverlay),
     notifications: r.notifications !== false,
     notifyPreview: r.notifyPreview !== false,
     sounds: { message: (r.sounds as any)?.message !== false, call: (r.sounds as any)?.call !== false, toggles: (r.sounds as any)?.toggles !== false },
     badge: r.badge !== false,
     closeToTray: r.closeToTray !== false,
+    autoUpdate: r.autoUpdate !== false,
+    hideNoVideo: r.hideNoVideo === true,
+    perf: (() => {
+      const p = (r.perf ?? {}) as Record<string, unknown>, d0 = defaultPerf();
+      return {
+        anim: oneOf(p.anim, ["full", "reduced", "off"], d0.anim),
+        lighterInCalls: typeof p.lighterInCalls === "boolean" ? p.lighterInCalls : d0.lighterInCalls,
+        background: typeof p.background === "boolean" ? p.background : d0.background,
+        gifs: typeof p.gifs === "boolean" ? p.gifs : d0.gifs,
+        blur: typeof p.blur === "boolean" ? p.blur : d0.blur,
+      };
+    })(),
+    titleBar: oneOf(r.titleBar, ["mustela", "system"], d.titleBar),
     voiceChat: r.voiceChat !== false,
     dmProfile: r.dmProfile !== false,
     text: {

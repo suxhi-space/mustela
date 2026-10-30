@@ -1,7 +1,9 @@
 import { createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch as Pick, type JSX } from "solid-js";
+import { useBack } from "./back";
 import type { ServerInfo } from "../lib/backend/types";
 import { Avatar } from "./Avatar";
-import { ColorInput, Group, Row, Switch } from "./controls";
+import { ColorInput, Group, Row, Select, Switch } from "./controls";
+import { FlagEditor, OverrideEditor } from "./Permissions";
 import { Icon } from "./icons";
 import { attempt, confirmDialog, copy, promptDialog } from "./menu";
 import { createChannel } from "./menus";
@@ -11,8 +13,10 @@ import { backend } from "./store";
 const b = () => backend()!;
 const TABS: { id: ServerTab; label: string; icon: string; can(i: ServerInfo): boolean; group: string }[] = [
   { id: "overview", label: "Overview", icon: "home", can: () => true, group: "Server" },
+  { id: "identity", label: "Your profile here", icon: "user", can: () => true, group: "You" },
   { id: "channels", label: "Channels", icon: "hash", can: (i) => i.perms.manageChannels, group: "Server" },
   { id: "roles", label: "Roles", icon: "shield", can: (i) => i.perms.manageRoles, group: "Server" },
+  { id: "discover", label: "Discover", icon: "compass", can: (i) => i.perms.manageServer, group: "Server" },
   { id: "emojis", label: "Emojis", icon: "smile", can: () => true, group: "Customisation" },
   { id: "members", label: "Members", icon: "users", can: (i) => i.perms.kick || i.perms.ban || i.perms.manageRoles, group: "People" },
   { id: "invites", label: "Invites", icon: "link", can: () => true, group: "People" },
@@ -65,10 +69,89 @@ function Overview(props: { info: ServerInfo; bump(): void }) {
         </div>
       </Show>
       <Show when={!can()}><p class="group-hint">You need the Manage Server permission to change these.</p></Show>
+      <SystemMessages info={props.info} />
       <Group title="About">
         <Row label="Server ID"><button class="btn small" onClick={() => void copy(props.info.id, "ID copied")}><Icon name="copy" size={14} />Copy</button></Row>
         <Row label="Owner"><span class="muted">{props.info.isOwner ? "You" : b().person(props.info.ownerId).name}</span></Row>
       </Group>
+    </div>
+  );
+}
+
+/** Where Stoat posts "joined", "left", "kicked" and "banned" messages. */
+function SystemMessages(props: { info: ServerInfo }) {
+  const d = () => b().serverDetails(props.info.id);
+  const [sm, setSm] = createSignal({ ...(d()?.systemMessages ?? {}) });
+  const chans = () => b().channelsIn(props.info.id).filter((c) => c.kind === "text");
+  const opts = () => [{ v: "", label: "Don't post" }, ...chans().map((c) => ({ v: c.id, label: `#${c.name}` }))];
+  const can = () => props.info.perms.manageServer;
+  const kinds = [["user_joined", "Someone joins"], ["user_left", "Someone leaves"], ["user_kicked", "Someone is kicked"], ["user_banned", "Someone is banned"]] as const;
+  const dirty = () => kinds.some(([k]) => (sm() as any)[k] !== ((d()?.systemMessages ?? {}) as any)[k]);
+  return (
+    <Group title="System messages" hint="Where Stoat posts a message when people come and go.">
+      <For each={kinds}>{([k, label]) => (
+        <Row label={label}><Select label={label} value={(sm() as any)[k] ?? ""} options={opts()} onChange={(v) => setSm({ ...sm(), [k]: v || undefined })} /></Row>
+      )}</For>
+      <Show when={can() && dirty()}>
+        <div class="dialog-actions"><button class="btn primary" onClick={() => void attempt(() => b().editServerExtras(props.info.id, { systemMessages: sm() }), "Saved")}>Save system messages</button></div>
+      </Show>
+    </Group>
+  );
+}
+
+/** Stoat's Discover: ask for the server to be listed, and see how the request is going. */
+function Discover(props: { info: ServerInfo }) {
+  const [st, { refetch }] = createResource(() => b().discoverState(props.info.id));
+  const text: Record<string, [string, string]> = {
+    none: ["Not listed", "Ask Stoat to list this server in Discover, so people can find and join it."],
+    pending: ["Request sent", "Stoat is looking at your request. This page updates once it's been decided."],
+    approved: ["Listed in Discover", "People can find this server in Discover. Contact Stoat support to remove it."],
+    rejected: ["Not accepted", "Stoat didn't accept the request this time. Check Stoat's Discover guidelines, then ask again."],
+    unavailable: ["Not available", "Discover is only for servers on stoat.chat, or the request status couldn't be loaded right now."],
+  };
+  return (
+    <div class="page">
+      <Group title="Discover">
+        <Show when={st()} fallback={<div class="loading-row"><div class="spinner small" /></div>}>{(s) => (
+          <Row icon="compass" label={text[s()]![0]} hint={text[s()]![1]}>
+            <Show when={s() === "none" || s() === "rejected"}>
+              <button class="btn small primary" onClick={() => void attempt(() => b().requestDiscover(props.info.id), "Request sent").then(refetch)}>Request listing</button>
+            </Show>
+          </Row>
+        )}</Show>
+      </Group>
+    </div>
+  );
+}
+
+/** Your nickname and avatar in this server only (Stoat stores these; everyone sees them). */
+function Identity(props: { info: ServerInfo }) {
+  const [cur, { refetch }] = createResource(() => b().identity(props.info.id).catch(() => ({ nickname: undefined, avatarUrl: undefined })));
+  const [nick, setNick] = createSignal<string | null>(null);
+  const value = () => nick() ?? cur()?.nickname ?? "";
+  const me = () => b().me;
+  const pickAvatar = () => {
+    const i = document.createElement("input");
+    i.type = "file"; i.accept = "image/*";
+    i.onchange = () => { const f = i.files?.[0]; if (f) void attempt(() => b().editIdentity(props.info.id, { avatar: f }), "Server avatar saved").then(() => setTimeout(() => void refetch(), 400)); };
+    i.click();
+  };
+  return (
+    <div class="page">
+      <Group title={`Your profile in ${props.info.name}`} hint="Only this server sees these. Everywhere else you keep your usual name and picture.">
+        <Row label="Server avatar" hint={cur()?.avatarUrl ? "Shown instead of your usual picture here" : "Using your usual picture"}>
+          <Avatar person={{ ...me(), avatarUrl: cur()?.avatarUrl ?? me().avatarUrl }} size={40} presence={false} still />
+          <button class="btn small" onClick={pickAvatar}>Change</button>
+          <Show when={cur()?.avatarUrl}><button class="btn small danger" onClick={() => void attempt(() => b().editIdentity(props.info.id, { avatar: null }), "Removed").then(() => setTimeout(() => void refetch(), 400))}>Remove</button></Show>
+        </Row>
+        <div class="row col">
+          <label class="field">Nickname<input value={value()} maxLength={32} placeholder={me().name} onInput={(e) => setNick(e.currentTarget.value)} /></label>
+        </div>
+      </Group>
+      <div class="dialog-actions">
+        <button class="btn" disabled={nick() === null} onClick={() => setNick(null)}>Reset</button>
+        <button class="btn primary" disabled={nick() === null || nick() === (cur()?.nickname ?? "")} onClick={() => void attempt(() => b().editIdentity(props.info.id, { nickname: nick()!.trim() || null }), "Saved").then(() => { setNick(null); setTimeout(() => void refetch(), 400); })}>Save</button>
+      </div>
     </div>
   );
 }
@@ -103,6 +186,12 @@ function Channels(props: { info: ServerInfo }) {
 function Roles(props: { info: ServerInfo }) {
   const [tick, bump] = useTick();
   const roles = createMemo(() => { tick(); return [...b().roles(props.info.id)].sort((a, c) => a.rank - c.rank); });
+  const details = createMemo(() => { tick(); return b().serverDetails(props.info.id); });
+  const defaults = () => details()?.defaultPerms;
+  const rolePerms = (id: string) => details()?.rolePerms[id] ?? { allow: 0, deny: 0 };
+  const [open, setOpen] = createSignal<string | null>(null);
+  const toggle = (id: string) => setOpen(open() === id ? null : id);
+  const later = () => { bump(); setTimeout(bump, 600); };
   return (
     <div class="page">
       <div class="dialog-actions start">
@@ -111,12 +200,21 @@ function Roles(props: { info: ServerInfo }) {
           if (n?.trim()) await attempt(() => b().createRole(props.info.id, n.trim()), "Role created").then(bump);
         }}><Icon name="plus" size={14} />New role</button>
       </div>
-      <Group title="Roles" count={roles().length} hint="Higher roles are listed first. Permissions for each role are edited in the Stoat web client for now.">
-        <For each={roles()} fallback={<Row label={<span class="muted">No roles yet. Everyone has the default permissions.</span>} />}>{(r) => (
+      <Group title="Everyone" hint="What everyone in the server can do. Roles add to this.">
+        <Row icon="users" label="Default permissions">
+          <button class="btn small" aria-expanded={open() === "default"} onClick={() => toggle("default")}>{open() === "default" ? "Close" : "Edit"}</button>
+        </Row>
+        <Show when={open() === "default"}>
+          <div class="role-perms"><FlagEditor value={defaults() ?? 0} disabled={!props.info.perms.manageRoles} onChange={(v) => void attempt(() => b().setServerPermissions(props.info.id, "default", v), "Saved").then(later)} /></div>
+        </Show>
+      </Group>
+      <Group title="Roles" count={roles().length} hint="Higher roles are listed first. A role's permissions add to what everyone can do, ✕ takes one away.">
+        <For each={roles()} fallback={<Row label={<span class="muted">No roles yet. Everyone has the default permissions.</span>} />}>{(r) => (<>
           <Row label={<span class="ss-role"><i style={{ background: r.colour && !/gradient/.test(r.colour) ? r.colour : "var(--fg2)" }} />{r.name}</span>}>
             <span class="small muted">Show separately</span>
             <Switch label={`Show ${r.name} separately in the member list`} on={r.hoist} onChange={(v) => void attempt(() => b().editRole(props.info.id, r.id, { hoist: v })).then(bump)} />
             <ColorInput label={`${r.name} colour`} value={r.colour && /^#[0-9a-f]{6}$/i.test(r.colour) ? r.colour : "#999999"} onChange={(hex) => void attempt(() => b().editRole(props.info.id, r.id, { colour: hex })).then(bump)} />
+            <button class="btn small" aria-expanded={open() === r.id} onClick={() => toggle(r.id)}>Permissions</button>
             <button class="icon-btn" aria-label={`Rename ${r.name}`} title="Rename" onClick={async () => {
               const v = await promptDialog("Rename role", "Role name", "Save", r.name, { max: 32 });
               if (v?.trim()) await attempt(() => b().editRole(props.info.id, r.id, { name: v.trim() }), "Saved").then(bump);
@@ -125,7 +223,10 @@ function Roles(props: { info: ServerInfo }) {
               if (await confirmDialog(`Delete ${r.name}?`, "Everyone with this role loses it.", "Delete role", true)) await attempt(() => b().deleteRole(props.info.id, r.id), "Role deleted").then(bump);
             }}><Icon name="trash" size={16} /></button>
           </Row>
-        )}</For>
+          <Show when={open() === r.id}>
+            <div class="role-perms"><OverrideEditor value={rolePerms(r.id)} channel={false} onChange={(o) => void attempt(() => b().setServerPermissions(props.info.id, r.id, o), "Saved").then(later)} /></div>
+          </Show>
+        </>)}</For>
       </Group>
     </div>
   );
@@ -274,6 +375,7 @@ export function ServerSettings(props: { id: string; tab?: ServerTab }) {
   const info = createMemo(() => { tick(); return b().serverInfo(props.id); });
   const [tab, setTab] = createSignal<ServerTab>(props.tab ?? "overview");
   const close = () => setServerSettings(null);
+  useBack(close);
   const tabs = () => TABS.filter((t) => info() && t.can(info()!));
   const groups = () => [...new Set(tabs().map((t) => t.group))];
   const page = (id: ServerTab, el: () => JSX.Element) => <Match when={tab() === id}>{el()}</Match>;
@@ -297,6 +399,14 @@ export function ServerSettings(props: { id: string; tab?: ServerTab }) {
               </>
             )}</For>
             <span class="grow" />
+            <Show when={i().isOwner}>
+              <button class="danger" onClick={async () => {
+                const typed = await promptDialog(`Delete ${i().name}?`, `Type the server name to confirm`, "Delete server", "", { danger: true, body: "Every channel and message is deleted for everyone. This can't be undone.", max: 64 });
+                if (typed === null) return;
+                if (typed.trim() !== i().name) { await confirmDialog("The name didn't match", "Nothing was deleted.", "OK"); return; }
+                await attempt(() => b().deleteServer(i().id), "Server deleted").then(close);
+              }}><Icon name="trash" size={18} />Delete server</button>
+            </Show>
             <Show when={!i().isOwner}>
               <button class="danger" onClick={async () => {
                 if (await confirmDialog(`Leave ${i().name}?`, "You'll need a new invite to come back.", "Leave server", true)) await attempt(() => b().leaveServer(i().id), "Left the server").then(close);
@@ -306,8 +416,10 @@ export function ServerSettings(props: { id: string; tab?: ServerTab }) {
           <div class="spage panel" role="tabpanel">
             <Pick>
               {page("overview", () => <Overview info={i()} bump={bump} />)}
+              {page("identity", () => <Identity info={i()} />)}
               {page("channels", () => <Channels info={i()} />)}
               {page("roles", () => <Roles info={i()} />)}
+              {page("discover", () => <Discover info={i()} />)}
               {page("emojis", () => <Emojis info={i()} />)}
               {page("members", () => <Members info={i()} />)}
               {page("invites", () => <Invites info={i()} />)}

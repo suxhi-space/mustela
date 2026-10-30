@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The voice bubble over other apps during a call (asked for in the app, never required) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Screen share: capture runs in a foreground service of this type (Android 14+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <application>
         <!-- Merged into the app's own activity: calls can continue in a floating
@@ -25,5 +29,10 @@
             android:exported="false"
             android:foregroundServiceType="microphone"
             android:stopWithTask="false" />
+        <!-- Screen share: Android only lets a "mediaProjection" foreground service capture the screen. -->
+        <service
+            android:name="app.mustela.nativecall.ScreenService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
     </application>
 </manifest>

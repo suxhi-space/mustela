@@ -1,18 +1,14 @@
 import { render } from "solid-js/web";
 import { App } from "./ui/App";
-import { CallWindow } from "./ui/call/CallWindow";
-import { startAppearance, loadLocalAppearance } from "./ui/store";
 import "@fontsource-variable/nunito";
+// Name-style fonts. Each is only downloaded by the page when a name on screen uses it.
+import "@fontsource-variable/lora";
+import "@fontsource-variable/jetbrains-mono";
+import "@fontsource-variable/dancing-script";
+import "@fontsource/righteous";
 import "./ui/styles.css";
 import { installGlobalContextMenu } from "./ui/menu";
 
 installGlobalContextMenu();
 
-const popout = new URLSearchParams(location.search).has("popout");
-if (popout) {
-  loadLocalAppearance();
-  startAppearance();
-  render(() => <CallWindow />, document.getElementById("root")!);
-} else {
-  render(() => <App />, document.getElementById("root")!);
-}
+render(() => <App />, document.getElementById("root")!);

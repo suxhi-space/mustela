@@ -21,12 +21,20 @@ const newId = () => `folder-${Date.now().toString(36).toUpperCase()}${Math.rando
  * to move it there, onto its middle to make a folder, onto a folder to add it.
  * Folders and order sync to your Stoat account like the official client.
  */
+/**
+ * Folders and order live in the backend, not in the server list, so the list staying the same
+ * (the store keeps it in place) must not hide a change: this ticks whenever they may have moved.
+ */
+const [orderTick, setOrderTick] = createSignal(0);
+export const orderChanged = () => setOrderTick((n) => n + 1);
+
 export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: string): void; onAdd(): void; refetch(): void }) {
   const [drop, setDrop] = createSignal<Drop>(null);
   const [dragging, setDragging] = createSignal<string | null>(null);
 
   // Same resolution as Stoat's Ordering.orderedEntries: folders draw where their id sits, else at their first member.
   const entries = createMemo<Entry[]>(() => {
+    orderTick();
     const servers = props.spaces.filter((s) => !s.home);
     const b = backend()!;
     const folders = b.folders(), byId = new Map(folders.map((f) => [f.id, f] as const));
@@ -52,7 +60,11 @@ export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: stri
   });
 
   async function save(folders: ServerFolder[], top: string[]) {
-    await attempt(() => backend()!.saveFolders(folders, top));
+    // The backend takes the new folders at once; redraw now, not after the round trip.
+    const done = attempt(() => backend()!.saveFolders(folders, top));
+    orderChanged();
+    await done;
+    orderChanged();
     props.refetch();
   }
   const state = () => ({ folders: backend()!.folders(), top: entries().map((e) => e.id) });

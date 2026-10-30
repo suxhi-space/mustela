@@ -31,11 +31,13 @@ export function paintFrame(ctx: CanvasRenderingContext2D, cfg: SlotConfig, t: nu
   ctx.save();
   switch (cfg.preset) {
     case 1: { // Neon Edge
-      roundRect(ctx, 2, 2, W - 4, H - 4, radius);
+      // A soft wide stroke under a thin bright one looks like a glow, without canvas blur (which is slow).
+      roundRect(ctx, 3, 3, W - 6, H - 6, radius);
+      ctx.lineWidth = 7;
+      ctx.strokeStyle = hsl(hue, 100, 60, a * 0.22);
+      ctx.stroke();
       ctx.lineWidth = 2;
       ctx.strokeStyle = hsl(hue, 100, 70, a);
-      ctx.shadowColor = hsl(hue, 100, 60, a);
-      ctx.shadowBlur = 10;
       ctx.stroke();
       break;
     }

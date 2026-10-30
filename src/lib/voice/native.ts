@@ -1,21 +1,24 @@
 import type { Person, VoiceHandle } from "../backend/types";
 
 /**
- * Android-only call engine. The call itself runs in a native foreground
- * service (see src-tauri/plugins/mustela-native), so it survives the app being
- * swiped out of recents. This file is the WebView's remote control for it.
+ * Call engines outside the web view, and this file is the page's remote control for them:
+ *  - Android: the call runs in a foreground service (src-tauri/plugins/mustela-native), so it survives the
+ *    app being swiped out of recents.
+ *  - Linux without WebRTC in WebKitGTK: the call runs in Rust (src-tauri/src/call_linux.rs).
  * Voice only: camera and screen share need the web engine.
  */
 interface NativeState {
-  active: boolean; connected: boolean; mic: boolean;
+  active: boolean; connected: boolean; mic: boolean; deaf?: boolean;
   channelId?: string | null; channelName?: string | null;
   participants: string[]; speaking: string[]; error?: string | null;
 }
 const EMPTY: NativeState = { active: false, connected: false, mic: false, participants: [], speaking: [] };
 
+/** Linux has no Android plugin: its engine's commands live in the app itself, prefixed voice_. */
+const LINUX = typeof navigator !== "undefined" && !/Android/i.test(navigator.userAgent) && /Linux|X11/i.test(navigator.userAgent);
 async function cmd<T>(name: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(`plugin:mustela-native|${name}`, args);
+  return invoke<T>(LINUX ? `voice_${name}` : `plugin:mustela-native|${name}`, args);
 }
 
 export async function nativeCallState(): Promise<NativeState> {
@@ -34,9 +37,13 @@ function handleFor(me: Person, nameOf: (id: string) => Person, first: NativeStat
   };
   const timer = setInterval(() => void nativeCallState().then(apply), 1000);
   const stop = () => clearInterval(timer);
-  const reject = (what: string) => Promise.reject(new Error(`${what} isn't available in background-call mode. Switch the call engine to Web in Settings.`));
+  const reject = (what: string) => Promise.reject(new Error(LINUX
+    ? `${what} needs WebRTC, which this system's WebKitGTK doesn't have. Voice works.`
+    : `${what} isn't available in background-call mode. Switch the call engine to Web in Settings.`));
   return {
     setMic: async (on) => { apply(await cmd<NativeState>("set_mic", { payload: { on } })); },
+    ...(LINUX ? { setDeaf: async (on: boolean) => { apply(await cmd<NativeState>("set_deaf", { payload: { on } })); } } : {}),
+    state: () => ({ mic: st.mic, cam: false, screen: false, deaf: !!st.deaf }),
     setCamera: () => reject("Camera"),
     setScreen: () => reject("Screen sharing"),
     leave: async () => { over = true; stop(); await cmd("end_call").catch(() => {}); },

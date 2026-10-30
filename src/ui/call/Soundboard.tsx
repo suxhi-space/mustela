@@ -1,12 +1,14 @@
 import { createEffect, createResource, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { useBack } from "../back";
 import { deleteSound, encodeWav, fetchSound, listSounds, MAX_SECONDS, peaks, saveSound, type Sound } from "../../lib/sounds";
 import { settings, updateSettings } from "../store";
 import { Icon } from "../icons";
 import { call, playSoundInCall } from "./state";
+import { TextWithEmoji } from "../chat/Markdown";
 
-/* One soundboard popover for the window, anchored to whatever opened it. */
-const [anchor, setAnchor] = createSignal<{ x: number; y: number } | null>(null);
-export const openSoundboard = (el: Element) => { const r = el.getBoundingClientRect(); setAnchor({ x: r.left + r.width / 2, y: r.top }); };
+/* One soundboard popover, anchored to whatever opened it, in that window (the main one or the call pop-out). */
+const [anchor, setAnchor] = createSignal<{ x: number; y: number; doc: Document } | null>(null);
+export const openSoundboard = (el: Element) => { const r = el.getBoundingClientRect(); setAnchor({ x: r.left + r.width / 2, y: r.top, doc: el.ownerDocument }); };
 
 let previewCtx: AudioContext | undefined;
 async function preview(data: ArrayBuffer, volume: number) {
@@ -87,9 +89,13 @@ function Trimmer(props: { file: File; source?: string; onDone(): void }) {
   );
 }
 
-export function Soundboard() {
+/** `win`: draw it in this window (the call pop-out); the main window by default. */
+export function Soundboard(props: { win?: Window }) {
+  const w = () => props.win ?? window;
   return (
-    <Show when={anchor()}>{(a) => {
+    <Show when={anchor()?.doc === w().document ? anchor() : null}>{(a) => {
+      const { innerWidth, innerHeight } = w();
+      useBack(() => setAnchor(null));
       const [sounds, { refetch }] = createResource(listSounds);
       const [adding, setAdding] = createSignal<{ file: File; source?: string } | null>(null);
       const [linkMode, setLinkMode] = createSignal(false);
@@ -129,8 +135,8 @@ export function Soundboard() {
       let input!: HTMLInputElement;
       const close = () => setAnchor(null);
       const esc = (e: KeyboardEvent) => e.key === "Escape" && close();
-      onMount(() => addEventListener("keydown", esc));
-      onCleanup(() => removeEventListener("keydown", esc));
+      onMount(() => w().addEventListener("keydown", esc));
+      onCleanup(() => w().removeEventListener("keydown", esc));
       const W = 340;
       const play = (s: Sound) => (call.active() ? void playSoundInCall(s.data, s.volume) : void preview(s.data, s.volume));
       return (
@@ -149,7 +155,7 @@ export function Soundboard() {
                   <For each={sounds()}>{(s) => (
                     <div class="sb-item">
                       <button class="sb-sound" onClick={() => play(s)} title={`${s.name} (${s.seconds.toFixed(1)}s)`}>
-                        <span class="sb-emoji">{s.emoji}</span><span class="sb-name">{s.name}</span>
+                        <span class="sb-emoji"><TextWithEmoji v={s.emoji} /></span><span class="sb-name">{s.name}</span>
                       </button>
                       <Show when={editing()}>
                         <button class="sb-del" aria-label={`Delete ${s.name}`} onClick={() => void remove(s)}><Icon name="close" size={12} /></button>

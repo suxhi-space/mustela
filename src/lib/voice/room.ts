@@ -1,6 +1,7 @@
 import {
-  DisconnectReason, LocalAudioTrack, Participant, RemoteParticipant, RemoteTrack, RemoteTrackPublication, Room, RoomEvent,
-  ScreenSharePresets, Track, VideoPresets,
+  type AudioProcessorOptions, type TrackProcessor,
+  DisconnectReason, LocalAudioTrack, LocalVideoTrack, Participant, RemoteParticipant, RemoteTrack, RemoteTrackPublication, Room, RoomEvent,
+  AudioPresets, ScreenSharePresets, Track, VideoPresets,
 } from "livekit-client";
 import type { Person, VoiceHandle, VoiceMember, VoicePrefs } from "../backend/types";
 
@@ -136,6 +137,16 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
   // Join with the microphone on unless you asked otherwise; a refused mic doesn't stop you listening.
   if (!prefs.joinMuted) await room.localParticipant.setMicrophoneEnabled(true).catch(() => {});
 
+  /**
+   * Soundboard while you're muted: LiveKit's mute silences the whole mic track, sounds included. So a sound
+   * opens the track just for itself, with your voice held at zero, and it mutes again when the sound ends.
+   * You show as muted throughout and your voice never goes out.
+   */
+  let heldOpen = false, soundsPlaying = 0;
+  const voiceGain = (open: boolean) => (open && !heldOpen ? 1 : 0);
+  /** The microphone's mixer (see the soundboard below), once the mic is published. */
+  let mixer: { ctx: AudioContext; voice: GainNode; sounds: GainNode; src: MediaStreamAudioSourceNode; dest: MediaStreamAudioDestinationNode } | null = null;
+
   /* ---- input sensitivity: a noise gate in front of the microphone ---- */
   let gate: { ctx: AudioContext; timer: number; clone: MediaStreamTrack } | null = null;
   let sens = { auto: prefs.autoSensitivity, threshold: prefs.threshold };
@@ -145,6 +156,7 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
     clearInterval(gate.timer); gate.clone.stop(); void gate.ctx.close().catch(() => {});
     gate = null;
     const t = micTrack(); if (t) t.enabled = true;
+    if (mixer) mixer.voice.gain.value = voiceGain(true);
   }
   function startGate() {
     stopGate();
@@ -162,7 +174,9 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       const db = 20 * Math.log10(Math.sqrt(s / b.length) || 1e-8);
       const now = performance.now();
       if (db > sens.threshold) lastLoud = now;
-      t.enabled = now - lastLoud < 280;
+      const open = now - lastLoud < 280;
+      // With the mixer in place the gate closes only your voice, never a soundboard sound.
+      if (mixer) { mixer.voice.gain.value = voiceGain(open); t.enabled = true; } else t.enabled = open;
     }, 20);
     gate = { ctx: gctx, timer, clone };
   }
@@ -170,16 +184,45 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
   room.on(RoomEvent.LocalTrackUnpublished, (pub) => { if (pub.source === Track.Source.Microphone) { stopGate(); unmeter(me.id); } });
   if (room.localParticipant.isMicrophoneEnabled) { startGate(); const t = micTrack(); if (t) meter(me.id, t); }
 
-  /* ---- soundboard: a separate published track fed by Web Audio ---- */
-  let sb: { dest: MediaStreamAudioDestinationNode; track: LocalAudioTrack } | null = null;
-  async function soundboard() {
-    if (sb) return sb;
-    const dest = ctx.createMediaStreamDestination();
-    const track = new LocalAudioTrack(dest.stream.getAudioTracks()[0]!, undefined, false);
-    await room.localParticipant.publishTrack(track, { name: "soundboard", source: Track.Source.Unknown, dtx: false });
-    sb = { dest, track };
-    return sb;
+  /* ---- soundboard: mixed into the microphone ----
+   * Stoat's own apps only play people's microphone, so a separate soundboard track was silent for them.
+   * Instead the mic goes through a small mixer (a LiveKit audio processor) and sounds are added to it.
+   * Sounds play while you're muted too, like Discord's soundboard (see heldOpen above). */
+  const processor: TrackProcessor<Track.Kind.Audio, AudioProcessorOptions> = {
+    name: "mustela-soundboard-mix",
+    async init(o) {
+      const c = o.audioContext;
+      const src = c.createMediaStreamSource(new MediaStream([o.track]));
+      const dest = c.createMediaStreamDestination();
+      const sounds = c.createGain(), voice = c.createGain();
+      src.connect(voice).connect(dest);
+      sounds.connect(dest);
+      mixer = { ctx: c, voice, sounds, src, dest };
+      processor.processedTrack = dest.stream.getAudioTracks()[0];
+    },
+    async restart(o) { await processor.destroy(); await processor.init(o); },
+    async destroy() { mixer?.src.disconnect(); mixer?.voice.disconnect(); mixer?.sounds.disconnect(); mixer = null; },
+  };
+  const micPub = () => room.localParticipant.getTrackPublication(Track.Source.Microphone);
+  async function attachMixer() {
+    const t = micPub()?.track as LocalAudioTrack | undefined;
+    if (!t || (t as any).getProcessor?.() === processor) return;
+    try { await t.setProcessor(processor); } catch { /* this system can't process audio; sounds won't reach the call */ }
   }
+  room.on(RoomEvent.LocalTrackPublished, (pub) => { if (pub.source === Track.Source.Microphone) void attachMixer(); });
+  void attachMixer();
+
+  /** Who's playing a sound right now (you, and other Mustela users who said so), for the ring colour. */
+  const soundUntil = new Map<string, number>();
+  const announceSound = (id: string, seconds: number) => {
+    soundUntil.set(id, performance.now() + seconds * 1000);
+    ping();
+    setTimeout(ping, seconds * 1000 + 30);
+  };
+  room.on(RoomEvent.DataReceived, (payload: Uint8Array, p?: RemoteParticipant, _k?: unknown, topic?: string) => {
+    if (topic !== "mustela.sound" || !p) return;
+    try { const d = Number(JSON.parse(dec.decode(payload)).d); if (d > 0 && d <= 12) announceSound(p.identity, d); } catch { /* not ours */ }
+  });
 
   let ended = false;
   const cleanup = () => {
@@ -201,13 +244,42 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
   });
 
   let screenTrackOff: (() => void) | undefined;
+  /** A share from Mustela's own capture, while it's on. */
+  let nativeShare: { video: LocalVideoTrack; audio?: LocalAudioTrack; capture: { stop(): void } } | null = null;
+  const unpublishNative = async (n: NonNullable<typeof nativeShare>) => {
+    await room.localParticipant.unpublishTrack(n.video).catch(() => {});
+    if (n.audio) await room.localParticipant.unpublishTrack(n.audio).catch(() => {});
+    n.capture.stop();
+  };
   return {
     auth: { url, token },
-    setMic: async (on) => void (await room.localParticipant.setMicrophoneEnabled(on)),
+    setMic: async (on) => {
+      // A sound is playing through your muted mic: unmuting just lets your voice in; muting is already true.
+      if (heldOpen) { if (on) { heldOpen = false; if (mixer) mixer.voice.gain.value = 1; ping(); } return; }
+      await room.localParticipant.setMicrophoneEnabled(on);
+    },
     setCamera: async (on) => void (await room.localParticipant.setCameraEnabled(on)),
     setScreen: async (on, o) => {
       screenTrackOff?.(); screenTrackOff = undefined;
+      if (nativeShare) { const n = nativeShare; nativeShare = null; await unpublishNative(n); }
       if (!on) { await room.localParticipant.setScreenShareEnabled(false); ping(); return; }
+      if (o?.native) {
+        // Mustela's own capture: publish its tracks as a normal screen share (same presets as Stoat's).
+        const q = SCREEN[o.quality ?? prefs.screenQuality] ?? SCREEN["720p30"];
+        const video = new LocalVideoTrack(o.native.video, undefined, true);
+        await room.localParticipant.publishTrack(video, { source: Track.Source.ScreenShare, screenShareEncoding: q.encoding, simulcast: false, videoCodec: "vp8" });
+        let audio: LocalAudioTrack | undefined;
+        if (o.native.audio) {
+          audio = new LocalAudioTrack(o.native.audio, undefined, true);
+          // Game and video sound, not a voice: stereo at music quality, sent continuously (no voice-style gaps).
+          await room.localParticipant.publishTrack(audio, { source: Track.Source.ScreenShareAudio, audioPreset: AudioPresets.musicHighQualityStereo, forceStereo: true, dtx: false, red: false });
+        }
+        nativeShare = { video, audio, capture: o.native };
+        const mine = nativeShare;
+        o.native.onEnded(() => { if (nativeShare === mine && mine) { nativeShare = null; void unpublishNative(mine).then(ping); } });
+        ping();
+        return;
+      }
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("NoDisplayMedia");
       const q = SCREEN[o?.quality ?? prefs.screenQuality] ?? SCREEN["720p30"];
       // Same capture settings as Stoat's client: raw stream audio, no voice processing on it.
@@ -232,20 +304,37 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
     },
     setOutputVolume: (v) => { outVolume = v / 100; applyAll(); },
     setSensitivity: (auto, threshold) => { const was = sens.auto; sens = { auto, threshold }; if (was !== auto || (!auto && !gate)) startGate(); },
-    state: () => ({ mic: room.localParticipant.isMicrophoneEnabled, cam: room.localParticipant.isCameraEnabled, screen: room.localParticipant.isScreenShareEnabled, deaf }),
+    state: () => ({ mic: room.localParticipant.isMicrophoneEnabled && !heldOpen, cam: room.localParticipant.isCameraEnabled, screen: room.localParticipant.isScreenShareEnabled || !!nativeShare, deaf }),
     playSound: async (data, volume = 1) => {
-      const s = await soundboard();
-      if (ctx.state === "suspended") await ctx.resume();
-      const b = await ctx.decodeAudioData(data.slice(0));
-      const src = ctx.createBufferSource();
+      // Sounds go out through the microphone, so it has to exist; joining muted publishes it silenced.
+      if (!micPub()) { await room.localParticipant.setMicrophoneEnabled(true); await micPub()?.mute(); }
+      await attachMixer();
+      const m = mixer;
+      if (!m) throw new Error("Sounds can't be mixed into the call on this system.");
+      if (m.ctx.state === "suspended") await m.ctx.resume();
+      const b = await m.ctx.decodeAudioData(data.slice(0));
+      const src = m.ctx.createBufferSource();
       src.buffer = b;
-      const gain = ctx.createGain();
+      const gain = m.ctx.createGain();
       gain.gain.value = volume;
       src.connect(gain);
-      gain.connect(s.dest);                  // to everyone in the call
-      if (!deaf) gain.connect(ctx.destination); // and to you
+      gain.connect(m.sounds);                     // to everyone in the call
+      if (!deaf) gain.connect(m.ctx.destination); // and to you
+      const pub = micPub();
+      if (pub?.isMuted && !heldOpen) { heldOpen = true; m.voice.gain.value = 0; await pub.unmute(); }
+      soundsPlaying++;
+      src.onended = () => {
+        gain.disconnect(); src.disconnect();
+        if (--soundsPlaying > 0 || !heldOpen) return;
+        heldOpen = false;
+        void micPub()?.mute().then(() => { if (mixer) mixer.voice.gain.value = 1; ping(); });
+      };
       src.start();
+      const secs = Math.min(10, b.duration);
+      announceSound(me.id, secs);
+      void room.localParticipant.publishData(enc.encode(JSON.stringify({ d: secs })), { reliable: true, topic: "mustela.sound" }).catch(() => {});
     },
+    soundboard: () => { const now = performance.now(); return [...soundUntil].filter(([, t]) => t > now).map(([id]) => id); },
     streams: () => [...room.remoteParticipants.values()].filter((p) => p.getTrackPublication(Track.Source.ScreenShare)).map((p) => ({
       id: p.identity,
       watching: !!p.getTrackPublication(Track.Source.ScreenShare)?.isSubscribed,
@@ -270,9 +359,10 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       reactSubs.forEach((f) => f(me.id, emoji));
     },
     onReaction: (cb) => (reactSubs.add(cb), () => void reactSubs.delete(cb)),
-    leave: async () => { cleanup(); await room.disconnect(); },
+    leave: async () => { nativeShare?.capture.stop(); nativeShare = null; cleanup(); await room.disconnect(); },
     participants: () => [member(room.localParticipant), ...[...room.remoteParticipants.values()].map(member)],
-    speaking: () => (meters.size ? [...speakingNow] : room.activeSpeakers.map((p) => p.identity)),
+    // While a sound holds your muted mic open, your ring stays off (your voice isn't going out).
+    speaking: () => (meters.size ? [...speakingNow] : room.activeSpeakers.map((p) => p.identity)).filter((id) => !(heldOpen && id === me.id)),
     video: (id, source) => {
       const p = id === me.id ? room.localParticipant : room.remoteParticipants.get(id);
       const pub = source === "camera" ? p?.getTrackPublication(Track.Source.Camera)

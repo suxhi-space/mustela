@@ -3,6 +3,7 @@ import { instanceLabel } from "../Accounts";
 import { Group, Row } from "../controls";
 import { confirmDialog, copy, toast } from "../menu";
 import { backend, book, DEFAULT_DEVICE, platform, updateDevice } from "../store";
+import { UpdatesGroup } from "../updates";
 
 export const APP_VERSION = __APP_VERSION__;
 const SOURCE = "https://github.com/stoatchat";
@@ -18,6 +19,7 @@ export function AdvancedPage() {
         <Row icon="globe" label="Stoat instance" hint={instanceLabel(acc()?.baseURL)} />
         <Row icon="link" label="Stoat on GitHub" hint="The chat service Mustela connects to" onClick={() => window.open(SOURCE, "_blank", "noopener")} chevron />
       </Group>
+      <UpdatesGroup />
       <Group title="Troubleshooting" hint="None of these sign you out or touch your account.">
         <Row label="Reload" hint="Reconnects and redraws everything" onClick={() => location.reload()} chevron />
         <Row label="Forget cached profiles" hint="Other people's profiles are fetched again" onClick={() => { (backend() as any)?.profiles?.clear?.(); toast("Profiles will refresh"); }} chevron />

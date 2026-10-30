@@ -1,10 +1,13 @@
+import { ulid } from "../lib/ulid";
+import { composer } from "./chat/Composer";
 import { For } from "solid-js";
 import type { ChannelInfo, Msg, NotifyLevel, Person, Space } from "../lib/backend/types";
 import { attempt, closeMenu, confirmDialog, copy, openMenu, promptDialog, toast, type MenuItem } from "./menu";
-import { openChannel, setProfileOpen, setServerSettings } from "./nav";
+import { openChannel, setChannelSettings, setProfileOpen, setServerSettings } from "./nav";
 import { openEmojiPicker } from "./chat/overlays";
 import { backend } from "./store";
-import { pinItems } from "./pins";
+import { channelPinItems, pinItems } from "./pins";
+import { UEmoji } from "./chat/UEmoji";
 
 /**
  * The right-click menus, matching what Stoat's own client offers for each
@@ -45,7 +48,7 @@ function notifyItems(kind: "server" | "channel", id: string): MenuItem {
   };
 }
 
-async function invite(channelId: string) {
+export async function inviteTo(channelId: string) {
   await attempt(async () => {
     const code = await b().createInvite(channelId);
     const base = b().linkFor(channelId).replace(/\/(server|channel)\/.*$/, "");
@@ -66,10 +69,10 @@ export function serverMenu(e: MouseEvent, s: Space, extra: MenuItem[] = []) {
     muteItems("server", s.id),
     notifyItems("server", s.id),
     { sep: true },
-    ...(firstText && (info?.perms.invite ?? true) ? [{ label: "Create invite", icon: "user-plus", onSelect: () => invite(firstText.id) } as MenuItem] : []),
-    { label: "Edit your identity", icon: "user", onSelect: () => editIdentity(s) },
+    ...(firstText && (info?.perms.invite ?? true) ? [{ label: "Create invite", icon: "user-plus", onSelect: () => inviteTo(firstText.id) } as MenuItem] : []),
+    { label: "Your profile in this server", icon: "user", onSelect: () => setServerSettings({ id: s.id, tab: "identity" }) },
     { label: "Server settings", icon: "gear", onSelect: () => setServerSettings({ id: s.id }) },
-    ...(info?.perms.manageChannels ? [{ label: "Create channel", icon: "plus", onSelect: () => createChannel(s.id) } as MenuItem] : []),
+    ...(info?.perms.manageChannels ? createItems(s.id) : []),
     { sep: true },
     { label: "Copy server ID", icon: "id", onSelect: () => copy(s.id, "ID copied") },
     ...(extra.length ? [{ sep: true } as MenuItem, ...extra] : []),
@@ -81,17 +84,60 @@ async function leave(s: Space) {
   if (await confirmDialog(`Leave ${s.name}?`, "You'll need a new invite to come back.", "Leave server", true)) await attempt(() => b().leaveServer(s.id), "Left the server");
 }
 
-async function editIdentity(s: Space) {
-  const cur = await b().identity(s.id).catch(() => ({ nickname: undefined }));
-  const v = await promptDialog(`Your identity in ${s.name}`, "Nickname", "Save", cur.nickname ?? "",
-    { body: "Only this server sees your nickname. Leave it empty to use your display name.", placeholder: b().me.name, max: 32 });
-  if (v !== null) await attempt(() => b().editIdentity(s.id, { nickname: v.trim() || null }), "Saved");
-}
-
-export async function createChannel(serverId: string, kind: "text" | "voice" = "text") {
+/** Creates a channel (Stoat asks text or voice in one dialog; we ask the kind from the menu), optionally inside a category. */
+export async function createChannel(serverId: string, kind: "text" | "voice" = "text", categoryId?: string) {
   const name = await promptDialog(kind === "voice" ? "Create voice channel" : "Create text channel", "Channel name", "Create channel", "", { placeholder: kind === "voice" ? "Lounge" : "new-channel", max: 32 });
   if (!name?.trim()) return;
-  await attempt(async () => { const id = await b().createChannel(serverId, { name: name.trim(), kind }); openChannel(id); }, "Channel created");
+  await attempt(async () => {
+    const id = await b().createChannel(serverId, { name: name.trim(), kind });
+    if (categoryId) {
+      const cats = b().categories(serverId).map((c) => (c.id === categoryId ? { ...c, channels: [...c.channels.filter((x) => x !== id), id] } : { ...c, channels: c.channels.filter((x) => x !== id) }));
+      await b().saveCategories(serverId, cats);
+    }
+    openChannel(id);
+  }, "Channel created");
+}
+
+export async function createCategory(serverId: string) {
+  const title = await promptDialog("Create category", "Category name", "Create category", "", { placeholder: "Text channels", max: 32 });
+  if (!title?.trim()) return;
+  await attempt(() => b().saveCategories(serverId, [...b().categories(serverId), { id: ulid(), title: title.trim(), channels: [] }]), "Category created");
+}
+
+const createItems = (serverId: string, categoryId?: string): MenuItem[] => [
+  { label: "Create channel", icon: "plus", sub: [
+    { label: "Text channel", icon: "hash", onSelect: () => createChannel(serverId, "text", categoryId) },
+    { label: "Voice channel", icon: "speaker", onSelect: () => createChannel(serverId, "voice", categoryId) },
+  ] },
+  { label: "Create category", icon: "folder", onSelect: () => createCategory(serverId) },
+];
+
+/** Right-click on empty space in a server's channel list. */
+export function channelListMenu(e: MouseEvent, serverId: string) {
+  if (!b().serverInfo(serverId)?.perms.manageChannels) return;
+  openMenu(e, createItems(serverId));
+}
+
+/** Right-click on a category header: like Stoat's. */
+export function categoryMenu(e: MouseEvent, serverId: string, categoryId: string | undefined, title: string, channels: ChannelInfo[]) {
+  const can = !!b().serverInfo(serverId)?.perms.manageChannels;
+  const unread = channels.some((c) => c.unread);
+  const items: MenuItem[] = [{ label: "Mark as read", icon: "check-all", disabled: !unread, onSelect: () => channels.forEach((c) => b().markRead({ channel: c.id })) }];
+  if (can) items.push({ sep: true }, ...createItems(serverId, categoryId));
+  if (can && categoryId) {
+    items.push(
+      { sep: true },
+      { label: "Rename category", icon: "pencil", onSelect: async () => {
+        const v = await promptDialog("Rename category", "Category name", "Save", title, { max: 32 });
+        if (v?.trim() && v.trim() !== title) await attempt(() => b().saveCategories(serverId, b().categories(serverId).map((c) => (c.id === categoryId ? { ...c, title: v.trim() } : c))), "Saved");
+      } },
+      { label: "Delete category", icon: "trash", danger: true, onSelect: async () => {
+        if (await confirmDialog(`Delete ${title}?`, "Its channels aren't deleted. They move out of the category.", "Delete category", true)) await attempt(() => b().saveCategories(serverId, b().categories(serverId).filter((c) => c.id !== categoryId)), "Category deleted");
+      } },
+    );
+  }
+  if (categoryId) items.push({ sep: true }, { label: "Copy category ID", icon: "id", onSelect: () => copy(categoryId, "ID copied") });
+  openMenu(e, items);
 }
 
 /* ---------------------------------------------------------------- channels */
@@ -100,43 +146,29 @@ export function channelMenu(e: MouseEvent, c: ChannelInfo, serverId?: string) {
   const info = serverId ? b().serverInfo(serverId) : null;
   const direct = c.kind === "dm" || c.kind === "group";
   const items: MenuItem[] = [];
-  if (c.kind === "dm" && c.peer) {
-    items.push({ label: "Profile", icon: "user", onSelect: () => setProfileOpen(c.peer!) });
-  }
+  if (c.kind === "dm" && c.peer) items.push({ label: "Profile", icon: "user", onSelect: () => setProfileOpen(c.peer!) });
   if (direct) items.push(...pinItems(c), { sep: true });
-  items.push(
-    { label: "Mark as read", icon: "check-all", disabled: !c.unread, onSelect: () => b().markRead({ channel: c.id }) },
-    { sep: true },
-    muteItems("channel", c.id),
-    notifyItems("channel", c.id),
-    { sep: true },
-  );
-  if (!direct && (info?.perms.invite ?? false)) items.push({ label: "Create invite", icon: "user-plus", onSelect: () => invite(c.id) });
-  items.push({ label: "Copy link", icon: "link", onSelect: () => copy(b().linkFor(c.id), "Link copied") });
-  if (info?.perms.manageChannels) {
+  else items.push(...channelPinItems(c), { sep: true });
+  // Same order as Stoat: read, invite, then notifications, then managing.
+  if (c.unread || c.mentions) items.push({ label: "Mark as read", icon: "check-all", onSelect: () => b().markRead({ channel: c.id }) });
+  if (!direct && (info?.perms.invite ?? false)) items.push({ label: "Create invite", icon: "user-plus", onSelect: () => inviteTo(c.id) });
+  items.push({ sep: true }, muteItems("channel", c.id), notifyItems("channel", c.id));
+  if (serverId && info?.perms.manageChannels) {
     items.push(
       { sep: true },
-      { label: "Rename channel", icon: "pencil", onSelect: () => renameChannel(c) },
-      { label: "Edit description", icon: "note", onSelect: () => describeChannel(c) },
+      ...createItems(serverId, c.categoryId),
+      { label: "Channel settings", icon: "gear", onSelect: () => setChannelSettings({ id: c.id }) },
       { label: "Delete channel", icon: "trash", danger: true, onSelect: () => deleteChannel(c) },
     );
+  } else if (serverId) {
+    items.push({ sep: true }, { label: "Channel settings", icon: "gear", onSelect: () => setChannelSettings({ id: c.id }) });
   }
-  if (direct) {
-    items.push({ sep: true }, { label: c.kind === "group" ? "Leave group" : "Close conversation", icon: "close", danger: true, onSelect: () => closeDM(c) });
-  }
-  items.push({ sep: true }, { label: "Copy channel ID", icon: "id", onSelect: () => copy(c.id, "ID copied") });
+  if (direct) items.push({ sep: true }, { label: c.kind === "group" ? "Leave group" : "Close conversation", icon: "close", danger: true, onSelect: () => closeDM(c) });
+  items.push({ sep: true }, { label: "Copy link", icon: "link", onSelect: () => copy(b().linkFor(c.id), "Link copied") }, { label: "Copy channel ID", icon: "id", onSelect: () => copy(c.id, "ID copied") });
   if (c.kind === "dm" && c.peer) items.push(...friendItems(c.peer));
   openMenu(e, items);
 }
 
-async function renameChannel(c: ChannelInfo) {
-  const v = await promptDialog("Rename channel", "Channel name", "Save", c.name, { max: 32 });
-  if (v?.trim() && v.trim() !== c.name) await attempt(() => b().editChannel(c.id, { name: v.trim() }), "Saved");
-}
-async function describeChannel(c: ChannelInfo) {
-  const v = await promptDialog("Channel description", "Description", "Save", c.description ?? "", { max: 1024 });
-  if (v !== null) await attempt(() => b().editChannel(c.id, { description: v }), "Saved");
-}
 async function deleteChannel(c: ChannelInfo) {
   if (await confirmDialog(`Delete #${c.name}?`, "Every message in it is deleted too. This can't be undone.", "Delete channel", true)) await attempt(() => b().deleteChannel(c.id), "Channel deleted");
 }
@@ -164,13 +196,7 @@ function friendItems(p: Person): MenuItem[] {
 
 /** Puts @mention into the message box, like clicking "Mention" in Stoat. */
 function mention(p: Person) {
-  const ta = document.querySelector(".composer textarea") as HTMLTextAreaElement | null;
-  if (!ta) return;
-  const add = `<@${p.id}> `;
-  const at = ta.selectionStart ?? ta.value.length;
-  ta.value = ta.value.slice(0, at) + (at && !/\s$/.test(ta.value.slice(0, at)) ? " " : "") + add + ta.value.slice(at);
-  ta.dispatchEvent(new Event("input", { bubbles: true }));
-  ta.focus();
+  composer.insert(`<@${p.id}> `);
 }
 
 export function userMenu(e: MouseEvent, p: Person, serverId?: string) {
@@ -210,12 +236,12 @@ export function messageMenu(e: MouseEvent, m: Msg, act: MsgMenuActions, serverId
   const info = serverId ? b().serverInfo(serverId) : null;
   const canManage = mine || !serverId || !!info?.perms.manageMessages;
   const sel = getSelection()?.toString() ?? "";
-  const react = (k: string) => void b().react(m.channelId, m.id, k, true).catch(() => toast("Couldn't add that reaction.", true));
+  const react = (k: string) => void b().react(m.channelId, m.id, k, true).catch((e) => toast((e as Error)?.message || "Couldn't add that reaction.", true));
   const anchor = (t.closest(".msg") as HTMLElement | null) ?? t;
   const items: MenuItem[] = [
     { custom: () => (
       <div class="ctx-quick" role="group" aria-label="Quick reactions">
-        <For each={QUICK}>{(q) => <button aria-label={`React ${q}`} onClick={() => { closeMenu(); react(q); }}>{q}</button>}</For>
+        <For each={QUICK}>{(q) => <button aria-label={`React ${q}`} onClick={() => { closeMenu(); react(q); }}><UEmoji e={q} /></button>}</For>
       </div>
     ) },
     { label: "Add reaction", icon: "smile-plus", onSelect: () => openEmojiPicker(anchor.querySelector(".msg-body") ?? anchor, ({ key }) => react(key)) },

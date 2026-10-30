@@ -100,17 +100,76 @@ pub struct AppImageStatus { is_app_image: bool, installed: bool, path: Option<St
 #[cfg(target_os = "linux")]
 fn home() -> Option<std::path::PathBuf> { std::env::var_os("HOME").map(std::path::PathBuf::from) }
 
+/// Where this AppImage lives now. Installing moves it while it runs, so the moved path is kept here
+/// (the APPIMAGE variable still names the old place) and the updater replaces the right file.
+#[cfg(target_os = "linux")]
+static APPIMAGE_NOW: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+#[cfg(target_os = "linux")]
+pub fn appimage_path() -> Option<std::path::PathBuf> {
+    APPIMAGE_NOW.lock().ok().and_then(|p| p.clone()).or_else(|| std::env::var_os("APPIMAGE").map(std::path::PathBuf::from))
+}
+
+#[cfg(target_os = "linux")]
+const ENTRY: &str = "mustela.desktop";
+#[cfg(target_os = "linux")]
+fn desktop_entry(exec: &std::path::Path) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName=Mustela\nComment=Chat on Stoat\nExec=\"{}\" %U\nIcon=mustela\nTerminal=false\nCategories=Network;InstantMessaging;Chat;\nStartupWMClass=mustela\nKeywords=stoat;revolt;chat;voice;\n",
+        exec.display()
+    )
+}
+#[cfg(target_os = "linux")]
+fn install_icons(h: &std::path::Path) {
+    for (size, bytes) in [("128x128", &include_bytes!("../icons/128x128.png")[..]), ("256x256", &include_bytes!("../icons/128x128@2x.png")[..])] {
+        let dir = h.join(format!(".local/share/icons/hicolor/{size}/apps"));
+        if std::fs::create_dir_all(&dir).is_ok() { let _ = std::fs::write(dir.join("mustela.png"), bytes); }
+    }
+}
+
+/// On every start, like VRCX: an AppImage already in ~/Applications gets its fixed name back, and an
+/// existing menu entry (and desktop shortcut) is pointed at wherever the AppImage is now, so shortcuts
+/// never break after a move, a rename or an update.
+#[cfg(target_os = "linux")]
+pub fn appimage_on_start() {
+    use std::fs;
+    let (Some(mut cur), Some(h)) = (appimage_path(), home()) else { return };
+    let fixed = h.join("Applications/Mustela.AppImage");
+    if cur.parent() == fixed.parent() && cur != fixed && fs::rename(&cur, &fixed).is_ok() {
+        cur = fixed;
+        if let Ok(mut p) = APPIMAGE_NOW.lock() { *p = Some(cur.clone()); }
+    }
+    let app_entry = h.join(".local/share/applications").join(ENTRY);
+    if !app_entry.exists() { return; } // not installed: the app offers to install instead
+    let want = desktop_entry(&cur);
+    if fs::read_to_string(&app_entry).ok().as_deref() != Some(want.as_str()) {
+        let _ = fs::write(&app_entry, &want);
+        install_icons(&h);
+        let _ = std::process::Command::new("update-desktop-database").arg(app_entry.parent().unwrap()).status();
+    }
+    if let Some(desk) = desktop_dir(&h) {
+        let f = desk.join(ENTRY);
+        if f.exists() && fs::read_to_string(&f).ok().as_deref() != Some(want.as_str()) { let _ = fs::write(&f, &want); }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_dir(h: &std::path::Path) -> Option<std::path::PathBuf> {
+    std::process::Command::new("xdg-user-dir").arg("DESKTOP").output().ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| std::path::PathBuf::from(s.trim()))
+        .filter(|p| p.is_dir() && p != h).or_else(|| Some(h.join("Desktop")).filter(|p| p.is_dir()))
+}
+
 /// Running from an AppImage? And is it already in ~/Applications with a menu entry?
 #[tauri::command]
 pub fn appimage_status() -> AppImageStatus {
     #[cfg(target_os = "linux")]
     {
-        let path = std::env::var("APPIMAGE").ok();
+        let path = appimage_path();
         let installed = match (&path, home()) {
-            (Some(p), Some(h)) => std::path::Path::new(p).starts_with(h.join("Applications")) && h.join(".local/share/applications/mustela.desktop").exists(),
+            (Some(p), Some(h)) => p.starts_with(h.join("Applications")) && h.join(".local/share/applications").join(ENTRY).exists(),
             _ => false,
         };
-        return AppImageStatus { is_app_image: path.is_some(), installed, path };
+        return AppImageStatus { is_app_image: path.is_some(), installed, path: path.map(|p| p.to_string_lossy().into_owned()) };
     }
     #[cfg(not(target_os = "linux"))]
     AppImageStatus { is_app_image: false, installed: false, path: None }
@@ -124,35 +183,29 @@ pub fn appimage_install(desktop_shortcut: bool) -> Result<String, String> {
     {
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
-        let src = std::env::var("APPIMAGE").map_err(|_| "Mustela isn't running from an AppImage.".to_string())?;
+        let src = appimage_path().ok_or_else(|| "Mustela isn't running from an AppImage.".to_string())?;
         let h = home().ok_or("No home folder.")?;
         let apps = h.join("Applications");
         fs::create_dir_all(&apps).map_err(|e| e.to_string())?;
         let dest = apps.join("Mustela.AppImage");
-        if std::path::Path::new(&src) != dest {
-            // rename when on the same disk, else copy then remove; the running copy keeps working either way
+        if src != dest {
+            // Moved, not copied (no second copy left behind). Across disks: copy, then remove the original.
+            // The running Mustela keeps working either way.
             if fs::rename(&src, &dest).is_err() {
                 fs::copy(&src, &dest).map_err(|e| format!("Couldn't copy the AppImage: {e}"))?;
                 let _ = fs::remove_file(&src);
             }
         }
         fs::set_permissions(&dest, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
-        let icon_dir = h.join(".local/share/icons/hicolor/256x256/apps");
-        fs::create_dir_all(&icon_dir).map_err(|e| e.to_string())?;
-        fs::write(icon_dir.join("mustela.png"), include_bytes!("../icons/128x128@2x.png")).map_err(|e| e.to_string())?;
-        let entry = format!(
-            "[Desktop Entry]\nType=Application\nName=Mustela\nComment=Chat on Stoat\nExec=\"{}\" %U\nIcon=mustela\nTerminal=false\nCategories=Network;InstantMessaging;Chat;\nStartupWMClass=mustela\nKeywords=stoat;revolt;chat;voice;\n",
-            dest.display()
-        );
+        if let Ok(mut p) = APPIMAGE_NOW.lock() { *p = Some(dest.clone()); }
+        install_icons(&h);
+        let entry = desktop_entry(&dest);
         let app_dir = h.join(".local/share/applications");
         fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
-        fs::write(app_dir.join("mustela.desktop"), &entry).map_err(|e| e.to_string())?;
+        fs::write(app_dir.join(ENTRY), &entry).map_err(|e| e.to_string())?;
         if desktop_shortcut {
-            let desk = std::process::Command::new("xdg-user-dir").arg("DESKTOP").output().ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| std::path::PathBuf::from(s.trim()))
-                .filter(|p| p.is_dir()).unwrap_or_else(|| h.join("Desktop"));
-            if desk.is_dir() {
-                let f = desk.join("mustela.desktop");
+            if let Some(desk) = desktop_dir(&h) {
+                let f = desk.join(ENTRY);
                 fs::write(&f, &entry).map_err(|e| e.to_string())?;
                 let _ = fs::set_permissions(&f, fs::Permissions::from_mode(0o755));
                 // GNOME needs the launcher marked trusted before it will run it

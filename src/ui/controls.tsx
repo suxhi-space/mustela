@@ -1,6 +1,7 @@
 import { For, Show, type JSX } from "solid-js";
 import type { Rating } from "../lib/decor/spec";
 import { Icon } from "./icons";
+import { openMenu, type MenuItem } from "./menu";
 
 /** iOS-style grouped table: an optional title, rounded container, hairline-separated rows. */
 export function Group(props: { title?: string; count?: number; hint?: string; children: JSX.Element }) {
@@ -58,11 +59,26 @@ export function Slider(props: { value: number; min: number; max: number; onChang
   );
 }
 
+/**
+ * A dropdown that opens Mustela's own menu (the system's list doesn't follow the theme: light
+ * grey text on white in dark mode on Windows). Arrow keys on the button step through the choices.
+ */
 export function Select<T extends string>(props: { value: T; options: { v: T; label: string }[]; onChange(v: T): void; label: string }) {
+  const current = () => props.options.find((o) => o.v === props.value)?.label ?? "";
+  const open = (el: HTMLElement) => openMenu(el, props.options.map((o): MenuItem => ({ label: o.label, checked: o.v === props.value, onSelect: () => props.onChange(o.v) })), { width: el.offsetWidth });
+  const step = (d: number) => {
+    const i = props.options.findIndex((o) => o.v === props.value);
+    const n = props.options[Math.max(0, Math.min(props.options.length - 1, i + d))];
+    if (n && n.v !== props.value) props.onChange(n.v);
+  };
   return (
-    <select class="select" aria-label={props.label} value={props.value} onChange={(e) => props.onChange(e.currentTarget.value as T)}>
-      <For each={props.options}>{(o) => <option value={o.v}>{o.label}</option>}</For>
-    </select>
+    <button type="button" class="select" aria-label={props.label} aria-haspopup="menu" data-value={props.value} onClick={(e) => open(e.currentTarget)}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); step(e.key === "ArrowDown" ? 1 : -1); }
+        else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e.currentTarget); }
+      }}>
+      <span class="select-label">{current()}</span><Icon name="down" size={14} class="select-chev" />
+    </button>
   );
 }
 

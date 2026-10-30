@@ -1,7 +1,7 @@
 import type { ChannelInfo } from "../lib/backend/types";
 import type { PinGroup } from "../lib/sync/settings";
 import { confirmDialog, promptDialog, type MenuItem } from "./menu";
-import { settings, updateSettings } from "./store";
+import { ext, settings, updateExt, updateSettings } from "./store";
 
 /**
  * Pinned conversations. Groups have a name and a color, live in the synced
@@ -14,7 +14,7 @@ const COLOR_NAMES = ["Amber", "Red", "Pink", "Violet", "Blue", "Teal", "Green", 
 
 export const pinOf =(channelId: string) => settings().pins.items.find((i) => i.channel === channelId)?.group;
 
-function setPin(channel: string, group: string | null) {
+export function setPin(channel: string, group: string | null) {
   updateSettings((s) => ({ ...s, pins: { ...s.pins, items: [...s.pins.items.filter((i) => i.channel !== channel), ...(group ? [{ channel, group }] : [])] } }));
 }
 
@@ -58,5 +58,42 @@ export function groupItems(g: PinGroup): MenuItem[] {
         updateSettings((s) => ({ ...s, pins: { groups: s.pins.groups.filter((x) => x.id !== g.id), items: s.pins.items.filter((i) => i.group !== g.id) } }));
       },
     } as MenuItem]),
+  ];
+}
+
+/* ---- server channels: pinned to the top of their server, or favourites on Home (synced, see lib/sync/ext.ts) ---- */
+
+export const isChannelPinned = (id: string) => ext().channelPins.includes(id);
+export const isFavourite = (id: string) => ext().favourites.includes(id);
+const toggle = (list: string[], id: string, on: boolean) => (on ? [...list.filter((x) => x !== id), id] : list.filter((x) => x !== id));
+export const setChannelPinned = (id: string, on: boolean) => updateExt((s) => ({ ...s, channelPins: toggle(s.channelPins, id, on) }));
+export const setFavourite = (id: string, on: boolean) => updateExt((s) => ({ ...s, favourites: toggle(s.favourites, id, on) }));
+
+/** Moves `id` to just before `before` (or the end) in one of the ordered lists. */
+export function reorderPinned(key: "channelPins" | "favourites", id: string, before: string | null) {
+  updateExt((s) => {
+    const list = s[key].filter((x) => x !== id);
+    const at = before ? list.indexOf(before) : -1;
+    return { ...s, [key]: at < 0 ? [...list, id] : [...list.slice(0, at), id, ...list.slice(at)] };
+  });
+}
+
+/** Moves a pinned conversation to just before another (possibly into its group), or to the end of a group. */
+export function movePin(channel: string, group: string, before: string | null) {
+  updateSettings((s) => {
+    const items = s.pins.items.filter((i) => i.channel !== channel);
+    const at = before ? items.findIndex((i) => i.channel === before) : -1;
+    const item = { channel, group };
+    return { ...s, pins: { ...s.pins, items: at < 0 ? [...items, item] : [...items.slice(0, at), item, ...items.slice(at)] } };
+  });
+}
+
+/** "Pin to top" and "Add to Favourites" for a server channel's menu. */
+export function channelPinItems(c: ChannelInfo): MenuItem[] {
+  if (c.kind === "dm" || c.kind === "group") return [];
+  const pinned = isChannelPinned(c.id), fav = isFavourite(c.id);
+  return [
+    { label: pinned ? "Unpin from top" : "Pin to top", icon: "pin", onSelect: () => setChannelPinned(c.id, !pinned) },
+    { label: fav ? "Remove from Favourites" : "Add to Favourites", icon: "star", onSelect: () => setFavourite(c.id, !fav) },
   ];
 }

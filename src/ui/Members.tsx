@@ -1,5 +1,8 @@
+import { call } from "./call/state";
+import { TextWithEmoji } from "./chat/Markdown";
 import { createResource, createSignal, For, Show } from "solid-js";
 import type { Person } from "../lib/backend/types";
+import type { ProfileConfig } from "../lib/profile/model";
 import { createAnim } from "./anim";
 import { Avatar, createPerson, NameText } from "./Avatar";
 import { roleStyle } from "./chat/Message";
@@ -10,13 +13,14 @@ import { userMenu } from "./menus";
 import { activity, verb } from "./activity";
 import { Icon } from "./icons";
 
-function MemberRow(props: { person: Person; onOpen(p: Person): void; serverId?: string }) {
-  const { ref, profile, info } = createPerson(() => props.person);
+/** `profile`: show this one instead of looking theirs up (the profile editor's nameplate preview). */
+export function MemberRow(props: { person: Person; onOpen(p: Person): void; serverId?: string; profile?: ProfileConfig | null }) {
+  const { ref, profile, info } = createPerson(() => props.person, () => props.profile);
   const act = () => (props.person.id === backend()?.me.id ? activity.current() : info()?.activity) ?? null;
   const [size, sizeRef] = createSize();
   const anim = createAnim(profile, "plate");
   return (
-    <button class="member" classList={{ off: !props.person.online }} onClick={() => props.onOpen(props.person)}
+    <button class="member" classList={{ off: !props.person.online, talking: call.active() && call.speaking().includes(props.person.id) }} onClick={() => props.onOpen(props.person)}
       onContextMenu={(e) => userMenu(e, props.person, props.serverId)}
       ref={(el) => { ref(el); sizeRef(el); }}>
       <Show when={profile()?.plate.preset && size().w > 0}>
@@ -26,7 +30,7 @@ function MemberRow(props: { person: Person; onOpen(p: Person): void; serverId?: 
       <span class="member-text">
         <span class="member-name" style={roleStyle(props.person.colour)}><NameText person={props.person} />
           <Show when={props.person.bot}><span class="tag">Bot</span></Show></span>
-        <Show when={act() && props.person.online} fallback={<Show when={props.person.status}><small>{props.person.status}</small></Show>}>
+        <Show when={act() && props.person.online} fallback={<Show when={props.person.status}><small><TextWithEmoji v={props.person.status!} /></small></Show>}>
           <small class="member-act"><Icon name="gamepad" size={13} />{verb(act()!.kind)} <b>{act()!.name}</b></small>
         </Show>
       </span>

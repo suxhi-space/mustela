@@ -165,12 +165,6 @@ export function Appearance() {
         </Group>
       </Show>
 
-      <Group title="Performance" hint="Profiles rated above this appear as still images. A total animation budget also applies, so busy lists stay smooth.">
-        <Row label="Animate profiles up to">
-          <Select<Rating> label="Animation limit" value={settings().maxRating} onChange={(maxRating) => updateSettings((s) => ({ ...s, maxRating }))}
-            options={RATING_ORDER.map((r) => ({ v: r, label: r === "very-poor" ? "Everything" : r[0]!.toUpperCase() + r.slice(1) }))} />
-        </Row>
-      </Group>
     </div>
   );
 }

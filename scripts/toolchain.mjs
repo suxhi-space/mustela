@@ -161,13 +161,18 @@ export async function ensureXcodeTools() {
 /* ------------------------------------------------------------------ Linux */
 const LINUX = {
   apt: { detect: "apt-get", install: ["apt-get", "install", "-y"], update: ["apt-get", "update"],
-    pkgs: ["libwebkit2gtk-4.1-dev", "build-essential", "curl", "wget", "file", "libxdo-dev", "libssl-dev", "libayatana-appindicator3-dev", "librsvg2-dev", "patchelf", "pkg-config", "unzip"] },
+    pkgs: ["libwebkit2gtk-4.1-dev", "build-essential", "curl", "wget", "file", "libxdo-dev", "libssl-dev", "libayatana-appindicator3-dev", "librsvg2-dev", "patchelf", "pkg-config", "unzip",
+      // Screen share capture (xcap): PipeWire for Wayland, xcb for X11, and the graphics libraries the AppImage needs
+      "libpipewire-0.3-dev", "libxcb1-dev", "libxcb-randr0-dev", "libxcb-shm0-dev", "libdbus-1-dev", "libegl-dev", "libgbm-dev", "libwayland-dev", "clang"] },
   dnf: { detect: "dnf", install: ["dnf", "install", "-y"],
-    pkgs: ["webkit2gtk4.1-devel", "openssl-devel", "curl", "wget", "file", "libappindicator-gtk3-devel", "librsvg2-devel", "libxdo-devel", "patchelf", "pkgconf-pkg-config", "unzip", "gcc", "gcc-c++", "make"] },
+    pkgs: ["webkit2gtk4.1-devel", "openssl-devel", "curl", "wget", "file", "libappindicator-gtk3-devel", "librsvg2-devel", "libxdo-devel", "patchelf", "pkgconf-pkg-config", "unzip", "gcc", "gcc-c++", "make",
+      "pipewire-devel", "libxcb-devel", "dbus-devel", "mesa-libEGL-devel", "mesa-libgbm-devel", "wayland-devel", "clang"] },
   pacman: { detect: "pacman", install: ["pacman", "-S", "--needed", "--noconfirm"],
-    pkgs: ["webkit2gtk-4.1", "base-devel", "curl", "wget", "file", "openssl", "appmenu-gtk-module", "libappindicator-gtk3", "librsvg", "xdotool", "patchelf", "unzip"] },
+    pkgs: ["webkit2gtk-4.1", "base-devel", "curl", "wget", "file", "openssl", "appmenu-gtk-module", "libappindicator-gtk3", "librsvg", "xdotool", "patchelf", "unzip",
+      "pipewire", "libxcb", "dbus", "mesa", "wayland", "clang"] },
   zypper: { detect: "zypper", install: ["zypper", "--non-interactive", "install"],
-    pkgs: ["webkit2gtk3-devel", "libopenssl-devel", "curl", "wget", "file", "libappindicator3-1", "librsvg-devel", "patchelf", "unzip", "gcc", "gcc-c++", "make"] },
+    pkgs: ["webkit2gtk3-devel", "libopenssl-devel", "curl", "wget", "file", "libappindicator3-1", "librsvg-devel", "patchelf", "unzip", "gcc", "gcc-c++", "make",
+      "pipewire-devel", "libxcb-devel", "dbus-1-devel", "Mesa-libEGL-devel", "libgbm-devel", "wayland-devel", "clang"] },
 };
 
 export function linuxPackageManager() {
@@ -176,7 +181,7 @@ export function linuxPackageManager() {
 }
 
 export async function ensureLinuxLibs() {
-  const libs = ["webkit2gtk-4.1", "gtk+-3.0", "librsvg-2.0"];
+  const libs = ["webkit2gtk-4.1", "gtk+-3.0", "librsvg-2.0", "libpipewire-0.3", "xcb", "dbus-1", "gbm", "egl"];
   const missing = () => (has("pkg-config").ok ? libs.filter((l) => !run("pkg-config", ["--exists", l], { quiet: true }).ok) : ["pkg-config", ...libs]);
   if (!missing().length) { ok("WebKitGTK and GTK development libraries"); return; }
   const pm = linuxPackageManager();

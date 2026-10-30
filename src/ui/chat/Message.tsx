@@ -1,5 +1,7 @@
+import { toast } from "../menu";
+import { useAutoplay } from "../autoplay";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
-import type { Attachment, Embed, Msg, Person, Reaction } from "../../lib/backend/types";
+import type { ChannelRules, Attachment, Embed, Msg, Person, Reaction } from "../../lib/backend/types";
 import { plain } from "../../lib/markdown";
 import { fmtStamp, fmtTime } from "../../lib/time";
 import { Avatar, NameText } from "../Avatar";
@@ -72,10 +74,11 @@ function GifEmbed(props: { e: Embed }) {
   const w = () => props.e.video?.width ?? props.e.image?.width ?? 300, h = () => props.e.video?.height ?? props.e.image?.height ?? 200;
   const fav = () => ({ url: props.e.url ?? src(), preview: src(), w: w(), h: h() });
   const scale = () => Math.min(1, 320 / w(), 280 / h());
+  const play = useAutoplay();
   return (
     <div class="media gif" style={{ width: `${Math.round(w() * scale())}px`, "aspect-ratio": `${w()} / ${h()}` }}>
       <Show when={props.e.video} fallback={<img src={src()} alt="GIF" loading="lazy" />}>
-        <video src={src()} autoplay loop muted playsinline preload="auto" aria-label="GIF" />
+        <video ref={play} src={src()} muted playsinline preload="metadata" aria-label="GIF" />
       </Show>
       <button class="gif-star" classList={{ on: isFav(fav().url) }} aria-pressed={isFav(fav().url)} aria-label={isFav(fav().url) ? "Remove from favourite GIFs" : "Add to favourite GIFs"}
         title={isFav(fav().url) ? "Remove from favourites" : "Add to favourites"} onClick={() => toggleFav(fav())}><Icon name="star" size={16} /></button>
@@ -175,10 +178,13 @@ export interface MessageActions {
   ctx: MdCtx;
   /** The server this chat belongs to, for permission-aware menus */
   serverId?: string;
+  /** What I may do in this channel (shared by every message in it) */
+  rules(): ChannelRules;
 }
 
 export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: MessageActions; highlight?: boolean }) {
   const m = () => props.m;
+  const rules = () => props.act.rules();
   const mine = () => m().author.id === backend()!.me.id;
   const head = () => !continues(props.prev, m());
   const compact = () => device().layout === "compact";
@@ -193,12 +199,13 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
     return (m().embeds ?? []).some((e) => e.gif) || invites().length > 0;
   });
   const menu = (e: MouseEvent) => messageMenu(e, m(), { reply: props.act.onReply, edit: (x) => props.act.onEdit(x), askDelete: () => setConfirmDel(true) }, props.act.serverId);
-  const react = (emoji: string, on: boolean) => void b().react(m().channelId, m().id, emoji, on).catch(() => {});
+  const fail = (e: unknown) => toast((e as Error)?.message || "That didn't work.", true);
+  const react = (emoji: string, on: boolean) => void b().react(m().channelId, m().id, emoji, on).catch(fail);
 
   async function saveEdit() {
     const t = draft().trim();
     if (!t) { setConfirmDel(true); return; }
-    if (t !== m().text) await b().edit(m().channelId, m().id, t).catch(() => {});
+    if (t !== m().text) await b().edit(m().channelId, m().id, t).catch(fail);
     props.act.onEdit(null);
   }
 
@@ -255,17 +262,19 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
           <Show when={confirmDel()}>
             <div class="confirm panel-inset" role="alertdialog" aria-label="Delete message">
               <span>Delete this message?</span>
-              <button class="btn small danger-fill" onClick={() => { setConfirmDel(false); props.act.onEdit(null); void b().remove(m().channelId, m().id).catch(() => {}); }}>Delete</button>
+              <button class="btn small danger-fill" onClick={() => { setConfirmDel(false); props.act.onEdit(null); void b().remove(m().channelId, m().id).catch(fail); }}>Delete</button>
               <button class="btn small" onClick={() => setConfirmDel(false)}>Cancel</button>
             </div>
           </Show>
         </div>
         <Show when={!m().pending && !props.editing}>
           <div class="msg-tools panel" role="toolbar" aria-label="Message actions">
-            <button aria-label="Add reaction" title="Add reaction" onClick={(e) => openEmojiPicker(e.currentTarget, ({ key }) => react(key, true))}><Icon name="smile-plus" size={18} /></button>
-            <button aria-label="Reply" title="Reply" onClick={() => props.act.onReply(m())}><Icon name="reply" size={18} /></button>
+            <Show when={rules().canSend}><button aria-label="Reply" title="Reply" onClick={() => props.act.onReply(m())}><Icon name="reply" size={18} /></button></Show>
+            <Show when={rules().canReact}><button aria-label="Add reaction" title="Add reaction" onClick={(e) => openEmojiPicker(e.currentTarget, ({ key }) => react(key, true))}><Icon name="smile-plus" size={18} /></button></Show>
             <Show when={mine()}><button aria-label="Edit" title="Edit" onClick={() => props.act.onEdit(m())}><Icon name="pencil" size={18} /></button></Show>
-            <button aria-label="Copy text" title="Copy text" onClick={() => void copy(m().text)}><Icon name="copy" size={18} /></button>
+            <Show when={mine() || rules().canManage}>
+              <button aria-label="Delete" title="Delete (hold Shift to skip the question)" onClick={(e) => { if (e.shiftKey) void b().remove(m().channelId, m().id).catch(fail); else setConfirmDel(true); }}><Icon name="trash" size={18} /></button>
+            </Show>
             <button aria-label="More" title="More" aria-haspopup="menu" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); menu(new MouseEvent("contextmenu", { clientX: r.left - 200, clientY: r.bottom + 4 })); }}><Icon name="dots" size={18} /></button>
           </div>
         </Show>

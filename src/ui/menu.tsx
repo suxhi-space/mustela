@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { useBack } from "./back";
 import { Icon } from "./icons";
 
 /* ============================================================ context menus */
@@ -10,25 +11,28 @@ export type MenuItem =
   | { header: string }
   | { custom: () => JSX.Element };
 
-type Open = { x: number; y: number; items: MenuItem[] };
+/** `doc`: the window it was opened in (the call pop-out draws its own menus). */
+type Open = { x: number; y: number; items: MenuItem[]; doc: Document; width?: number };
 const [menu, setMenu] = createSignal<Open | null>(null);
 
 /** Opens a menu at the pointer (or under an element). Returns false so it can end an event handler. */
-export function openMenu(at: MouseEvent | Element, items: MenuItem[]) {
+/** `width`: at least this wide (a dropdown's menu matches its button). */
+export function openMenu(at: MouseEvent | Element, items: MenuItem[], opts: { width?: number } = {}) {
   const clean = items.filter((it, i, a) => !("sep" in it) || (i > 0 && i < a.length - 1 && !("sep" in a[i - 1]!)));
-  if (at instanceof Element) { const r = at.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: clean }); }
-  else { at.preventDefault(); at.stopPropagation(); setMenu({ x: at.clientX, y: at.clientY, items: clean }); }
+  if ("getBoundingClientRect" in at) { const r = at.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: clean, doc: at.ownerDocument, width: opts.width }); }
+  else { at.preventDefault(); at.stopPropagation(); setMenu({ x: at.clientX, y: at.clientY, items: clean, doc: (at.target as Node | null)?.ownerDocument ?? document }); }
   return false;
 }
 export const closeMenu = () => setMenu(null);
 
-function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolean }) {
+function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolean; width?: number }) {
   let el!: HTMLDivElement;
   const [pos, setPos] = createSignal({ left: props.x, top: props.y });
   const [openSub, setOpenSub] = createSignal<{ i: number; x: number; y: number } | null>(null);
   onMount(() => {
     // Keep the menu on screen: flip left/up when it would overflow.
     const r = el.getBoundingClientRect();
+    const { innerWidth, innerHeight } = el.ownerDocument.defaultView ?? window;
     let left = props.x, top = props.y;
     if (left + r.width > innerWidth - 8) left = props.sub ? props.x - r.width - 220 : innerWidth - r.width - 8;
     if (top + r.height > innerHeight - 8) top = Math.max(8, innerHeight - r.height - 8);
@@ -37,13 +41,13 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
   });
   const keys = (e: KeyboardEvent) => {
     const btns = [...el.querySelectorAll<HTMLButtonElement>(":scope > button:not([disabled])")];
-    const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+    const i = btns.indexOf(el.ownerDocument.activeElement as HTMLButtonElement);
     if (e.key === "ArrowDown") { e.preventDefault(); btns[(i + 1) % btns.length]?.focus(); }
     if (e.key === "ArrowUp") { e.preventDefault(); btns[(i - 1 + btns.length) % btns.length]?.focus(); }
   };
   return (
     <>
-    <div ref={el} class="ctx panel" role="menu" style={{ left: `${pos().left}px`, top: `${pos().top}px` }} onKeyDown={keys} onClick={(e) => e.stopPropagation()}
+    <div ref={el} class="ctx panel" role="menu" style={{ left: `${pos().left}px`, top: `${pos().top}px`, ...(props.width ? { "min-width": `${props.width}px`, "max-width": `${Math.max(280, props.width)}px` } : {}) }} onKeyDown={keys} onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}>
       <For each={props.items}>{(it, i) => {
         if ("sep" in it) return <div class="ctx-sep" role="separator" />;
@@ -75,17 +79,19 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
   );
 }
 
-export function ContextMenu() {
+/** Draws menus opened in this window: the main one, or (with `win`) the call pop-out. */
+export function ContextMenu(props: { win?: Window }) {
+  const w = () => props.win ?? window;
   const esc = (e: KeyboardEvent) => e.key === "Escape" && closeMenu();
   const away = () => closeMenu();
-  onMount(() => { addEventListener("keydown", esc); addEventListener("resize", away); addEventListener("blur", away); });
-  onCleanup(() => { removeEventListener("keydown", esc); removeEventListener("resize", away); removeEventListener("blur", away); });
+  onMount(() => { const v = w(); v.addEventListener("keydown", esc); v.addEventListener("resize", away); v.addEventListener("blur", away); });
+  onCleanup(() => { const v = w(); v.removeEventListener("keydown", esc); v.removeEventListener("resize", away); v.removeEventListener("blur", away); });
   return (
-    <Show when={menu()}>{(m) => (
+    <Show when={menu()?.doc === w().document ? menu() : null}>{(m) => { useBack(closeMenu); return (
       <div class="ctx-scrim" onClick={closeMenu} onContextMenu={(e) => { e.preventDefault(); closeMenu(); }} onWheel={closeMenu}>
-        <MenuList items={m().items} x={m().x} y={m().y} />
+        <MenuList items={m().items} x={m().x} y={m().y} width={m().width} />
       </div>
-    )}</Show>
+    ); }}</Show>
   );
 }
 
@@ -160,6 +166,7 @@ export function Dialogs() {
       const [err, setErr] = createSignal("");
       const val = (f: Field) => vals()[f.key] ?? f.value ?? "";
       const done = (r: Record<string, string> | false) => { a().resolve(r, mode()); setAsk(null); };
+      useBack(() => done(false));
       const submit = () => {
         const out = Object.fromEntries(fields().map((f) => [f.key, val(f)]));
         const bad = a().validate?.(out);
@@ -202,8 +209,9 @@ export function Dialogs() {
  * Text fields keep the native menu so cut/copy/paste and spellcheck work.
  * Elements with their own menus stop the event before it gets here.
  */
-export function installGlobalContextMenu() {
-  addEventListener("contextmenu", (e) => {
+/** `w`: the window to cover (the call pop-out installs it too). */
+export function installGlobalContextMenu(w: Window = window) {
+  w.addEventListener("contextmenu", (e) => {
     const t = e.target as HTMLElement | null;
     if (!t) return;
     if (t.closest("input, textarea, [contenteditable=true]")) return;

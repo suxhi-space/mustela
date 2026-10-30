@@ -2,9 +2,10 @@ import { createResource, createSignal, onCleanup, Show } from "solid-js";
 import type { VoicePrefs } from "../../lib/backend/types";
 import { inTauri } from "../../lib/platform";
 import { listSounds } from "../../lib/sounds";
-import { applyVoicePrefs } from "../call/state";
+import { applyVoicePrefs, overlayAllowed, requestOverlay } from "../call/state";
 import { Group, Row, Seg, Select, Slider, Switch } from "../controls";
-import { device, platform, updateDevice } from "../store";
+import { backend, device, platform, updateDevice } from "../store";
+import { QUALITIES, qualityHint } from "../call/ScreenPicker";
 
 async function devices() {
   try {
@@ -99,9 +100,9 @@ export function VoiceVideo() {
         <Row icon="video" label="Camera"><Select label="Camera" value={v().videoDevice} options={opts(list()?.video, "Camera")} onChange={(videoDevice) => { set({ videoDevice }); if (cam()) { void toggleCam().then(toggleCam); } }} /></Row>
         <Row label="Preview"><button class="btn small" classList={{ on: !!cam() }} onClick={() => void toggleCam()}>{cam() ? "Stop preview" : "Test camera"}</button></Row>
         <Show when={cam()}>{(s) => <video class="cam-preview" autoplay muted playsinline ref={(el) => { el.srcObject = s(); }} />}</Show>
-        <Row icon="screen" label="Screen share quality" hint="Higher needs a faster connection">
+        <Row icon="screen" label="Screen share quality" hint={qualityHint()}>
           <Seg label="Screen share quality" value={v().screenQuality} onChange={(screenQuality) => set({ screenQuality })}
-            options={[{ v: "720p30", label: "720p" }, { v: "1080p30", label: "1080p" }, { v: "1080p60", label: "1080p60" }]} />
+            options={QUALITIES.map((o) => ({ ...o, disabled: !(backend()?.screenQualities() ?? ["720p30"]).includes(o.v) }))} />
         </Row>
       </Group>
 
@@ -114,9 +115,15 @@ export function VoiceVideo() {
       </Group>
 
       <Show when={platform === "android" && inTauri()}>
-        <Group title="Android" hint="Background calls keep going when you leave the app, but are voice only. The web engine adds camera and screen share, and keeps running in picture-in-picture.">
+        <Group title="Android" hint="Background calls keep going when you leave the app, but are voice only. The web engine adds camera and screen share. In a call, the volume keys set call volume.">
           <Row label="Call engine"><Seg label="Call engine" value={device().callEngine} onChange={(callEngine) => updateDevice({ callEngine })}
             options={[{ v: "native", label: "Background (voice)" }, { v: "web", label: "Web (video)" }]} /></Row>
+          <Row label="When you leave the app in a call" hint={overlayAllowed() ? "The bubble floats over other apps: tap it to come back, hold it to mute." : "The bubble needs \"Display over other apps\". Without it, the call floats in picture-in-picture."}>
+            <Show when={overlayAllowed()} fallback={<button class="btn small" onClick={() => void requestOverlay()}>Allow the bubble</button>}>
+              <Seg label="When you leave the app in a call" value={device().callOverlay} onChange={(callOverlay) => updateDevice({ callOverlay })}
+                options={[{ v: "bubble", label: "Bubble" }, { v: "pip", label: "Picture-in-picture" }]} />
+            </Show>
+          </Row>
         </Group>
       </Show>
     </div>

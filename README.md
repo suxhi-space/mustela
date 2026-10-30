@@ -98,7 +98,9 @@ cd mustela
 build.cmd           # Windows
 ```
 
-The script asks which platform to build, checks your setup and tells you exactly what's missing.
+The script asks which platform to build, the **version number** for this release, and the **GitHub repository** the app
+should check for updates (for example `you/mustela`, or a `github.com/you/mustela/releases/latest` link; `none` turns
+update checks off). It checks your setup and tells you exactly what's missing.
 It then installs dependencies, generates icons and builds. Finished files land in `release/<platform>/`.
 
 To skip the menu:
@@ -106,6 +108,7 @@ To skip the menu:
 ```sh
 ./build.sh --platform linux        # or: windows, macos, android, web
 ./build.sh --platform android --debug
+./build.sh --platform linux --version 0.2.0 --repo you/mustela
 npm run app -- --platform linux    # same thing through npm
 ```
 
@@ -136,6 +139,18 @@ Android only installs updates signed with the same key. For GitHub builds, add y
 
 The builds aren't notarized or code-signed (that needs paid Apple/Microsoft certificates). On macOS, right-click
 the app and choose **Open** the first time. On Windows, choose **More info > Run anyway** if SmartScreen appears.
+
+## Releases
+
+`.github/workflows/release.yml` builds every platform on GitHub and drafts a release with all the installers:
+
+1. Push a tag such as `v0.2.0` (or `v0.2.0-beta.1`), or run **Release** by hand from the Actions tab.
+2. Check the draft release, then publish it. Installed copies only see published releases, and update from them
+   (Windows and AppImage install themselves; macOS and .deb open the download; phones open the release page).
+
+Android signing is optional. Without it the APK has a debug key. To sign it, add these repository secrets:
+`ANDROID_KEYSTORE_BASE64` (your `.jks` file, base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and
+`ANDROID_KEY_PASSWORD`. Never commit the keystore (`.signing/` is ignored).
 
 ## Develop
 
@@ -185,9 +200,12 @@ Put it behind HTTPS (Caddy, nginx, a Cloudflare tunnel…), then add its address
 Options are environment variables: `PORT`, `HOST`, `DATA_DIR`, `NAME` (shown in the app), `STOAT_APIS` (which Stoat
 instances accounts may come from; default `https://stoat.chat/api`) and `TRUST_PROXY=1` behind a reverse proxy.
 
-What it stores: your profile settings (decorations, frames, colors) and, in memory only, your current activity.
-To confirm who you are when you link it, the server asks your Stoat instance who owns your session, once; it never
-stores or logs the session. Anyone can read profiles; only you can change yours. `npm test` in `server/` runs its tests.
+What it stores: your profile settings (decorations, frames, colors, and your look per server), banners you made
+for particular servers (version 1.2 and newer; pictures only, 512 KB at most) and, in memory only, your current
+activity. To confirm who you are when you link it, the server asks your Stoat instance who owns your session, once;
+it never stores or logs the session. Only you can change your profile. Others can read it, unless you made it
+private: then only the people you allowed can, and the same goes for your server banners. `npm test` in `server/`
+runs its tests. Update a 1.1 server to 1.2 to use per-server banners; everything else works with either.
 
 ## Activity and Discord Rich Presence
 

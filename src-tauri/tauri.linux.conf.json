@@ -11,7 +11,8 @@
         "minHeight": 520,
         "transparent": true,
         "dragDropEnabled": false,
-        "decorations": false
+        "decorations": false,
+        "create": false
       }
     ]
   }

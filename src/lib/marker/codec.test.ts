@@ -134,4 +134,37 @@ describe("marker codec", () => {
       expect(decodeMarkerScaled(out.data, out.w, out.h)).toBeNull();
     });
   });
+
+  describe("taller 960×480 banners (the strip is out of view)", () => {
+    const TH = 480;
+    const tall = () => {
+      const b = new Uint8Array(W * TH * 4);
+      const top = makeBanner();
+      b.set(top, 0);
+      b.set(top.subarray(0, W * (TH - H) * 4), W * H * 4);
+      return b;
+    };
+    const trip = async (rgba: Uint8Array, q: number, resizeTo?: number) => {
+      let dec = sharp(await sharp(Buffer.from(rgba), { raw: { width: W, height: TH, channels: 4 } }).jpeg({ quality: q }).toBuffer());
+      if (resizeTo) dec = dec.resize(resizeTo);
+      const { data, info } = await dec.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      return { data: new Uint8Array(data), w: info.width, h: info.height };
+    };
+    it("fits, and leaves the shown 3:1 band untouched", () => {
+      const img = tall();
+      const before = img.slice(0, W * H * 4);
+      encodeMarker(img, W, TH, payload);
+      expect(img.slice(0, W * H * 4)).toEqual(before);
+      expect(markerHeight(W)).toBeLessThanOrEqual(TH - H);
+    });
+    for (const w of [960, 1280, 640]) {
+      it(`decodes after JPEG and resizing to ${w}px (as 0.1.0 would read it)`, async () => {
+        const img = tall();
+        encodeMarker(img, W, TH, payload);
+        const out = await trip(img, 85, w === 960 ? undefined : w);
+        expect(decodeMarkerScaled(out.data, out.w, out.h)).toEqual(payload);
+      });
+    }
+  });
 });
+

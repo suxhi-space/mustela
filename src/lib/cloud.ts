@@ -1,12 +1,14 @@
 import type { ProfileConfig } from "./profile/model";
 import { sanitizeProfile } from "./profile/model";
+import { sanitizeServerLooks, type ServerLooks } from "./profile/servers";
 
 /**
  * Mustela sync servers ("cloud"): optional, self-hostable servers that hold the
  * parts of your profile Stoat itself has no place for (decorations, effects,
  * frames, theme) and your live activity ("Playing …").
  *
- * Reading is public: anyone's client asks your servers for your profile.
+ * Reading is public unless you chose an audience (Settings > Sync & servers): then
+ * only signed-in viewers on your list get it, everyone else sees no profile.
  * Writing needs a key the server hands out once it has confirmed who you are.
  * To confirm, the server asks your Stoat instance "who owns this session?" a
  * single time; it doesn't keep the session token. Only link servers you trust,
@@ -25,7 +27,11 @@ export interface Activity {
   appId?: string;
 }
 
-export interface CloudProfile { profile: ProfileConfig | null; activity: Activity | null; updatedAt: number }
+/**
+ * `servers`: their look per server; `images`: servers they have a banner for (with when it changed),
+ * stored on `source`, the sync server this copy came from.
+ */
+export interface CloudProfile { profile: ProfileConfig | null; activity: Activity | null; updatedAt: number; servers?: ServerLooks; images?: Record<string, number>; source?: string }
 export interface Health { ok: boolean; name?: string; version?: string; error?: string }
 
 const KEYS = "mustela.cloud.keys";
@@ -108,9 +114,54 @@ export class Cloud {
     return { tried: jobs.length, failed: res.filter((r) => r.status === "rejected").length };
   }
 
-  publishProfile(profile: ProfileConfig) {
+  /** `audience` limits who can read it (servers older than 1.1 ignore it and keep it public, so the
+   * caller only sends private profiles to servers new enough; see publishPrivate). */
+  publishProfile(profile: ProfileConfig, audience?: { mode: "friends" | "friends+servers"; allow: string[] }, servers?: ServerLooks) {
     this.cache.delete(this.userId());
-    return this.eachLinked((s, k) => call(`${s}/${PROTOCOL}/profile`, { method: "PUT", headers: { authorization: `Bearer ${k}` }, body: JSON.stringify({ profile }) }));
+    return this.eachLinked(async (s, k) => {
+      if (audience) {
+        // A server that can't keep it private gets nothing rather than a public copy.
+        const h = await this.health(s);
+        if (!h.ok || !h.version || compareVersions(h.version, "1.1.0") < 0) throw new Error("This server can't keep profiles private.");
+      }
+      return call(`${s}/${PROTOCOL}/profile`, { method: "PUT", headers: { authorization: `Bearer ${k}` }, body: JSON.stringify({ profile: servers && Object.keys(servers).length ? { ...profile, servers } : profile, ...(audience ? { audience } : {}) }) });
+    });
+  }
+
+  /** A banner for one server (sync servers 1.2+), or null to remove it. Returns when it changed. */
+  async setServerBanner(serverId: string, image: Blob | null): Promise<number> {
+    this.cache.delete(this.userId());
+    this.images.clear();
+    let at = Date.now();
+    const r = await this.eachLinked(async (s, k) => {
+      const h = await this.health(s);
+      if (!h.ok || !h.version || compareVersions(h.version, "1.2.0") < 0) throw new Error("This sync server is older than 1.2.");
+      const res = await fetch(`${s}/${PROTOCOL}/image/${encodeURIComponent(serverId)}`, { method: image ? "PUT" : "DELETE", headers: { authorization: `Bearer ${k}`, ...(image ? { "content-type": image.type || "image/jpeg" } : {}) }, body: image ?? undefined });
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `The sync server answered ${res.status}.`);
+      if (image) at = ((await res.json().catch(() => ({}))) as { at?: number }).at ?? at;
+    });
+    if (!r.tried) throw new Error("Server banners are kept on your sync server: link one in Mustela sync first.");
+    if (r.failed === r.tried) throw new Error("None of your sync servers took the banner. They need version 1.2 or newer.");
+    return image ? at : 0;
+  }
+
+  /** Someone's banner for one server, as a local picture link (private ones need our key, which an <img> can't send). */
+  private images = new Map<string, Promise<string | null>>();
+  serverBanner(source: string, userId: string, serverId: string, at: number): Promise<string | null> {
+    const id = `${source}|${userId}|${serverId}|${at}`;
+    let p = this.images.get(id);
+    if (!p) {
+      const k = this.keyFor(source);
+      p = fetch(`${clean(source)}/${PROTOCOL}/image/${encodeURIComponent(userId)}/${encodeURIComponent(serverId)}`, k ? { headers: { authorization: `Bearer ${k}` } } : {})
+        .then(async (r) => {
+          if (!r.ok) return null;
+          const b = await r.blob();
+          return /^image\/(png|jpeg|webp|gif)$/.test(b.type) ? URL.createObjectURL(b) : null;
+        }).catch(() => null);
+      this.images.set(id, p);
+      if (this.images.size > 200) { const first = this.images.keys().next().value; if (first) this.images.delete(first); }
+    }
+    return p;
   }
 
   /** null clears it. Servers forget activity that isn't refreshed for a few minutes. */
@@ -119,19 +170,25 @@ export class Cloud {
   }
 
   /** The newest copy of someone's profile across your servers, or null. Cached for a minute. */
-  fetchProfile(userId: string): Promise<CloudProfile | null> {
+  fetchProfile(userId: string, fresh = false): Promise<CloudProfile | null> {
     if (!this.servers.length) return Promise.resolve(null);
+    if (fresh) this.cache.delete(userId);
     let p = this.cache.get(userId);
     if (!p) {
-      p = Promise.allSettled(this.servers.map((s) => call<{ profile?: unknown; activity?: Activity | null; updatedAt?: number }>(`${s}/${PROTOCOL}/profile/${encodeURIComponent(userId)}`)))
+      // Signed in where we're linked, so private profiles we're allowed to see come back too.
+      const auth = (s: string): RequestInit => { const k = this.keyFor(s); return k ? { headers: { authorization: `Bearer ${k}` } } : {}; };
+      p = Promise.allSettled(this.servers.map((s) => call<{ profile?: unknown; activity?: Activity | null; updatedAt?: number; images?: unknown }>(`${s}/${PROTOCOL}/profile/${encodeURIComponent(userId)}`, auth(s)).then((v) => ({ v, s }))))
         .then((rs) => {
           let best: CloudProfile | null = null;
           for (const r of rs) {
             if (r.status !== "fulfilled") continue;
-            const v = r.value;
+            const { v, s } = r.value;
             const at = typeof v.updatedAt === "number" ? v.updatedAt : 0;
             if (best && at <= best.updatedAt) continue;
-            best = { profile: v.profile ? sanitizeProfile(v.profile) : null, activity: sanitizeActivity(v.activity), updatedAt: at };
+            const raw = v.profile && typeof v.profile === "object" ? (v.profile as { servers?: unknown }) : null;
+            const images: Record<string, number> = {};
+            if (v.images && typeof v.images === "object") for (const [k, t] of Object.entries(v.images as Record<string, unknown>)) if (typeof t === "number" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(k)) images[k] = t;
+            best = { profile: v.profile ? sanitizeProfile(v.profile) : null, activity: sanitizeActivity(v.activity), updatedAt: at, servers: sanitizeServerLooks(raw?.servers), images, source: s };
           }
           return best;
         });
@@ -156,4 +213,11 @@ export function sanitizeActivity(a: unknown): Activity | null {
     image: image && /^https:\/\//.test(image) ? image : undefined,
     appId: str(r.appId, 32),
   };
+}
+
+/** -1, 0 or 1 for dotted version numbers ("1.10.0" > "1.9.2"). */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(/[.-]/).map((x) => parseInt(x, 10) || 0), pb = b.split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < 3; i++) { if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0) ? 1 : -1; }
+  return 0;
 }

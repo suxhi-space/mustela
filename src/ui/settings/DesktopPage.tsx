@@ -1,5 +1,5 @@
 import { createResource, createSignal, Show } from "solid-js";
-import { appImage, autostart, installAppImage, relaunchInstalled } from "../desktop";
+import { appImage, autostart, installAppImage } from "../desktop";
 import { Group, Row, Switch } from "../controls";
 import { attempt, toast } from "../menu";
 import { device, updateDevice } from "../store";
@@ -21,9 +21,7 @@ export function DesktopPage() {
       <Show when={img()?.isAppImage}>
         <Group title="Install" hint="Moves the AppImage to the Applications folder in your home, and adds Mustela to your app menu so you can find it like any other app.">
           <Show when={!img()!.installed && !moved()} fallback={
-            <Row label="Installed" hint="~/Applications/Mustela.AppImage">
-              <Show when={moved()}><button class="btn small primary" onClick={() => void relaunchInstalled()}>Restart from there</button></Show>
-            </Row>
+            <Row label="Installed" hint="~/Applications/Mustela.AppImage, with an app menu entry that follows it if it moves" />
           }>
             <Row label="Add a desktop shortcut too"><Switch label="Desktop shortcut" on={shortcut()} onChange={setShortcut} /></Row>
             <Row label="Install Mustela">

@@ -80,11 +80,12 @@ export function slotCost(kind: SlotKind, c: SlotConfig): number {
 
 export const NAME_FONTS = [
   { id: 0, label: "Default", css: "inherit" },
-  { id: 1, label: "Serif", css: 'ui-serif, Georgia, "Times New Roman", serif' },
-  { id: 2, label: "Rounded", css: 'ui-rounded, "SF Pro Rounded", "Varela Round", Nunito, system-ui, sans-serif' },
-  { id: 3, label: "Mono", css: 'ui-monospace, "SF Mono", Consolas, "Roboto Mono", monospace' },
-  { id: 4, label: "Display", css: '"Trebuchet MS", "Gill Sans", "Gill Sans MT", Candara, sans-serif' },
-  { id: 5, label: "Script", css: '"Segoe Script", "Snell Roundhand", "Brush Script MT", cursive' },
+  // Bundled fonts first, so a name looks the same on every computer and phone.
+  { id: 1, label: "Serif", css: '"Lora Variable", Georgia, serif' },
+  { id: 2, label: "Rounded", css: '"Nunito Variable", Nunito, system-ui, sans-serif' },
+  { id: 3, label: "Mono", css: '"JetBrains Mono Variable", ui-monospace, monospace' },
+  { id: 4, label: "Display", css: 'Righteous, "Trebuchet MS", sans-serif' },
+  { id: 5, label: "Script", css: '"Dancing Script Variable", cursive' },
 ] as const;
 
 export const NAME_EFFECTS = [

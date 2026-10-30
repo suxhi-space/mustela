@@ -1,8 +1,9 @@
-import { createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";
+import { useBack } from "./back";
 import type { Activity } from "../lib/cloud";
 import { activity, elapsed, verb } from "./activity";
-import { openProfileEditor, profileView, setProfileView } from "./nav";
-import { openMenu, toast } from "./menu";
+import { currentServer, openProfileEditor, profileView, setProfileView } from "./nav";
+import { attempt, openMenu, toast } from "./menu";
 import { userMenu } from "./menus";
 import { call, joinCall } from "./call/state";
 import type { Person } from "../lib/backend/types";
@@ -11,12 +12,12 @@ import { CANONICAL_HEIGHT, CANONICAL_WIDTH, markerHeight } from "../lib/marker/c
 import type { ProfileConfig } from "../lib/profile/model";
 import { createAnim } from "./anim";
 import { Avatar, createPerson, NameText } from "./Avatar";
-import { createProfileInfo, createSize } from "./hooks";
+import { createProfileInfo, createSize, refreshProfile } from "./hooks";
 import { EffectCanvas, FrameCanvas } from "./Paint";
 import { backend } from "./store";
 import { Icon } from "./icons";
 import { RatingBadge } from "./controls";
-import { Markdown } from "./chat/Markdown";
+import { Markdown, TextWithEmoji } from "./chat/Markdown";
 import { ratingOf } from "./anim";
 
 const STRIP = markerHeight(CANONICAL_WIDTH);
@@ -42,6 +43,18 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
   const bannerUrl = () => props.banner ?? info()?.bannerUrl;
   const bio = () => props.bio ?? info()?.bio;
   const hasMarker = () => props.marked ?? (profile() !== null && !!info()?.bannerUrl); // our strip is in the bottom rows
+  /**
+   * Taller banners (960×480: the picture is the top 960×448, the strip below) show the picture's
+   * middle 3:1 band, so Stoat's centred crop and ours land on the same part. `null`: a 3:1 banner.
+   */
+  const [tallPos, setTallPos] = createSignal<string | null>(null);
+  const tallBanner = () => tallPos() !== null;
+  const placeBanner = (img: HTMLImageElement) => {
+    const w = img.naturalWidth || 1, h = img.naturalHeight;
+    if (h / w <= 0.4) return setTallPos(null);
+    const band = w / 3, picture = Math.min(h, (448 / 960) * w);
+    setTallPos(`center ${Math.max(0, Math.min(100, (((picture - band) / 2) / Math.max(1, h - band)) * 100)).toFixed(1)}%`);
+  };
 
   // Activity: yours comes straight from this app; other people's from their sync servers.
   const voice = () => (backend()?.me.id === props.person.id ? null : backend()?.voiceOf(props.person.id) ?? null);
@@ -52,9 +65,9 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
 
   return (
     <article class="pcard" classList={{ themed: !!theme(), compact: !!props.compact }} style={theme() ?? {}} ref={(el) => { seenRef(el); sizeRef(el); }}>
-      <div class="pc-banner" style={hasMarker() ? { "aspect-ratio": `${CANONICAL_WIDTH} / ${CANONICAL_HEIGHT - STRIP}` } : {}}>
+      <div class="pc-banner" classList={{ top: tallBanner() }} style={hasMarker() && !tallBanner() ? { "aspect-ratio": `${CANONICAL_WIDTH} / ${CANONICAL_HEIGHT - STRIP}` } : {}}>
         <Show when={bannerUrl()} fallback={<div class="pc-banner-fill" />}>
-          <img src={bannerUrl()} alt="" loading="lazy" />
+          <img src={bannerUrl()} alt="" loading="lazy" style={tallPos() ? { "object-position": tallPos()! } : {}} onLoad={(e) => placeBanner(e.currentTarget)} />
         </Show>
 
       </div>
@@ -63,7 +76,7 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
         <Show when={props.person.online !== undefined || props.person.status}>
           {/* Custom status in a bubble beside the avatar (like Discord); without one, the presence itself */}
           <span class="pc-bubble" title={props.person.status ?? PRESENCE_LABEL[presence()]}>
-            <span class={`pdot p-${presence()}`} />{props.person.status || (PRESENCE_LABEL[presence()] ?? "Online")}
+            <span class={`pdot p-${presence()}`} /><TextWithEmoji v={props.person.status || (PRESENCE_LABEL[presence()] ?? "Online")} />
           </span>
         </Show>
       </div>
@@ -110,6 +123,40 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
         <FrameCanvas slot={() => profile()!.frame} w={size().w} h={size().h} animate={frameAnim()} radius={18} />
       </Show>
     </article>
+  );
+}
+
+/** Inside a server: "Member since" and their roles, which you can add or remove if you're allowed (like Discord). */
+function ServerSection(props: { person: Person; serverId: string }) {
+  const b = () => backend()!;
+  const [since] = createResource(() => [props.serverId, props.person.id] as const, ([s, u]) => b().memberSince(s, u).catch(() => undefined));
+  const [mine, { refetch }] = createResource(() => [props.serverId, props.person.id] as const, ([s, u]) => b().memberRoles(s, u).catch(() => [] as string[]));
+  const roles = () => b().roles(props.serverId);
+  const can = () => !!b().serverInfo(props.serverId)?.perms.manageRoles;
+  const has = () => roles().filter((r) => (mine() ?? []).includes(r.id)).sort((a, c) => a.rank - c.rank);
+  const setRoles = (ids: string[]) => void attempt(() => b().setMemberRoles(props.serverId, props.person.id, ids)).then(() => setTimeout(() => void refetch(), 300));
+  const addMenu = (e: MouseEvent) => openMenu(e, roles().filter((r) => !(mine() ?? []).includes(r.id)).map((r) => ({ label: r.name, onSelect: () => setRoles([...(mine() ?? []), r.id]) })));
+  const serverName = () => b().serverInfo(props.serverId)?.name;
+  return (
+    <Show when={since() || has().length || can()}>
+      <section class="pc-section">
+        <Show when={since()}>
+          <h3 class="label">Member since</h3>
+          <p class="pc-since"><span class="mini-orb tiny">{serverName()?.slice(0, 1)}</span>{since()!.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" })}</p>
+        </Show>
+        <Show when={has().length || can()}>
+          <h3 class="label">Roles</h3>
+          <div class="pc-roles">
+            <For each={has()}>{(r) => (
+              <span class="role-chip" style={{ "--role": r.colour && !/gradient/.test(r.colour) ? r.colour : undefined }}>
+                <Show when={can()} fallback={<i />}><button class="rc-x" aria-label={`Remove ${r.name}`} title={`Remove ${r.name}`} onClick={() => setRoles((mine() ?? []).filter((x) => x !== r.id))}><i /></button></Show>{r.name}
+              </span>
+            )}</For>
+            <Show when={can() && roles().length > has().length}><button class="role-chip add" aria-label="Add role" title="Add role" onClick={(e) => addMenu(e)}><Icon name="plus" size={13} /></button></Show>
+          </div>
+        </Show>
+      </section>
+    </Show>
   );
 }
 
@@ -182,6 +229,8 @@ export function ProfileView(props: { onMessage(channelId: string): void }) {
 
 function ProfilePopout(props: { person: Person; x: number; y: number; onClose(): void; onMessage(cid: string): void }) {
   let el!: HTMLDivElement;
+  useBack(() => props.onClose());
+  void refreshProfile(props.person.id);
   const self = () => backend()?.me.id === props.person.id;
   const [pos, setPos] = createSignal({ left: props.x + 16, top: props.y - 40 });
   const place = () => {
@@ -201,14 +250,19 @@ function ProfilePopout(props: { person: Person; x: number; y: number; onClose():
   }
   return (
     <div class="pop-scrim clear" onClick={props.onClose} onContextMenu={(e) => { e.preventDefault(); props.onClose(); }}>
-      <div ref={el} class="profile-pop" role="dialog" aria-label={`${props.person.name}'s profile`} style={{ left: `${pos().left}px`, top: `${pos().top}px` }} onClick={(e) => e.stopPropagation()}>
+      <div ref={el} class="profile-pop" role="dialog" aria-label={`${props.person.name}'s profile`} style={{ left: `${pos().left}px`, top: `${pos().top}px` }}
+        onClick={(e) => {
+          e.stopPropagation();
+          // Clicking their picture or name opens the full profile, like Discord.
+          if ((e.target as HTMLElement).closest(".pc-avatar, .pc-name")) setProfileView({ person: props.person, full: true, x: 0, y: 0 });
+        }}>
         <ProfileCard person={props.person} compact>
           <Show when={!self()} fallback={
             <div class="pc-actions"><button class="btn small primary" onClick={() => { props.onClose(); openProfileEditor(); }}><Icon name="pencil" size={15} />Edit profile</button></div>
           }>
             <Show when={!props.person.bot}><QuickMessage person={props.person} onSent={(cid) => { props.onClose(); props.onMessage(cid); }} /></Show>
           </Show>
-          <button class="link small pc-full" onClick={() => setProfileView({ person: props.person, full: true, x: 0, y: 0 })}>View full profile</button>
+          <Show when={currentServer()}>{(sid) => <ServerSection person={props.person} serverId={sid()} />}</Show>
         </ProfileCard>
         <Show when={!self()}>
           <div class="pc-toprow">
@@ -225,6 +279,8 @@ function ProfilePopout(props: { person: Person; x: number; y: number; onClose():
 /** The full profile (Discord's "View full profile"): the card, and tabs for activity and what you share. */
 function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: string): void }) {
   const self = () => backend()?.me.id === props.person.id;
+  useBack(() => props.onClose());
+  void refreshProfile(props.person.id);
   const [tab, setTab] = createSignal<"activity" | "friends" | "servers">("activity");
   const [mutual] = createResource(() => props.person.id, (id) => backend()!.mutual(id));
   const info = createProfileInfo(() => props.person.id);
@@ -239,6 +295,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
         <button class="icon-btn close" onClick={props.onClose} aria-label="Close"><Icon name="close" size={18} /></button>
         <div class="pf-card">
           <ProfileCard person={props.person}>
+            <Show when={currentServer()}>{(sid) => <ServerSection person={props.person} serverId={sid()} />}</Show>
             <div class="pc-actions">
               <Show when={!self()} fallback={<button class="btn small primary" onClick={() => { props.onClose(); openProfileEditor(); }}><Icon name="pencil" size={15} />Edit profile</button>}>
                 <Show when={!props.person.bot}><button class="btn small primary" onClick={() => void message()}><Icon name="chat" size={15} />Message</button><FriendButton person={props.person} /></Show>
@@ -286,6 +343,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
 
 /** Beside a DM, like Discord: their card, what you share, and a way into the full profile. */
 export function DmProfile(props: { person: Person }) {
+  createEffect(on(() => props.person.id, (id) => void refreshProfile(id)));
   const [mutual] = createResource(() => props.person.id, (id) => backend()!.mutual(id));
   const [openList, setOpenList] = createSignal<"servers" | "friends" | null>(null);
   const toggle = (k: "servers" | "friends") => setOpenList(openList() === k ? null : k);
@@ -310,7 +368,7 @@ export function DmProfile(props: { person: Person }) {
             )}</For>
           </Show>
         </div>
-        <button class="dmp-full" onClick={() => setProfileView({ person: props.person, full: true, x: 0, y: 0 })}>View full profile</button>
+        <button class="btn dmp-full" onClick={() => setProfileView({ person: props.person, full: true, x: 0, y: 0 })}><Icon name="user" size={16} />View full profile</button>
       </ProfileCard>
     </aside>
   );

@@ -25,9 +25,10 @@ export function PaintCanvas(props: {
 /** Avatar decoration: a square canvas 1.5x the avatar, centered on it. */
 export function DecorCanvas(props: { slot: Accessor<SlotConfig>; size: number; animate: boolean }) {
   const layers = createMemo(() => layersFor(props.slot()));
-  const parts = new Map<any, any>();
+  // Sparkles (Stardust and friends) are laid out once per decoration, not every frame.
+  const parts = createMemo(() => { layers(); return new Map<any, any>(); });
   const S = () => Math.round(props.size * 1.5);
-  return <PaintCanvas class="decor" w={S()} h={S()} animate={props.animate} draw={(ctx, t) => { parts.clear(); drawDecor(ctx, layers(), t, S(), parts); }} />;
+  return <PaintCanvas class="decor" w={S()} h={S()} animate={props.animate} draw={(ctx, t) => drawDecor(ctx, layers(), t, S(), parts())} />;
 }
 
 export function EffectCanvas(props: { slot: Accessor<SlotConfig>; w: number; h: number; animate: boolean }) {

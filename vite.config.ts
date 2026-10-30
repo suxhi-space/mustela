@@ -9,7 +9,9 @@ export default defineConfig({
   plugins: [solid()],
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   clearScreen: false,
-  server: { port: 1420, strictPort: true, host: process.env.TAURI_DEV_HOST || false },
-  build: { target: "es2022", sourcemap: false },
+  // The Rust build folder is huge and changes constantly: watching it can crash the dev server.
+  server: { port: 1420, strictPort: true, host: process.env.TAURI_DEV_HOST || false, watch: { ignored: ["**/src-tauri/**", "**/release/**"] } },
+  // Audio worklets must stay real files: the app only runs its own scripts, never data: or blob: ones.
+  build: { target: "es2022", sourcemap: false, assetsInlineLimit: (file) => (file.endsWith(".js") ? false : undefined) },
   test: { environment: "node", exclude: ["server/**", "node_modules/**", "src-tauri/**"] },
 });

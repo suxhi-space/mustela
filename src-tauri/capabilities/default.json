@@ -1,10 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main and call window permissions",
+  "description": "Main window permissions (the call pop-out runs no code of its own: the main window draws it)",
   "windows": [
-    "main",
-    "call"
+    "main"
   ],
   "permissions": [
     "core:default",
@@ -18,11 +17,12 @@
     "core:window:allow-start-dragging",
     "core:window:allow-is-maximized",
     "core:window:allow-set-badge-count",
-    "autostart:default",
     "core:window:allow-set-always-on-top",
     "core:window:allow-destroy",
     "core:window:allow-set-focus",
     "core:window:allow-show",
-    "core:window:allow-hide"
+    "core:window:allow-hide",
+    "core:window:allow-set-decorations",
+    "core:window:allow-set-title-bar-style"
   ]
 }

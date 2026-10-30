@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { useBack } from "./back";
 import { userMenu } from "./menus";
 import type { Friends as FriendList, Person } from "../lib/backend/types";
 import { Avatar, NameText } from "./Avatar";
@@ -134,6 +135,7 @@ export function Friends(props: { onMessage(channelId: string): void; onProfile(p
 
 /** Join a server from an invite link. */
 export function JoinServer(props: { onClose(): void; onJoined(serverId: string): void }) {
+  useBack(() => props.onClose());
   const [mode, setMode] = createSignal<"join" | "create">("join");
   const [code, setCode] = createSignal("");
   const [name, setName] = createSignal(`${backend()!.me.name}'s server`);

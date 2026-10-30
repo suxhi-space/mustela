@@ -12,7 +12,7 @@ import { Icon } from "../icons";
 import { EffectCanvas, FrameCanvas, PlateCanvas } from "../Paint";
 import { ProfileCard } from "../Profile";
 import { AccountEditor } from "./AccountEditor";
-import { backend, book, meNow, settings, updateSettings } from "../store";
+import { backend, book, ext, meNow, settings, updateSettings } from "../store";
 
 export const KINDS: SlotKind[] = ["decor", "effect", "frame", "plate"];
 const NONE: SlotConfig = { preset: 0, hue: 0, speed: 8, intensity: 8 };
@@ -90,7 +90,7 @@ export function ProfileSettings() {
   async function publish() {
     setPub("busy");
     try {
-      await backend()!.publishProfile(p(), undefined, { banner: settings().cloud.banner });
+      await backend()!.publishProfile(p(), undefined, { banner: settings().cloud.banner, privacy: ext().privacy, servers: ext().serverLooks });
       const j = JSON.stringify(p());
       try { localStorage.setItem(pubKey(), j); } catch { /* fine */ }
       setPublished(j); setPub("done");

@@ -14,7 +14,8 @@ export function Discover(props: { onBack(): void; onJoined(serverId: string): vo
   let frame!: HTMLIFrameElement;
   const [invite, setInvite] = createSignal<string | null>(null);
   const [bot, setBot] = createSignal<string | null>(null);
-  // The page says hello once it's running; until then (or if it never does) it stays hidden.
+  // Shown once the page has loaded (or says hello). Stoat's client shows it straight away; we wait for the
+  // load so a blank frame never appears, but never for the hello alone, which some versions don't send.
   const [loaded, setLoaded] = createSignal(false);
   const [failed, setFailed] = createSignal(false);
   const [n, setN] = createSignal(0);
@@ -30,6 +31,7 @@ export function Discover(props: { onBack(): void; onJoined(serverId: string): vo
     if (data?.source !== "discover") return;
     if (data.type === "init") setLoaded(true);
     if (data.type === "init") frame.contentWindow?.postMessage(JSON.stringify({ source: "revolt", type: "theme", theme: {} }), ORIGIN);
+    if (data.type === "path" && typeof data.path === "string") { /* the embedded page moved between tabs; nothing to do */ }
     if (data.type === "navigate" && typeof data.url === "string") {
       let u: URL;
       try { u = new URL(data.url); } catch { return; }
@@ -61,7 +63,7 @@ export function Discover(props: { onBack(): void; onJoined(serverId: string): vo
         </Show>
         <Show keyed when={n() + 1}>
           <iframe ref={frame} src={`${ORIGIN}/discover/servers?embedded=true`} title="Discover servers and bots" classList={{ ready: loaded() }}
-            referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups" />
+            referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" onLoad={() => { setLoaded(true); clearTimeout(timer); }} />
         </Show>
       </div>
       <Show when={invite()}>{(code) => (

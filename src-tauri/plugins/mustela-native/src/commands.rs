@@ -21,3 +21,29 @@ pub(crate) async fn pip<R: Runtime>(app: AppHandle<R>, payload: Pip) -> Result<P
 
 #[command]
 pub(crate) async fn call_state<R: Runtime>(app: AppHandle<R>) -> Result<CallState> { app.mustela_native().call_state() }
+
+#[command]
+pub(crate) async fn background<R: Runtime>(app: AppHandle<R>) -> Result<()> { app.mustela_native().background() }
+
+#[command]
+pub(crate) async fn call_audio<R: Runtime>(app: AppHandle<R>, payload: SetMic) -> Result<()> { app.mustela_native().call_audio(payload) }
+
+#[command]
+pub(crate) async fn set_call_overlay<R: Runtime>(app: AppHandle<R>, payload: Overlay) -> Result<()> { app.mustela_native().set_call_overlay(payload) }
+
+#[command]
+pub(crate) async fn overlay_allowed<R: Runtime>(app: AppHandle<R>) -> Result<Allowed> { app.mustela_native().overlay_allowed() }
+
+#[command]
+pub(crate) async fn request_overlay<R: Runtime>(app: AppHandle<R>) -> Result<Allowed> { app.mustela_native().request_overlay() }
+
+#[command]
+pub(crate) async fn screen_start<R: Runtime>(app: AppHandle<R>, payload: ScreenSize, channel: tauri::ipc::Channel<serde_json::Value>) -> Result<()> {
+  app.mustela_native().screen_start(ScreenStart { width: payload.width, height: payload.height, fps: payload.fps, channel })
+}
+
+#[command]
+pub(crate) async fn screen_ack<R: Runtime>(app: AppHandle<R>) -> Result<()> { app.mustela_native().screen_ack() }
+
+#[command]
+pub(crate) async fn screen_stop<R: Runtime>(app: AppHandle<R>) -> Result<()> { app.mustela_native().screen_stop() }

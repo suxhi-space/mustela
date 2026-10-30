@@ -1,6 +1,8 @@
+import type { ServerLooks } from "../profile/servers";
 import type { Activity, Cloud } from "../cloud";
 import type { ProfileConfig } from "../profile/model";
 import type { MustelaSettings } from "../sync/settings";
+import type { ExtSettings } from "../sync/ext";
 
 export interface Person {
   id: string;
@@ -53,6 +55,41 @@ export interface CustomEmoji { id: string; name: string; url: string; animated?:
 export interface VoicePresence { channelId: string; channelName: string; serverId?: string; serverName?: string; screen: boolean }
 export type NotifyLevel = "all" | "mention" | "none";
 export interface ServerPerms { manageServer: boolean; manageRoles: boolean; manageChannels: boolean; manageEmoji: boolean; kick: boolean; ban: boolean; invite: boolean; manageMessages: boolean }
+export interface CategoryInfo { id: string; title: string; channels: string[] }
+export interface Override { allow: number; deny: number }
+/** Everything on a channel's settings pages. */
+export interface ChannelDetails {
+  id: string; name: string; kind: "text" | "voice"; serverId: string;
+  description?: string; iconUrl?: string; slowmode: number; mature: boolean;
+  /** Overrides for everyone ("default") and per role */
+  defaultPerms: Override;
+  rolePerms: Record<string, Override>;
+  canManage: boolean; canManagePerms: boolean; canManageWebhooks: boolean;
+}
+export interface WebhookRow { id: string; name: string; avatarUrl?: string; url: string }
+/** Server settings beyond the basics: system messages, Discover, permissions. */
+export interface ServerDetails {
+  systemMessages: { user_joined?: string; user_left?: string; user_kicked?: string; user_banned?: string };
+  discoverable: boolean;
+  /** Permissions everyone has (a bit field) */
+  defaultPerms: number;
+  rolePerms: Record<string, Override>;
+  memberCount?: number;
+}
+export type DiscoverState = "none" | "pending" | "approved" | "rejected" | "unavailable";
+
+/** Sending rules for one channel: permissions and Stoat's slowmode. */
+export interface ChannelRules {
+  canSend: boolean;
+  canUpload: boolean;
+  canReact: boolean;
+  /** Delete and pin other people's messages */
+  canManage: boolean;
+  /** Seconds between messages, 0 when off or when I'm exempt */
+  slowmode: number;
+  /** ms timestamp when I may send again (slowmode), if I'm waiting */
+  waitUntil?: number;
+}
 export interface ServerInfo { id: string; name: string; description?: string; iconUrl?: string; bannerUrl?: string; ownerId: string; isOwner: boolean; perms: ServerPerms }
 export interface Role { id: string; name: string; colour?: string; hoist: boolean; rank: number }
 export interface InviteRow { code: string; channelName?: string; creator?: Person }
@@ -118,6 +155,7 @@ export interface ChannelInfo {
   description?: string;
   /** Category title in a server; channels arrive ordered, grouped by category */
   category?: string;
+  categoryId?: string;
   unread?: boolean;
   /** Unread mentions */
   mentions?: number;
@@ -161,6 +199,8 @@ export interface ProfileInfo {
   bio?: string;
   /** What they're playing/listening to, from a Mustela sync server */
   activity?: Activity | null;
+  /** Their look per server (over this main one); `bannerAt` is set when that server has a banner of its own */
+  servers?: Record<string, { config?: ProfileConfig; bio?: string; bannerAt?: number }>;
 }
 
 export type Presence = "online" | "idle" | "focus" | "busy" | "invisible";
@@ -179,6 +219,8 @@ export interface SendOptions {
   text: string;
   replies?: { id: string; mention: boolean }[];
   files?: File[];
+  /** Per file: send it as a spoiler (Stoat's SPOILER_ name prefix, so every client blurs it) */
+  spoilers?: boolean[];
   /** Upload progress across all files, 0..1 */
   onProgress?(fraction: number): void;
 }
@@ -189,7 +231,9 @@ export type ChatEvent =
   | { t: "delete"; channelId: string; id: string }
   | { t: "typing"; channelId: string; people: Person[] }
   /** Unread state, channel list, servers or friends may have changed */
-  | { t: "activity" };
+  | { t: "activity" }
+  /** The connection dropped and came back: anything sent meanwhile needs loading */
+  | { t: "reconnected" };
 
 /** Which engine carries the call. `native` is Android's background-safe, voice-only one. */
 export type VoiceEngine = "web" | "native";
@@ -220,7 +264,8 @@ export interface VoicePrefs {
 export interface VoiceHandle {
   setMic(on: boolean): Promise<void>;
   setCamera(on: boolean): Promise<void>;
-  setScreen(on: boolean, opts?: { quality?: VoicePrefs["screenQuality"]; audio?: boolean }): Promise<void>;
+  /** `native`: tracks from Mustela's own capture (desktop picker); otherwise the browser's picker. */
+  setScreen(on: boolean, opts?: { quality?: VoicePrefs["screenQuality"]; audio?: boolean; native?: { video: MediaStreamTrack; audio?: MediaStreamTrack; stop(): void; onEnded(cb: () => void): void } }): Promise<void>;
   leave(): Promise<void>;
   participants(): VoiceMember[];
   /** Ids of people talking right now (measured locally, so it's immediate). */
@@ -236,6 +281,8 @@ export interface VoiceHandle {
   state?(): { mic: boolean; cam: boolean; screen: boolean; deaf: boolean };
   /** Play an audio clip to everyone in the call (soundboard). */
   playSound?(data: ArrayBuffer, volume?: number): Promise<void>;
+  /** Ids of people playing a soundboard sound right now (their ring changes colour) */
+  soundboard?(): string[];
   /** Screen shares in the call, and whether you're watching each */
   streams?(): { id: string; watching: boolean; hasAudio: boolean }[];
   /** Start or stop receiving someone's screen share */
@@ -314,6 +361,10 @@ export interface ChatBackend {
   typing(channelId: string, on: boolean): void;
   /** Mark a channel read up to its newest message. */
   ack(channelId: string): void;
+  /** The last message I've read in a channel (ids sort by time), for "new messages since" and jumping to unread. */
+  lastRead(channelId: string): string | undefined;
+  /** Unread messages that mention me (or my roles, @everyone, @online), by channel. */
+  mentionIds(): { channelId: string; ids: string[] }[];
   onEvent(cb: (e: ChatEvent) => void): () => void;
   /** URL for a custom emoji id. */
   emojiUrl(id: string): string;
@@ -359,7 +410,26 @@ export interface ChatBackend {
   kick(serverId: string, userId: string): Promise<void>;
   ban(serverId: string, userId: string, reason?: string): Promise<void>;
   createChannel(serverId: string, p: { name: string; kind: "text" | "voice"; description?: string }): Promise<string>;
-  editChannel(channelId: string, p: { name?: string; description?: string }): Promise<void>;
+  editChannel(channelId: string, p: { name?: string; description?: string; icon?: File | null; slowmode?: number; mature?: boolean }): Promise<void>;
+  channelDetails(channelId: string): ChannelDetails | null;
+  /** roleId "default" means everyone */
+  setChannelPermissions(channelId: string, roleId: string, o: Override): Promise<void>;
+  webhooks(channelId: string): Promise<WebhookRow[]>;
+  createWebhook(channelId: string, name: string): Promise<WebhookRow>;
+  deleteWebhook(channelId: string, id: string): Promise<void>;
+  /** Stoat's channel categories, in order (channels outside any category aren't listed) */
+  categories(serverId: string): CategoryInfo[];
+  saveCategories(serverId: string, cats: CategoryInfo[]): Promise<void>;
+  serverDetails(serverId: string): ServerDetails | null;
+  editServerExtras(serverId: string, p: { systemMessages?: ServerDetails["systemMessages"] }): Promise<void>;
+  /** roleId "default" sets what everyone may do (a plain bit field) */
+  setServerPermissions(serverId: string, roleId: string, o: Override | number): Promise<void>;
+  discoverState(serverId: string): Promise<DiscoverState>;
+  requestDiscover(serverId: string): Promise<void>;
+  /** Owner only: deletes the server for everyone */
+  deleteServer(serverId: string): Promise<void>;
+  /** When someone joined a server, for "Member since" */
+  memberSince(serverId: string, userId: string): Promise<Date | undefined>;
   deleteChannel(channelId: string): Promise<void>;
   /** My nickname and avatar in one server */
   identity(serverId: string): Promise<{ nickname?: string; avatarUrl?: string }>;
@@ -398,16 +468,31 @@ export interface ChatBackend {
   linkFor(channelId: string, messageId?: string): string;
   /** Change my own account. Omitted fields are left alone. */
   updateMe(p: MeUpdate): Promise<void>;
-  /** Never throws; resolves to an empty profile on any failure. */
-  profileOf(userId: string): Promise<ProfileInfo>;
-  /** Publish my profile so other Mustela users can see it. */
-  publishProfile(cfg: ProfileConfig, banner?: Blob, opts?: { banner?: boolean }): Promise<void>;
+  /** Never throws; resolves to an empty profile on any failure. `fresh` reads it again (opening a card). */
+  profileOf(userId: string, fresh?: boolean): Promise<ProfileInfo>;
+  /** Publish my profile so other Mustela users can see it. A non-public `privacy` keeps it out of the
+   * banner (removing an old strip) and sends it only to sync servers that can keep it private. */
+  publishProfile(cfg: ProfileConfig, banner?: Blob, opts?: { banner?: boolean; privacy?: ExtSettings["privacy"]; servers?: ServerLooks }): Promise<void>;
+  /** Saves your look for one server to your sync servers. `banner`: a new picture, null to remove it, undefined to keep it. Returns when the banner changed (0 = none). */
+  saveServerLook(serverId: string, look: { config?: ProfileConfig; bio?: string }, banner: Blob | null | undefined, all: { main: ProfileConfig; looks: ServerLooks; privacy: ExtSettings["privacy"] }): Promise<number | undefined>;
+  /** Screen share qualities Stoat allows this account (like its own client: 720p always, 1080p if the server's limit allows; no 60 fps yet) */
+  screenQualities(): VoicePrefs["screenQuality"][];
+  /** Someone's banner for one server, as a picture link, or null */
+  serverBanner(userId: string, serverId: string, at: number): Promise<string | null>;
   pullSettings(): Promise<MustelaSettings | null>;
   pushSettings(s: MustelaSettings): Promise<void>;
+  pullExt(): Promise<ExtSettings | null>;
+  pushExt(s: ExtSettings): Promise<void>;
   /** Looks someone up by id for call participants and mentions. Never throws. */
   person(id: string): Person;
   /** Name for a channel id, for <#id> mentions. */
   channelName(id: string): string | undefined;
+  /** A server's channels (for #channel suggestions), in order. */
+  channelsIn(serverId: string): { id: string; name: string; kind: "text" | "voice" }[];
+  /** A role from any server I'm in, for <%id> mentions. */
+  role(id: string): Role | undefined;
+  /** What I may do in a channel right now. */
+  channelRules(channelId: string): ChannelRules;
   joinVoice(channelId: string, engine?: VoiceEngine, prefs?: VoicePrefs): Promise<VoiceHandle>;
   /** Close connections. Safe to call twice. */
   dispose(): void;

@@ -24,6 +24,8 @@ export const BLOCK = 8;
 /** Banners are always authored at this width, so decoders can undo server-side resizing. */
 export const CANONICAL_WIDTH = 960;
 export const CANONICAL_HEIGHT = 320;
+/** Banners are published this tall: the shown 3:1 band on top, the strip out of sight below it. */
+export const BANNER_HEIGHT = 480;
 export const COPIES = 2;
 export const MAX_PAYLOAD = 24;
 const MAGIC = [0xa7, 0x5c];

@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { ChannelInfo, Person, VoiceMember } from "../lib/backend/types";
 import { Avatar, NameText } from "./Avatar";
 import { CallStage, callMemberMenu } from "./call/CallStage";
@@ -25,8 +25,8 @@ export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string
   return (
     <ul class="voice-members">
       <For each={props.members}>{(m) => (
-        <li classList={{ talking: call.speaking().includes(m.id) }} onContextMenu={(e) => callMemberMenu(e, m)}>
-          <Avatar person={m} size={22} presence={false} still profile={null} />
+        <li classList={{ talking: call.speaking().includes(m.id) && !call.soundboard().includes(m.id), sound: call.soundboard().includes(m.id) }} onContextMenu={(e) => callMemberMenu(e, m)}>
+          <Avatar person={m} size={22} presence={false} still={!(call.speaking().includes(m.id))} />
           <span class="vm-name"><NameText person={m} /></span>
           <MemberIcons m={live(m)} />
         </li>
@@ -35,14 +35,34 @@ export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string
   );
 }
 
-/** A voice channel: the call fills the view (like Discord), with the channel's text chat beside it. */
+/** Phones show the call or the voice channel's chat, one at a time (the chat button switches). */
+export const [phoneVoiceChat, setPhoneVoiceChat] = createSignal(false);
+/** Phone-sized window (the same breakpoint as the rest of the phone layout). */
+export function createPhone() {
+  const mq = matchMedia("(max-width: 700px)");
+  const [phone, setPhone] = createSignal(mq.matches);
+  const f = () => setPhone(mq.matches);
+  mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f));
+  return phone;
+}
+
+/** A voice channel: the call fills the view, with the channel's text chat beside it (or, on a phone, instead of it). */
 export function Voice(props: { channel: ChannelInfo; spaceId?: string; onProfile(p: Person): void; onOpenChannel(id: string): void }) {
-  const chatOpen = () => device().voiceChat;
+  const phone = createPhone();
+  const chatOpen = () => (phone() ? phoneVoiceChat() : device().voiceChat);
+  const toggle = () => (phone() ? setPhoneVoiceChat(!phoneVoiceChat()) : updateDevice({ voiceChat: !device().voiceChat }));
   return (
-    <div class="voice-view" classList={{ "with-chat": chatOpen() }}>
-      <CallStage channel={props.channel} chatOpen={chatOpen()} onToggleChat={() => updateDevice({ voiceChat: !chatOpen() })} />
+    <div class="voice-view" classList={{ "with-chat": chatOpen(), "phone-chat": phone() && chatOpen() }}>
+      <Show when={!(phone() && chatOpen())}>
+        <CallStage channel={props.channel} chatOpen={chatOpen()} onToggleChat={toggle} />
+      </Show>
       <Show when={chatOpen()}>
-        <aside class="voice-chat"><Chat channel={props.channel} spaceId={props.spaceId} onProfile={props.onProfile} onOpenChannel={props.onOpenChannel} /></aside>
+        <aside class="voice-chat">
+          <Show when={phone()}>
+            <button class="vc-back" onClick={() => setPhoneVoiceChat(false)}><Icon name="speaker" size={16} /><span>Back to {props.channel.name}</span><Icon name="right" size={14} /></button>
+          </Show>
+          <Chat channel={props.channel} spaceId={props.spaceId} onProfile={props.onProfile} onOpenChannel={props.onOpenChannel} />
+        </aside>
       </Show>
     </div>
   );

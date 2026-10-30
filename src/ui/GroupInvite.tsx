@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { useBack } from "./back";
 import type { ChannelInfo, Person } from "../lib/backend/types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./icons";
@@ -10,6 +11,7 @@ import { backend } from "./store";
  * two of you plus whoever you pick; from a group it adds them in.
  */
 export function GroupInvite(props: { channel: ChannelInfo; onClose(): void; onOpen(channelId: string): void }) {
+  useBack(() => props.onClose());
   const [friends] = createResource(() => backend()!.friends().then((f) => f.friends));
   const inside = createMemo(() => new Set(backend()!.recipients(props.channel.id).map((p) => p.id)));
   const [q, setQ] = createSignal("");

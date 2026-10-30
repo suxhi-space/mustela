@@ -1,4 +1,5 @@
 import { createResource, For, Show } from "solid-js";
+import { useBack } from "../back";
 import type { ChannelInfo, Msg } from "../../lib/backend/types";
 import { fmtStamp } from "../../lib/time";
 import { Avatar, NameText } from "../Avatar";
@@ -11,6 +12,7 @@ export type Panel = { kind: "search"; q: string } | { kind: "pins" };
 
 /** Search results or pinned messages for the open channel, in the right-hand column. */
 export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; onClose(): void }) {
+  useBack(() => props.onClose());
   const [list] = createResource(() => ({ p: props.panel, c: props.channel.id }), ({ p, c }) =>
     p.kind === "pins" ? backend()!.pinned(c) : backend()!.search(c, p.q));
   const title = () => (props.panel.kind === "pins" ? "Pinned messages" : `Results for “${(props.panel as { q: string }).q}”`);

@@ -12,7 +12,8 @@
         "transparent": true,
         "dragDropEnabled": false,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "create": false
       }
     ]
   }

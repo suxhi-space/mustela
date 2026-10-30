@@ -1,3 +1,5 @@
+import { useAutoplay } from "../autoplay";
+import { useBack } from "../back";
 import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { CustomEmoji } from "../../lib/backend/types";
 import type { FavGif } from "../../lib/sync/settings";
@@ -23,6 +25,7 @@ export function openEmojiPicker(anchor: Element, onPick: (p: EmojiPick) => void)
 export function EmojiPicker() {
   return (
     <Show when={picker()}>{(req) => {
+      useBack(() => setPicker(null));
       const [q, setQ] = createSignal("");
       const [tab, setTab] = createSignal<string>("0");
       const custom = createMemo(() => backend()?.emojis() ?? []);
@@ -111,11 +114,12 @@ function GifTile(props: { g: FavGif; onPick(): void }) {
   const [failed, setFailed] = createSignal(false);
   const isImage = () => /\.(gif|png|jpe?g|webp)(\?|$)/i.test(props.g.preview);
   const ratio = () => (props.g.w && props.g.h ? `${props.g.w} / ${props.g.h}` : undefined);
+  const play = useAutoplay();
   return (
     <div class="gif-tile" style={{ "aspect-ratio": ratio() }}>
       <button class="gif-play" onClick={props.onPick} aria-label="Send GIF">
         <Show when={!isImage() && !failed()} fallback={<img src={failed() ? props.g.still ?? props.g.preview : props.g.preview} alt="" loading="lazy" />}>
-          <video src={props.g.preview} autoplay loop muted playsinline preload="auto" onError={() => props.g.still && setFailed(true)} />
+          <video ref={play} src={props.g.preview} muted playsinline preload="metadata" onError={() => props.g.still && setFailed(true)} />
         </Show>
       </button>
       <button class="gif-star" classList={{ on: isFav(props.g.url) }} aria-pressed={isFav(props.g.url)} aria-label={isFav(props.g.url) ? "Remove from favourites" : "Add to favourites"}
@@ -127,6 +131,7 @@ function GifTile(props: { g: FavGif; onPick(): void }) {
 export function GifPicker() {
   return (
     <Show when={gifReq()}>{(req) => {
+      useBack(() => setGifReq(null));
       const [q, setQ] = createSignal("");
       const [deb, setDeb] = createSignal("");
       const [tab, setTab] = createSignal<"fav" | "browse">(settings().favGifs.length ? "fav" : "browse");
@@ -193,7 +198,7 @@ export function Lightbox() {
   onMount(() => addEventListener("keydown", esc));
   onCleanup(() => removeEventListener("keydown", esc));
   return (
-    <Show when={shown()}>{(s) => (
+    <Show when={shown()}>{(s) => { useBack(() => setShown(null)); return (
       <div class="lightbox" onClick={() => setShown(null)} role="dialog" aria-label={s().name}>
         <img src={s().url} alt={s().name} onClick={(e) => e.stopPropagation()} />
         <div class="lb-bar" onClick={(e) => e.stopPropagation()}>
@@ -202,6 +207,6 @@ export function Lightbox() {
           <button class="icon-btn" onClick={() => setShown(null)} aria-label="Close"><Icon name="close" size={18} /></button>
         </div>
       </div>
-    )}</Show>
+    ); }}</Show>
   );
 }

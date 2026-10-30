@@ -1,4 +1,5 @@
 import { createSignal, For, Match, Show, Switch } from "solid-js";
+import { useBack } from "./back";
 import { activeAccount } from "../lib/session/book";
 import { Avatar } from "./Avatar";
 import { Icon } from "./icons";
@@ -16,11 +17,12 @@ import { SessionsPage } from "./settings/Sessions";
 import { VoiceVideo } from "./settings/VoiceVideo";
 import { ActivityPage } from "./settings/ActivityPage";
 import { DesktopPage } from "./settings/DesktopPage";
+import { PerformancePage } from "./settings/PerformancePage";
 import { isDesktopApp } from "./desktop";
 import { openProfileEditor } from "./ProfileEditor";
 import { book, meNow, removeAccountById, settings } from "./store";
 
-export type Tab = "account" | "profile" | "sessions" | "bots" | "voice" | "appearance" | "notifications" | "language" | "desktop" | "accounts" | "sync" | "activity" | "advanced";
+export type Tab = "account" | "profile" | "sessions" | "bots" | "voice" | "appearance" | "notifications" | "language" | "desktop" | "accounts" | "sync" | "activity" | "performance" | "advanced";
 /** Same sections and order as Stoat's settings, with Mustela's extras in their own group before Advanced. */
 const GROUPS = (): { title: string; tabs: { id: Tab; label: string; icon: string }[] }[] => [
   { title: "User settings", tabs: [{ id: "profile", label: "Profile", icon: "user" }, { id: "sessions", label: "Sessions", icon: "shield" }] },
@@ -31,11 +33,11 @@ const GROUPS = (): { title: string; tabs: { id: Tab; label: string; icon: string
     ...(isDesktopApp() ? [{ id: "desktop" as Tab, label: "Desktop", icon: "screen" }] : []),
   ] },
   { title: "Mustela", tabs: [
-    { id: "activity", label: "Activity", icon: "gamepad" }, { id: "sync", label: "Sync & servers", icon: "cloud" },
+    { id: "activity", label: "Activity", icon: "gamepad" }, { id: "performance", label: "Performance", icon: "sparkle" }, { id: "sync", label: "Sync & servers", icon: "cloud" },
     { id: "accounts", label: "Accounts", icon: "swap" }, { id: "advanced", label: "Advanced", icon: "flask" },
   ] },
 ];
-const TITLE: Record<Tab, string> = { account: "My account", profile: "Profile", sessions: "Sessions", bots: "My bots", voice: "Voice & video", appearance: "Appearance", notifications: "Notifications", language: "Language", desktop: "Desktop", accounts: "Accounts", sync: "Sync & servers", activity: "Activity", advanced: "Advanced" };
+const TITLE: Record<Tab, string> = { account: "My account", profile: "Profile", sessions: "Sessions", bots: "My bots", voice: "Voice & video", appearance: "Appearance", notifications: "Notifications", language: "Language", desktop: "Desktop", accounts: "Accounts", sync: "Sync & servers", activity: "Activity", performance: "Performance", advanced: "Advanced" };
 
 const KEYWORDS: Partial<Record<Tab, string>> = {
   profile: "avatar banner bio about decoration frame nameplate effect name color pronouns",
@@ -49,6 +51,7 @@ const KEYWORDS: Partial<Record<Tab, string>> = {
   activity: "game playing rich presence discord rpc detection",
   sync: "cloud server backup",
   accounts: "switch add log out",
+  performance: "animation lag slow gif emoji blur title bar frame fps battery game",
   advanced: "debug cache reset",
 };
 
@@ -57,6 +60,8 @@ export function Settings(props: { onClose(): void; initial?: string }) {
   const [tab, setTab] = createSignal<Tab>((props.initial as Tab) in TITLE && props.initial !== "profile" ? (props.initial as Tab) : "account");
   if (props.initial === "profile") openProfileEditor();
   const [narrowNav, setNarrowNav] = createSignal(true); // phones: list first, then the page
+  // Back: from a page to the list of pages (phones), then out of settings.
+  useBack(() => (narrowNav() || !matchMedia("(max-width: 700px)").matches ? props.onClose() : setNarrowNav(true)));
   const demo = () => activeAccount(book())?.kind === "demo";
   const go = (t: Tab) => { setTab(t); setNarrowNav(false); };
   const me = () => meNow()!;
@@ -102,7 +107,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <p class="demo-note">This is the demo account. Changes here are pretend and reset when you leave.</p>
           </Show>
           <Switch>
-            <Match when={tab() === "account"}><MyAccount onEditProfile={openProfileEditor} /></Match>
+            <Match when={tab() === "account"}><MyAccount onEditProfile={() => openProfileEditor()} /></Match>
             <Match when={tab() === "profile"}><ProfileSettings /></Match>
             <Match when={tab() === "sessions"}><SessionsPage /></Match>
             <Match when={tab() === "bots"}><BotsPage /></Match>
@@ -114,6 +119,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <Match when={tab() === "sync"}><MustelaSync /></Match>
             <Match when={tab() === "activity"}><ActivityPage /></Match>
             <Match when={tab() === "accounts"}><AccountsPage onClose={props.onClose} /></Match>
+            <Match when={tab() === "performance"}><PerformancePage /></Match>
             <Match when={tab() === "advanced"}><AdvancedPage /></Match>
           </Switch>
         </div>

@@ -1,14 +1,16 @@
+import type { ServerLooks } from "../profile/servers";
 import { Client } from "stoat.js";
 import type { VoicePresence, AccountApi, BotRow, MfaProof,
   Attachment, ChannelInfo, ChatBackend, ChatEvent, Embed, Friends, MemberGroup, Msg, Person, ProfileInfo, Reaction,
-  BanRow, CustomEmoji, ServerFolder, GifCategory, InviteRow, NotifyLevel, Role, ServerInfo, GifResult, InviteInfo, MeUpdate, SendOptions, Space, StoredSession, VoiceEngine, VoiceHandle, VoicePrefs,
+  BanRow, CategoryInfo, ChannelDetails, ChannelRules, CustomEmoji, DiscoverState, Override, ServerDetails, WebhookRow, ServerFolder, GifCategory, InviteRow, NotifyLevel, Role, ServerInfo, GifResult, InviteInfo, MeUpdate, SendOptions, Space, StoredSession, VoiceEngine, VoiceHandle, VoicePrefs,
 } from "./types";
 import { sanitizeProfile, type ProfileConfig } from "../profile/model";
 import { packProfile, unpackProfile } from "../profile/pack";
-import { CANONICAL_HEIGHT, CANONICAL_WIDTH, decodeMarkerScaled, encodeMarker, markerHeight } from "../marker/codec";
+import { BANNER_HEIGHT, CANONICAL_HEIGHT, CANONICAL_WIDTH, decodeMarkerScaled, encodeMarker, markerHeight } from "../marker/codec";
 import { pullSettings, pushSettings, type MustelaSettings, type SyncApi } from "../sync/settings";
+import { pullExt, pushExt, type ExtSettings } from "../sync/ext";
 import { fetchBytes } from "../net";
-import { decodeImage } from "../imageData";
+import { decodeBottom, imageSize, MAX_PIXELS } from "../imageData";
 import { createLimiter } from "../limit";
 import { DEFAULT_API } from "./login";
 import { DEFAULT_VOICE_PREFS } from "../device";
@@ -142,7 +144,7 @@ export function apiErrorText(e: unknown, fallback: string): string {
 
 
 
-const READY_TIMEOUT_MS = 20_000;
+const READY_TIMEOUT_MS = 30_000;
 const profileLimit = createLimiter(3);
 
 export class StoatBackend implements ChatBackend {
@@ -194,12 +196,17 @@ export class StoatBackend implements ChatBackend {
   static async open(baseURL: string | undefined, session: StoredSession): Promise<StoatBackend> {
     const base = normalizeBase(baseURL) ?? DEFAULT_API;
     let config: any;
-    try {
-      const r = await fetch(base + "/");
-      if (!r.ok) throw new Error();
-      config = await r.json();
-    } catch {
-      throw new Error("Couldn't reach the server. Check your connection.");
+    // A flaky network (or a laptop just waking up) gets a few tries before we give up.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await fetch(base + "/");
+        if (!r.ok) throw new Error();
+        config = await r.json();
+        break;
+      } catch {
+        if (attempt >= 3) throw new Error("Couldn't reach the server. Check your connection.");
+        await new Promise((res) => setTimeout(res, 800 * 2 ** attempt));
+      }
     }
     const client = new Client({ baseURL: base, autoReconnect: true, syncUnreads: true } as any, config);
     client.useExistingSession(session);
@@ -213,7 +220,12 @@ export class StoatBackend implements ChatBackend {
         if (err) { client.options.autoReconnect = false; try { client.events.disconnect(); } catch { /* already closed */ } reject(err); } else resolve();
       };
       const onReady = () => done();
-      const onError = () => done(new Error("The server rejected this session. Sign in again."));
+      // Only a real "this session is invalid" answer means signing in again. Socket hiccups are retried
+      // by the SDK (autoReconnect) until the timeout, instead of showing "rejected" for a network blip.
+      const onError = (err: any) => {
+        const type = typeof err === "string" ? err : err?.type;
+        if (type === "InvalidSession" || type === "NotAuthenticated" || type === "InvalidToken") done(new Error("The server rejected this session. Sign in again."));
+      };
       client.on("ready", onReady);
       client.on("error", onError);
       client.connect(); // login() never connects on its own; this is what actually opens the socket
@@ -228,16 +240,41 @@ export class StoatBackend implements ChatBackend {
 
   person(id: string): Person { return personOf(this.client.users.get(id), id); }
   channelName(id: string) { return this.client.channels.get(id)?.name; }
+  channelsIn(serverId: string) {
+    const s: any = this.client.servers.get(serverId);
+    return ((s?.orderedChannels ?? []) as any[]).flatMap((cat) => cat.channels.filter(Boolean))
+      .filter((c: any) => { try { return c.havePermission("ViewChannel"); } catch { return true; } })
+      .map((c: any) => ({ id: c.id as string, name: c.name as string, kind: (c.isVoice ? "voice" : "text") as "text" | "voice" }));
+  }
+  role(id: string): Role | undefined {
+    for (const s of this.client.servers.toList() as any[]) {
+      const r = s.roles?.get?.(id);
+      if (r) return { id, name: r.name, colour: r.colour ?? undefined, hoist: !!r.hoist, rank: r.rank ?? 0 };
+    }
+    return undefined;
+  }
+  channelRules(channelId: string): ChannelRules {
+    const c: any = this.client.channels.get(channelId);
+    if (!c) return { canSend: false, canUpload: false, canReact: false, canManage: false, slowmode: 0 };
+    const has = (p: string) => { try { return !!c.havePermission(p); } catch { return true; } };
+    const exempt = has("BypassSlowmode");
+    const slow = exempt ? 0 : Number(c.slowmode ?? 0) || 0;
+    const wait = slow ? c.userSlowmode?.() : undefined;
+    return {
+      canSend: has("SendMessage"), canUpload: has("UploadFiles"), canReact: has("React"), canManage: has("ManageMessages"), slowmode: slow,
+      waitUntil: wait ? (wait.receivedAt ?? Date.now()) + wait.retry_after * 1000 : undefined,
+    };
+  }
   emojiUrl(id: string) { return `${(this.client.configuration as any)?.features?.autumn?.url ?? ""}/emojis/${id}`; }
 
-  private channelInfo(c: any, category?: string): ChannelInfo {
+  private channelInfo(c: any, category?: string, categoryId?: string): ChannelInfo {
     const dm = c.type === "DirectMessage";
     return {
       id: c.id,
       name: dm ? c.recipient?.displayName ?? "Unknown" : c.type === "SavedMessages" ? "Saved Notes" : c.name,
       kind: dm ? "dm" : c.type === "Group" ? "group" : c.isVoice ? "voice" : "text",
       description: c.description,
-      category,
+      category, categoryId,
       unread: !!c.unread && !this.isMuted("channel", c.id) && !(c.serverId && this.isMuted("server", c.serverId)),
       mentions: c.mentions?.size || undefined,
       muted: this.isMuted("channel", c.id) || this.notif.channel[c.id] === "none",
@@ -262,7 +299,7 @@ export class StoatBackend implements ChatBackend {
     const servers: Space[] = (this.client.servers.toList() as any[]).map((s, i) => ({ s, i })).sort((a, b) => rank(a.s.id) - rank(b.s.id) || a.i - b.i).map(({ s }) => ({
       id: s.id, name: s.name, iconUrl: s.iconURL, bannerUrl: s.bannerURL, description: s.description,
       channels: (s.orderedChannels as any[]).flatMap((cat) =>
-        cat.channels.filter(Boolean).map((c: any) => this.channelInfo(c, cat.id === "default" ? undefined : cat.title))),
+        cat.channels.filter(Boolean).map((c: any) => this.channelInfo(c, cat.id === "default" ? undefined : cat.title, cat.id === "default" ? undefined : cat.id))),
     }));
     return [{ id: "home", name: "Home", home: true, channels: saved ? [this.channelInfo(saved), ...dms] : dms }, ...servers];
   }
@@ -345,8 +382,9 @@ export class StoatBackend implements ChatBackend {
     const total = files.reduce((n, f) => n + f.size, 0) || 1;
     let done = 0;
     const attachments: string[] = [];
-    for (const f of files) {
-      attachments.push(await this.upload("attachments", f, (sent) => opts.onProgress?.((done + sent) / total)));
+    for (const [i, f] of files.entries()) {
+      const named = opts.spoilers?.[i] && !f.name.startsWith("SPOILER_") ? new File([f], `SPOILER_${f.name}`, { type: f.type }) : f;
+      attachments.push(await this.upload("attachments", named, (sent) => opts.onProgress?.((done + sent) / total)));
       done += f.size;
     }
     await ch.sendMessage({
@@ -375,20 +413,31 @@ export class StoatBackend implements ChatBackend {
       };
       xhr.onerror = () => reject(new Error("Upload failed. Check your connection."));
       const body = new FormData();
-      body.append("file", file);
+      body.append("file", file, file.name);
       xhr.send(body);
     });
   }
 
-  async edit(channelId: string, id: string, text: string) { await (await this.raw(channelId, id))?.edit({ content: text }); }
-  async remove(channelId: string, id: string) { await (await this.raw(channelId, id))?.delete(); }
-  async react(channelId: string, id: string, emoji: string, on: boolean) {
-    const m = await this.raw(channelId, id);
-    if (on) await m?.react(encodeURIComponent(emoji)); else await m?.unreact(encodeURIComponent(emoji));
+  edit(channelId: string, id: string, text: string) { return this.wrap(async () => { await (await this.raw(channelId, id))?.edit({ content: text }); }, "edit the message"); }
+  remove(channelId: string, id: string) { return this.wrap(async () => { await (await this.raw(channelId, id))?.delete(); }, "delete the message"); }
+  react(channelId: string, id: string, emoji: string, on: boolean) {
+    return this.wrap(async () => {
+      const m = await this.raw(channelId, id);
+      if (on) await m?.react(encodeURIComponent(emoji)); else await m?.unreact(encodeURIComponent(emoji));
+    }, on ? "add that reaction" : "remove that reaction");
   }
   typing(channelId: string, on: boolean) {
     const ch: any = this.client.channels.get(channelId);
     try { if (on) ch?.startTyping(); else ch?.stopTyping(); } catch { /* socket not ready */ }
+  }
+  lastRead(channelId: string) { return (this.client as any).channelUnreads?.get(channelId)?.lastMessageId as string | undefined; }
+  mentionIds() {
+    const out: { channelId: string; ids: string[] }[] = [];
+    for (const c of this.client.channels.toList() as any[]) {
+      const ids = c.mentions ? [...c.mentions] as string[] : [];
+      if (ids.length && !this.isMuted("channel", c.id) && !(c.serverId && this.isMuted("server", c.serverId))) out.push({ channelId: c.id, ids: ids.sort() });
+    }
+    return out;
   }
   ack(channelId: string) { const ch: any = this.client.channels.get(channelId); if (ch?.unread) void ch.ack().catch?.(() => {}); }
 
@@ -413,6 +462,8 @@ export class StoatBackend implements ChatBackend {
       for (const [k, v] of Object.entries(update ?? {})) this.applySynced(k, v?.[1]);
       activity();
     }]);
+    // "ready" fires again after every reconnect; the first one happened before anyone listened.
+    h.push(["ready", () => { cb({ t: "reconnected" }); activity(); }]);
     for (const [e, f] of h) c.on(e, f);
     // Voice joins/leaves only update the SDK's maps; watch the raw socket for them.
     const raw = (ev: any) => { if (typeof ev?.type === "string" && /^(VoiceChannel|UserVoiceState|UserMoveVoiceChannel)/.test(ev.type)) activity(); };
@@ -555,13 +606,91 @@ export class StoatBackend implements ChatBackend {
   createChannel(id: string, p: { name: string; kind: "text" | "voice"; description?: string }) {
     return this.wrap(async () => (await this.server(id).createChannel({ type: "Text", name: p.name, description: p.description || undefined, ...(p.kind === "voice" ? { voice: {} } : {}) })).id as string, "create the channel");
   }
-  editChannel(cid: string, p: { name?: string; description?: string }) {
+  editChannel(cid: string, p: { name?: string; description?: string; icon?: File | null; slowmode?: number; mature?: boolean }) {
     return this.wrap(async () => {
-      const data: any = {};
+      const data: any = {}, remove: string[] = [];
       if (p.name !== undefined) data.name = p.name;
-      if (p.description !== undefined) { if (p.description.trim()) data.description = p.description; else data.remove = ["Description"]; }
+      if (p.description !== undefined) { if (p.description.trim()) data.description = p.description; else remove.push("Description"); }
+      if (p.icon === null) remove.push("Icon"); else if (p.icon) data.icon = await this.upload("icons", p.icon);
+      if (p.slowmode !== undefined) data.slowmode = Math.max(0, Math.round(p.slowmode));
+      if (p.mature !== undefined) data.nsfw = p.mature;
+      if (remove.length) data.remove = remove;
       await this.client.channels.get(cid)!.edit(data);
     }, "save the channel");
+  }
+  channelDetails(cid: string): ChannelDetails | null {
+    const c: any = this.client.channels.get(cid);
+    if (!c?.serverId) return null;
+    const has = (x: string) => { try { return !!c.havePermission(x); } catch { return false; } };
+    const ov = (o: any): Override => ({ allow: Number(o?.a ?? o?.allow ?? 0), deny: Number(o?.d ?? o?.deny ?? 0) });
+    return {
+      id: c.id, name: c.name, kind: c.isVoice ? "voice" : "text", serverId: c.serverId, description: c.description, iconUrl: c.iconURL,
+      slowmode: Number(c.slowmode ?? 0) || 0, mature: !!c.mature,
+      defaultPerms: ov(c.defaultPermissions),
+      rolePerms: Object.fromEntries(Object.entries(c.rolePermissions ?? {}).map(([k, v]) => [k, ov(v)])),
+      canManage: has("ManageChannel"), canManagePerms: has("ManagePermissions"), canManageWebhooks: has("ManageWebhooks"),
+    };
+  }
+  setChannelPermissions(cid: string, roleId: string, o: Override) {
+    return this.wrap(async () => void (await (this.client.channels.get(cid) as any).setPermissions(roleId, { allow: o.allow, deny: o.deny })), "save the permissions");
+  }
+  private hookRow(w: any): WebhookRow {
+    const base = normalizeBase((this.client as any).options?.baseURL) ?? DEFAULT_API;
+    return { id: w.id, name: w.name, avatarUrl: w.avatarURL, url: `${base}/webhooks/${w.id}/${w.token}` };
+  }
+  webhooks(cid: string) { return this.wrap(async () => ((await (this.client.channels.get(cid) as any).fetchWebhooks()) as any[]).map((w) => this.hookRow(w)), "load webhooks"); }
+  createWebhook(cid: string, name: string) { return this.wrap(async () => this.hookRow(await (this.client.channels.get(cid) as any).createWebhook(name)), "create the webhook"); }
+  deleteWebhook(cid: string, id: string) {
+    return this.wrap(async () => {
+      const w: any = (this.client as any).channelWebhooks?.get?.(id) ?? ((await (this.client.channels.get(cid) as any).fetchWebhooks()) as any[]).find((x) => x.id === id);
+      await w?.delete();
+    }, "delete the webhook");
+  }
+  categories(sid: string): CategoryInfo[] {
+    const s: any = this.client.servers.get(sid);
+    return ((s?.categories ?? []) as any[]).map((c) => ({ id: c.id, title: c.title, channels: [...(c.channels ?? [])] }));
+  }
+  saveCategories(sid: string, cats: CategoryInfo[]) {
+    return this.wrap(async () => void (await this.server(sid).edit({ categories: cats.map((c) => ({ id: c.id, title: c.title.slice(0, 32), channels: c.channels })) })), "save the categories");
+  }
+  serverDetails(sid: string): ServerDetails | null {
+    const s: any = this.client.servers.get(sid);
+    if (!s) return null;
+    const roles: Record<string, Override> = {};
+    for (const r of (s.orderedRoles ?? []) as any[]) roles[r.id] = { allow: Number(r.permissions?.a ?? 0), deny: Number(r.permissions?.d ?? 0) };
+    return { systemMessages: { ...(s.systemMessages ?? {}) }, discoverable: !!s.discoverable, defaultPerms: Number(s.defaultPermissions ?? 0), rolePerms: roles, memberCount: s.approximateMemberCount || undefined };
+  }
+  editServerExtras(sid: string, p: { systemMessages?: ServerDetails["systemMessages"] }) {
+    return this.wrap(async () => {
+      const data: any = {};
+      if (p.systemMessages) {
+        const sm = Object.fromEntries(Object.entries(p.systemMessages).filter(([, v]) => !!v));
+        if (Object.keys(sm).length) data.system_messages = sm; else data.remove = ["SystemMessages"];
+      }
+      await this.server(sid).edit(data);
+    }, "save the server");
+  }
+  setServerPermissions(sid: string, roleId: string, o: Override | number) {
+    return this.wrap(async () => void (await this.server(sid).setPermissions(roleId === "default" ? undefined : roleId, o as any)), "save the permissions");
+  }
+  async discoverState(sid: string): Promise<DiscoverState> {
+    const s: any = this.client.servers.get(sid);
+    if (!s?.discoverRequestStatus) return "unavailable";
+    if (s.discoverable) return "approved";
+    try {
+      const r: any = await s.discoverRequestStatus();
+      const st = String(r?.status ?? r?.state ?? "").toLowerCase();
+      return st.includes("reject") || st.includes("deni") ? "rejected" : st.includes("approv") || st.includes("accept") ? "approved" : "pending";
+    } catch (e: any) {
+      const type = e?.type ?? (() => { try { return JSON.parse(e?.message ?? "{}").type; } catch { return undefined; } })();
+      return type === "NotFound" || e?.response?.status === 404 ? "none" : "unavailable";
+    }
+  }
+  requestDiscover(sid: string) { return this.wrap(async () => void (await this.server(sid).requestDiscover()), "send the Discover request"); }
+  deleteServer(sid: string) { return this.wrap(async () => void (await this.server(sid).delete()), "delete the server"); }
+  async memberSince(sid: string, uid: string) {
+    const m: any = this.member(sid, uid) ?? (await this.client.servers.get(sid)?.fetchMember(uid).catch(() => null));
+    return m?.joinedAt instanceof Date ? m.joinedAt : undefined;
   }
   deleteChannel(cid: string) { return this.wrap(async () => void (await this.client.channels.get(cid)!.delete()), "delete the channel"); }
   private member(sid: string, uid: string): any { return (this.client as any).serverMembers?.getByKey?.({ server: sid, user: uid }); }
@@ -755,22 +884,38 @@ export class StoatBackend implements ChatBackend {
     return (r?.server?._id ?? r?.server?.id ?? "") as string;
   }
 
-  profileOf(userId: string): Promise<ProfileInfo> {
+  /** When each profile was read, and whether it failed (failures are retried after a minute). */
+  private profileAt = new Map<string, { at: number; failed: boolean }>();
+  profileOf(userId: string, fresh = false): Promise<ProfileInfo> {
     let p = this.profiles.get(userId);
-    if (!p) {
-      p = profileLimit(() => this.readProfile(userId)).catch((): ProfileInfo => ({ config: null }));
+    const meta = this.profileAt.get(userId);
+    const stale = !meta || (meta.failed && Date.now() - meta.at > 60_000) || (fresh && Date.now() - meta.at > 5_000);
+    if (!p || stale) {
+      this.profileAt.set(userId, { at: Date.now(), failed: false });
+      p = profileLimit(() => this.readProfile(userId, fresh)).catch((): ProfileInfo => {
+        this.profileAt.set(userId, { at: Date.now(), failed: true });
+        return { config: null };
+      });
       this.profiles.set(userId, p);
     }
     return p;
   }
 
-  private async readProfile(userId: string): Promise<ProfileInfo> {
-    const fromCloud = this.cloud.fetchProfile(userId).catch(() => null);
+
+  private async readProfile(userId: string, fresh = false): Promise<ProfileInfo> {
+    const fromCloud = this.cloud.fetchProfile(userId, fresh).catch(() => null);
     const info = await this.readStoatProfile(userId);
     // A sync server's copy wins over the banner strip: it's newer-capable and carries activity.
     const c = await fromCloud;
     if (c?.profile) info.config = c.profile;
     if (c) info.activity = c.activity;
+    if (c && (Object.keys(c.servers ?? {}).length || Object.keys(c.images ?? {}).length)) {
+      const servers: NonNullable<ProfileInfo["servers"]> = {};
+      for (const [sid, l] of Object.entries(c.servers ?? {})) servers[sid] = { config: l.config, bio: l.bio };
+      for (const [sid, at] of Object.entries(c.images ?? {})) servers[sid] = { ...servers[sid], bannerAt: at };
+      info.servers = servers;
+      this.bannerSource.set(userId, c.source ?? "");
+    }
     return info;
   }
 
@@ -782,7 +927,9 @@ export class StoatBackend implements ChatBackend {
     const info: ProfileInfo = { config: null, bannerUrl, bio: profile.content ?? undefined };
     if (!bannerUrl) return info;
     try {
-      const px = await decodeImage(await fetchBytes(bannerUrl));
+      // Only the bottom quarter is decoded, after a size check: the strip is data (≤ 24 bytes, CRC-checked)
+      // and is never run, and a giant picture can't exhaust memory.
+      const px = await decodeBottom(await fetchBytes(bannerUrl));
       const payload = decodeMarkerScaled(px.data, px.width, px.height);
       const cfg = payload ? unpackProfile(payload) : null;
       info.config = cfg ? sanitizeProfile(cfg) : null;
@@ -794,8 +941,63 @@ export class StoatBackend implements ChatBackend {
    * Re-uploads the banner at canonical size with the marker embedded.
    * Uses `banner` if given, else the current banner, else a gradient from the profile colors.
    */
-  async publishProfile(cfg: ProfileConfig, banner?: Blob, opts: { banner?: boolean } = {}) {
-    const cloud = this.cloud.publishProfile(cfg);
+  /** Everyone allowed to see a private profile: friends, plus members of the chosen servers. */
+  private async audienceList(privacy: ExtSettings["privacy"]): Promise<string[]> {
+    const ids = new Set<string>();
+    for (const u of this.client.users.toList() as any[]) if (u.relationship === "Friend") ids.add(u.id);
+    if (privacy.mode === "friends+servers") {
+      for (const sid of privacy.servers) {
+        const s: any = this.client.servers.get(sid);
+        if (!s) continue;
+        try { const { members } = await s.fetchMembers(); for (const m of members as any[]) { const id = m.id?.user ?? m.userId; if (id) ids.add(id); if (ids.size >= 5000) break; } } catch { /* skip that server */ }
+      }
+    }
+    ids.delete(this.sess.user_id);
+    return [...ids].slice(0, 5000);
+  }
+
+  screenQualities(): VoicePrefs["screenQuality"][] {
+    // Same rule as Stoat's client: 720p 30 for everyone, 1080p 30 when the account's video limit allows it.
+    const lim = ((this.client as any).limits?.video_resolution ?? [0, 0]) as [number, number];
+    const hd = (lim[0] === 0 || lim[0] >= 1920) && (lim[1] === 0 || lim[1] >= 1080);
+    return hd ? ["720p30", "1080p30"] : ["720p30"];
+  }
+
+  /** Which sync server each person's server banners live on (the one their profile came from). */
+  private bannerSource = new Map<string, string>();
+  serverBanner(userId: string, serverId: string, at: number) {
+    const src = this.bannerSource.get(userId) ?? (userId === this.sess.user_id ? this.cloud.list.find((s) => this.cloud.linked(s)) : undefined);
+    return src ? this.cloud.serverBanner(src, userId, serverId, at) : Promise.resolve(null);
+  }
+
+  async saveServerLook(serverId: string, look: { config?: ProfileConfig; bio?: string }, banner: Blob | null | undefined, all: { main: ProfileConfig; looks: ServerLooks; privacy: ExtSettings["privacy"] }) {
+    const at = banner === undefined ? undefined : await this.cloud.setServerBanner(serverId, banner);
+    const looks: ServerLooks = { ...all.looks, [serverId]: { ...look, ...(at === undefined ? (all.looks[serverId]?.banner ? { banner: all.looks[serverId]!.banner } : {}) : at ? { banner: at } : {}) } };
+    const l = looks[serverId]!;
+    if (!l.config && l.bio === undefined && !l.banner) delete looks[serverId]; // nothing left: the main profile again
+    const priv = all.privacy.mode !== "everyone" ? all.privacy : null;
+    const r = priv
+      ? await this.audienceList(priv).then((allow) => this.cloud.publishProfile(all.main, { mode: priv.mode as "friends" | "friends+servers", allow }, looks))
+      : await this.cloud.publishProfile(all.main, undefined, looks);
+    if (!r.tried) throw new Error("Server looks are kept on your sync server: link one in Mustela sync first.");
+    if (r.failed === r.tried) throw new Error("None of your sync servers took the change.");
+    this.profiles.delete(this.sess.user_id);
+    return at;
+  }
+
+  async publishProfile(cfg: ProfileConfig, banner?: Blob, opts: { banner?: boolean; privacy?: ExtSettings["privacy"]; servers?: ServerLooks } = {}) {
+    const priv = opts.privacy && opts.privacy.mode !== "everyone" ? opts.privacy : null;
+    const cloud = priv
+      ? this.audienceList(priv).then((allow) => this.cloud.publishProfile(cfg, { mode: priv.mode as "friends" | "friends+servers", allow }, opts.servers))
+      : this.cloud.publishProfile(cfg, undefined, opts.servers);
+    if (priv) {
+      // Private: nothing goes in the public banner. If it already carries a strip, put the picture back without one.
+      const r = await cloud;
+      await this.clearBannerStrip(banner);
+      if (r.tried && r.failed === r.tried) throw new Error("None of your sync servers could keep your profile private. Update them, or choose Everyone.");
+      this.profiles.delete(this.sess.user_id);
+      return;
+    }
     if (opts.banner === false) {
       const r = await cloud;
       if (!r.tried) throw new Error("Link a sync server first, or turn the banner copy back on.");
@@ -803,7 +1005,12 @@ export class StoatBackend implements ChatBackend {
       this.profiles.delete(this.sess.user_id);
       return;
     }
-    const cv = new OffscreenCanvas(CANONICAL_WIDTH, CANONICAL_HEIGHT);
+    // Published taller than shown (960×480): the picture fills the top 960×448 and the profile strip
+    // the bottom rows. Stoat centres banners in a wide box and Mustela shows the picture's middle 3:1
+    // band, so both see only picture (Stoat a bit more of it) and never the strip.
+    // 0.1.0 still reads it (it decodes by width, from the bottom rows).
+    const W = CANONICAL_WIDTH, H = BANNER_HEIGHT;
+    const cv = new OffscreenCanvas(W, H);
     const ctx = cv.getContext("2d", { willReadFrequently: true })!;
     let src: Blob | undefined = banner;
     if (!src) {
@@ -811,27 +1018,32 @@ export class StoatBackend implements ChatBackend {
       if (mine?.bannerUrl) { try { src = new Blob([(await fetchBytes(mine.bannerUrl)) as BlobPart]); } catch { /* fall through to gradient */ } }
     }
     if (src) {
-      // The marker strip owns the bottom rows, so the picture is fitted into the area above it.
-      // If this banner was published by Mustela before, drop its old strip first so it can't pile up.
-      const W = CANONICAL_WIDTH, H = CANONICAL_HEIGHT - markerHeight(CANONICAL_WIDTH);
-      const px = await decodeImage(new Uint8Array(await src.arrayBuffer())).catch(() => null);
+      // A banner Mustela published before carries an old strip: use only its picture part.
+      const bytes = new Uint8Array(await src.arrayBuffer());
+      const dims = imageSize(bytes);
+      if (dims && dims.width * dims.height > MAX_PIXELS) throw new Error("That picture is too big. Pick one under 4096 × 4096.");
+      const px = await decodeBottom(bytes).catch(() => null);
       const marked = !!px && decodeMarkerScaled(px.data, px.width, px.height) !== null;
       const bmp = await createImageBitmap(src);
-      const sh = marked ? bmp.height * (H / CANONICAL_HEIGHT) : bmp.height;
-      const s = Math.max(W / bmp.width, H / sh); // cover
-      ctx.save();
-      ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
-      ctx.drawImage(bmp, 0, 0, bmp.width, sh, (W - bmp.width * s) / 2, (H - sh * s) / 2, bmp.width * s, sh * s);
-      ctx.restore();
+      const tall = bmp.height / bmp.width > 0.4;
+      // Everything above an old strip: the whole picture of a tall banner, or a 0.1.0 banner's band.
+      const sh = !marked ? bmp.height : bmp.height * ((tall ? H : CANONICAL_HEIGHT) - markerHeight(W)) / (tall ? H : CANONICAL_HEIGHT);
+      const cover = (dw: number, dh: number) => {
+        const s = Math.max(dw / bmp.width, dh / sh);
+        ctx.save(); ctx.beginPath(); ctx.rect(0, 0, dw, dh); ctx.clip();
+        ctx.drawImage(bmp, 0, 0, bmp.width, sh, (dw - bmp.width * s) / 2, (dh - sh * s) / 2, bmp.width * s, sh * s);
+        ctx.restore();
+      };
+      cover(W, H - markerHeight(W));
     } else {
       const a = cfg.theme?.primary ?? hslToRgb(215, 55, 45), b = cfg.theme?.accent ?? hslToRgb(275, 45, 40);
-      const g = ctx.createLinearGradient(0, 0, CANONICAL_WIDTH, CANONICAL_HEIGHT);
+      const g = ctx.createLinearGradient(0, 0, W, H);
       g.addColorStop(0, hex(a)); g.addColorStop(1, hex(b));
       ctx.fillStyle = g;
-      ctx.fillRect(0, 0, CANONICAL_WIDTH, CANONICAL_HEIGHT);
+      ctx.fillRect(0, 0, W, H);
     }
-    const img = ctx.getImageData(0, 0, CANONICAL_WIDTH, CANONICAL_HEIGHT);
-    encodeMarker(img.data, CANONICAL_WIDTH, CANONICAL_HEIGHT, packProfile(cfg));
+    const img = ctx.getImageData(0, 0, W, H);
+    encodeMarker(img.data, W, H, packProfile(cfg));
     ctx.putImageData(img, 0, 0);
     const png = await cv.convertToBlob({ type: "image/png" }); // lossless: we add no loss of our own
     const id = await this.client.uploadFile("backgrounds", new File([png], "banner.png", { type: "image/png" }));
@@ -839,7 +1051,25 @@ export class StoatBackend implements ChatBackend {
     this.profiles.delete(this.sess.user_id);
   }
 
+  /** Re-uploads my banner without a profile strip (or the new picture as it is), if it had one. */
+  private async clearBannerStrip(next?: Blob) {
+    if (next) { const id = await this.upload("backgrounds", new File([next], "banner.png", { type: next.type || "image/png" })); await (this.client.api as any).patch("/users/@me", { profile: { background: id } }); return; }
+    const mine = await this.readStoatProfile(this.sess.user_id).catch(() => null);
+    if (!mine?.bannerUrl || !mine.config) return; // no strip to remove
+    const bytes = await fetchBytes(mine.bannerUrl);
+    const bmp = await createImageBitmap(new Blob([bytes as BlobPart]));
+    const tall = bmp.height / bmp.width > 0.4;
+    const band = tall ? bmp.width / 3 : bmp.height * ((CANONICAL_HEIGHT - markerHeight(CANONICAL_WIDTH)) / CANONICAL_HEIGHT);
+    const cv = new OffscreenCanvas(bmp.width, Math.round(band));
+    cv.getContext("2d")!.drawImage(bmp, 0, 0);
+    const png = await cv.convertToBlob({ type: "image/png" });
+    const id = await this.upload("backgrounds", new File([png], "banner.png", { type: "image/png" }));
+    await (this.client.api as any).patch("/users/@me", { profile: { background: id } });
+  }
+
   private get syncApi(): SyncApi { return this.client.api as unknown as SyncApi; }
+  pullExt() { return pullExt(this.syncApi); }
+  pushExt(s: ExtSettings) { return pushExt(this.syncApi, s); }
   pullSettings() { return pullSettings(this.syncApi); }
   pushSettings(s: MustelaSettings) { return pushSettings(this.syncApi, s); }
 

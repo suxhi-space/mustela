@@ -1,5 +1,5 @@
 import { createResource, createSignal, Show } from "solid-js";
-import { appImage, installAppImage, relaunchInstalled } from "./desktop";
+import { appImage, installAppImage } from "./desktop";
 import { Icon } from "./icons";
 import { toast } from "./menu";
 
@@ -28,12 +28,12 @@ export function AppImagePrompt() {
       <div class="ai-prompt" role="dialog" aria-label="Install Mustela">
         <Show when={!done()} fallback={<>
           <strong>Installed</strong>
-          <p>Mustela is in your Applications folder and app menu. Restart it from there to finish.</p>
-          <div class="row end"><button class="btn" onClick={() => setHidden(true)}>Later</button><button class="btn primary" onClick={() => void relaunchInstalled()}>Restart now</button></div>
+          <p>Mustela is in ~/Applications and your app menu, and keeps running. Updates install there too.</p>
+          <div class="row end"><button class="btn primary" onClick={() => setHidden(true)}>Done</button></div>
         </>}>
           <span class="ai-ic"><Icon name="download" size={20} /></span>
           <strong>Install Mustela?</strong>
-          <p>Move it to ~/Applications and add it to your app menu, so it stays put and opens like any other app.</p>
+          <p>Move it to ~/Applications and add it to your app menu, so it stays put, updates in place and opens like any other app.</p>
           <label class="ai-check"><input type="checkbox" checked={shortcut()} onChange={(e) => setShortcut(e.currentTarget.checked)} />Add a desktop shortcut too</label>
           <div class="row end">
             <button class="btn ghost" onClick={never}>Don't ask again</button>

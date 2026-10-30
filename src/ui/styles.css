@@ -14,6 +14,11 @@
 
 /* ============================================================ tokens */
 :root {
+  /* Safe areas: the system bars and notches. Android's native side reports them as --inset-*; browsers use env(). */
+  --sa-top: max(env(safe-area-inset-top, 0px), var(--inset-top, 0px));
+  --sa-bottom: max(env(safe-area-inset-bottom, 0px), var(--inset-bottom, 0px));
+  --sa-left: max(env(safe-area-inset-left, 0px), var(--inset-left, 0px));
+  --sa-right: max(env(safe-area-inset-right, 0px), var(--inset-right, 0px));
   --row: 38px; --pad: 10px; --gap: 4px; --gapx: 8px; --avatar: 40px; --font: 15px; --rail: 72px; --chan: 240px; --bar: 50px;
   --op: 100;
   --rad: 18px;   /* panels */
@@ -275,9 +280,14 @@ small, .small { font-size: 12.5px; }
 .msg.system .ic { color: var(--online); }
 .msg.system time { font-size: 11px; }
 
-.msg-tools { position: absolute; right: 14px; top: -16px; display: none; padding: 3px; border-radius: 12px; z-index: 3; }
+/* Like Stoat's: a solid raised bar over the message's top edge (never see-through, so it reads on any theme) */
+.msg-tools.panel { position: absolute; right: 14px; top: -18px; display: none; gap: 2px; padding: 3px; border-radius: 12px; z-index: 6;
+  background: var(--md-surface-container-high, var(--s3)); backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px var(--edge), 0 6px 16px -6px rgba(0,0,0,.45); }
 .msg:hover .msg-tools, .msg:focus-within .msg-tools { display: flex; }
-.msg-tools button { width: 32px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--fg2); }
+.msg:hover, .msg:focus-within { z-index: 4; }
+.msg-tools button { width: 34px; height: 32px; display: grid; place-items: center; border-radius: 8px; color: var(--fg); opacity: .82; }
+.msg-tools button:hover { opacity: 1; }
 .msg-tools button:hover { background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--fg); }
 .msg-tools button.danger:hover { color: var(--busy); }
 @media (hover: none) { .msg-tools { display: none !important; } .msg:active .msg-tools { display: flex !important; } }
@@ -353,10 +363,34 @@ a.em-title:hover { text-decoration: underline; }
 @keyframes blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
 
 /* composer: a recessed well */
-.composer-wrap { position: relative; padding: 0 14px calc(12px + env(safe-area-inset-bottom)); flex: none; }
+.composer-wrap { position: relative; padding: 0 14px calc(12px + var(--sa-bottom)); flex: none; }
 .composer { display: flex; align-items: flex-end; gap: 4px; padding: 5px; border-radius: 16px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
 .composer:focus-within { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--pri) 70%, transparent); }
-.composer textarea { flex: 1; min-width: 0; min-height: 34px; max-height: 220px; padding: 7px 4px; border: 0; background: transparent; resize: none; outline: none; line-height: 1.4; font-weight: 550; }
+.editor { flex: 1; min-width: 0; min-height: 34px; max-height: 220px; overflow-y: auto; align-self: center; }
+.editor .cm-editor { background: transparent; outline: none; }
+.editor .cm-editor.cm-focused { outline: none; }
+.editor .cm-scroller { font: inherit; line-height: 1.4; overflow: visible; }
+.editor .cm-content { padding: 7px 4px; font-weight: 550; caret-color: var(--pri); min-height: 34px; }
+.editor .cm-line { padding: 0; }
+.editor .cm-placeholder { color: var(--fg2); opacity: .8; }
+.editor .cm-selectionBackground, .editor .cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--pri) 30%, transparent) !important; }
+.editor .cm-content ::selection { background: color-mix(in srgb, var(--pri) 30%, transparent); }
+.editor[inert] { opacity: .7; }
+.ed-chip { display: inline-block; padding: 0 5px; margin: 0 1px; border-radius: 6px; font-weight: 750; color: var(--chip, var(--pri)); background: color-mix(in srgb, var(--chip, var(--pri)) 16%, transparent); line-height: 1.35; }
+.ed-emoji { width: 1.35em; height: 1.35em; vertical-align: -0.3em; object-fit: contain; }
+.char-count { align-self: center; font-size: 12px; font-weight: 800; color: var(--fg2); padding: 0 4px; }
+.char-count.over { color: var(--busy); }
+.composer.locked { opacity: .75; }
+.lock-ic { align-self: center; margin: 0 6px; }
+.slow-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 750; color: var(--fg2); padding: 2px 8px 4px; }
+.fmt-bar { position: absolute; z-index: 7; transform: translate(-50%, calc(-100% - 8px)); display: flex; gap: 1px; padding: 3px; border-radius: 12px; }
+.fmt-bar .icon-btn { width: 30px; height: 30px; }
+.pf-tools { position: absolute; top: 2px; right: 2px; display: flex; gap: 3px; }
+.pf .pf-tools .icon-btn { position: static; }
+.pf .pf-tools .icon-btn.on { color: var(--on-pri); background: var(--pri); }
+.pf.spoiler img { filter: blur(10px); }
+.pf-tag { position: absolute; left: 6px; top: 6px; font-size: 10.5px; font-weight: 850; padding: 1px 6px; border-radius: 6px; background: var(--s3); }
+.sg-role { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; font-weight: 900; color: var(--role, var(--pri)); background: color-mix(in srgb, var(--role, var(--pri)) 18%, transparent); }
 .send-btn { width: 36px; height: 34px; border-radius: 11px; display: grid; place-items: center; flex: none; color: var(--on-pri); background: var(--pri);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 2px 0 color-mix(in srgb, var(--pri) 55%, #000); }
 .send-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 0 0 transparent; }
@@ -439,7 +473,12 @@ a.em-title:hover { text-decoration: underline; }
 .ctl:active { transform: translateY(2px); }
 .ctl.on { --face: var(--pri); color: var(--on-pri); }
 .ctl.danger { --face: var(--busy); color: #fff; }
-.callpanel { display: flex; align-items: center; gap: 2px; padding: 7px 6px 7px 12px; margin: 0 6px 6px; border-radius: 14px; background: color-mix(in srgb, var(--online) 14%, var(--well)); flex: none; }
+.callpanel { position: absolute; left: 8px; bottom: calc(var(--gapx) + 58px + 6px); width: calc(var(--rail) + var(--chan) - 8px); z-index: 12; display: flex; align-items: center; gap: 2px; padding: 7px 6px 7px 12px; border-radius: 14px;
+  background: color-mix(in srgb, var(--online) 14%, var(--md-surface-container-high, var(--s3))); box-shadow: var(--drop), 0 10px 24px -14px rgba(0,0,0,.6); }
+.callpanel .icon-btn.on { color: var(--on-pri); background: var(--pri); }
+.app.in-call .rail { padding-bottom: 128px; }
+.app.in-call .side { padding-bottom: 122px; }
+@media (max-width: 900px) { .app[data-view="chat"] .callpanel { display: none; } .callpanel { width: calc(100% - 16px); } }
 .callpanel .icon-btn { width: 30px; height: 30px; }
 .cp-info { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .cp-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
@@ -624,7 +663,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 @media (max-width: 900px) { .members-col { display: none; } .bar .topic { display: none; } }
 @media (max-width: 700px) {
   :root { --rad: 0px; }
-  .app { grid-template-columns: var(--rail) minmax(0, 1fr); padding: env(safe-area-inset-top) 0 0; gap: 0; }
+  .app { grid-template-columns: var(--rail) minmax(0, 1fr); padding: var(--sa-top) 0 0; gap: 0; }
   .rail { padding-top: 8px; }
   .side, .main { box-shadow: none; }
   .side { border-radius: 18px 0 0 0; box-shadow: inset 1px 0 0 var(--edge), inset 0 1px 0 var(--edge); }
@@ -1247,8 +1286,8 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .dmp-item { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border: 0; background: none; color: var(--pc-fg, var(--fg)); font-weight: 700; font-size: 13.5px; border-radius: 8px; text-align: left; }
 .dmp-item .mini-orb { width: 24px; height: 24px; border-radius: 8px; font-size: 10px; }
 .dmp-item.tap:hover { background: color-mix(in srgb, var(--pc-fg, var(--fg)) 8%, transparent); }
-.dmp-full { margin-top: 10px; width: 100%; min-height: 38px; border: 0; border-radius: 10px; background: color-mix(in srgb, var(--pc-fg, var(--fg)) 10%, transparent); color: var(--pc-fg, var(--fg)); font-weight: 800; }
-.dmp-full:hover { background: color-mix(in srgb, var(--pc-fg, var(--fg)) 16%, transparent); }
+/* A real button in the card's own colours, centred, with the app's 3D press */
+:root .pcard .dmp-full.btn { --face: color-mix(in srgb, var(--pc-fg, var(--fg)) 14%, var(--pc-bg, var(--s3))); --ink: var(--pc-fg, var(--fg)); margin-top: 12px; width: 100%; min-height: 38px; justify-content: center; text-align: center; gap: 7px; font-size: 13px; font-weight: 800; }
 
 /* ---------------------------------------------------------------- add friends to DM */
 .group-invite { width: min(440px, calc(100vw - 32px)); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
@@ -1387,3 +1426,233 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .msg.head { contain-intrinsic-size: auto 72px; }
 
 .snav-search, .snav-search:focus-within { width: auto; flex: none; margin: 2px 4px 6px; height: 34px; }
+.up-progress { width: 100%; height: 6px; accent-color: var(--pri); }
+
+/* "N new messages since…" and the New line, like Discord and Stoat */
+.since-bar { position: absolute; top: 8px; left: 14px; right: 14px; z-index: 5; display: flex; border-radius: 12px; overflow: hidden; color: #fff; background: var(--busy); box-shadow: 0 4px 14px rgba(0,0,0,.18); font-size: 13px; font-weight: 800; }
+.since-bar button { display: flex; align-items: center; gap: 6px; padding: 7px 12px; color: inherit; }
+.since-bar .sb-jump { flex: 1; min-width: 0; text-align: left; }
+.since-bar .sb-read { border-left: 1px solid rgba(255,255,255,.3); white-space: nowrap; }
+.since-bar button:hover { background: rgba(0,0,0,.12); }
+.sb-act { display: inline-flex; align-items: center; gap: 4px; }
+.new-line { display: flex; align-items: center; margin: 8px 16px 4px; border-top: 1px solid var(--busy); height: 0; justify-content: flex-end; }
+.new-line span { transform: translateY(-50%); padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 900; text-transform: uppercase; color: #fff; background: var(--busy); }
+.dm-orb { border-radius: 50%; overflow: visible; }
+.dm-orb > .av { width: 100% !important; height: 100% !important; }
+.dm-orb > img, .dm-orb > span:not(.badge):not(.av) { width: 100%; height: 100%; border-radius: 50%; overflow: hidden; }
+.inbox-msg { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; padding: 8px 10px; border-radius: 12px; }
+.inbox-msg:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.im-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.im-top { display: flex; align-items: baseline; gap: 8px; font-weight: 800; font-size: 14px; min-width: 0; }
+.im-top small { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.im-text { font-size: 13.5px; line-height: 1.35; color: var(--fg); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.inbox-back { display: none; }
+/* Phones: the inbox is its own full screen, like Settings (Discord mobile does the same) */
+@media (max-width: 640px) {
+  .inbox { inset: 0; top: 0; right: 0; width: 100%; max-height: none; height: 100%; border-radius: 0; padding: var(--sa-top) 0 var(--sa-bottom); animation: none; }
+  .inbox-back { display: grid; }
+}
+.chan-wrap { position: relative; }
+.chan-acts { position: absolute; right: 6px; top: 0; bottom: 0; display: none; align-items: center; gap: 1px; }
+.chan-acts .icon-btn { width: 26px; height: 26px; color: var(--fg2); }
+.chan-acts .icon-btn:hover { color: var(--fg); }
+@media (hover: hover) { .chan-wrap:hover .chan-acts, .chan-wrap:focus-within .chan-acts { display: flex; } .chan-wrap:hover .chan .badge { visibility: hidden; } }
+.chan-wrap > .chan { width: 100%; }
+/* Permissions: roles on the left, a list of three-way switches on the right (like Stoat's) */
+.perm-page { max-width: 880px; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 14px; align-items: start; }
+.perm-roles { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; }
+.perm-roles button { display: grid; grid-template-columns: 14px 1fr; column-gap: 8px; align-items: center; text-align: left; padding: 7px 10px; border-radius: 10px; font-weight: 800; font-size: 14px; }
+.perm-roles button small { grid-column: 2; font-size: 11.5px; font-weight: 650; color: var(--fg2); }
+.perm-roles button:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.perm-roles button.on { background: color-mix(in srgb, var(--pri) 18%, transparent); }
+.role-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--fg2); grid-row: span 2; }
+.perm-main { min-width: 0; }
+.perms { display: flex; flex-direction: column; gap: 14px; }
+.perm-group h4 { margin: 0 0 6px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; color: var(--fg2); }
+.perm-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 12px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); margin-bottom: 4px; }
+.perm-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.perm-text strong { font-size: 14px; }
+.perm-text small { font-size: 12.5px; color: var(--fg2); font-weight: 600; }
+.tri { display: flex; flex: none; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--edge); }
+.tri button { width: 32px; height: 28px; display: grid; place-items: center; font-weight: 900; color: var(--fg2); }
+.tri button + button { box-shadow: -1px 0 0 var(--edge); }
+.tri button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.tri .t-deny.on { color: #fff; background: var(--busy); }
+.tri .t-mid.on { color: var(--fg); background: var(--s3); }
+.tri .t-allow.on { color: #fff; background: var(--online); }
+.dialog-actions.sticky { position: sticky; bottom: 0; padding: 10px 0; background: linear-gradient(transparent, var(--panel, var(--s2)) 40%); }
+.cs-icon-prev { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; overflow: hidden; background: var(--s3); flex: none; }
+.cs-icon-prev img { width: 100%; height: 100%; object-fit: cover; }
+.wh-av { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+@media (max-width: 760px) { .perm-page { grid-template-columns: 1fr; } .perm-roles { position: static; flex-direction: row; overflow-x: auto; } .perm-roles button { flex: none; } }
+.role-perms { padding: 6px 14px 14px; }
+.pc-since { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13.5px; font-weight: 700; }
+.mini-orb.tiny { width: 18px; height: 18px; font-size: 10px; }
+.pc-roles { display: flex; flex-wrap: wrap; gap: 5px; }
+.role-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 6px; border-radius: 8px; font-size: 12.5px; font-weight: 800; background: color-mix(in srgb, var(--pc-fg, var(--fg)) 8%, transparent); }
+.role-chip i { width: 11px; height: 11px; border-radius: 50%; background: var(--role, var(--fg2)); display: block; }
+.role-chip .rc-x { padding: 0; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; }
+.role-chip .rc-x:hover i { background: var(--busy); }
+.role-chip .rc-x:hover i::after { content: "×"; display: grid; place-items: center; color: #fff; font-size: 11px; line-height: 11px; }
+.role-chip.add { padding: 3px 6px; color: var(--pc-fg, var(--fg)); }
+.pc-avatar, .profile-pop .pc-name, .mecard .pc-name { cursor: pointer; }
+/* Performance: blur off swaps frosted glass for solid panels */
+:root[data-noblur] * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+:root[data-noblur] :is(.inbox, .menu, .modal, .settings-card, .profile-pop, .suggest, .fmt-bar) { background-color: var(--s2, var(--glass)); }
+:root[data-anim="off"] *, :root[data-anim="off"] *::before, :root[data-anim="off"] *::after { animation-duration: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; }
+/* A soundboard sound playing: the ring takes the accent colour instead of the talking green */
+.ctile.sound { box-shadow: inset 0 0 0 2px var(--pri), 0 0 0 1px var(--pri); }
+.voice-members li.sound .av-img { box-shadow: 0 0 0 2px var(--pri); }
+.up-av.sound { box-shadow: 0 0 0 2px var(--pri), 0 0 0 4px color-mix(in srgb, var(--pri) 30%, transparent); }
+.member.talking .av-img { box-shadow: 0 0 0 2px var(--online); }
+.muted-me { color: var(--fg2); opacity: .9; }
+/* The call preview: top of the side panel, pushes the list down, can grow wider to the left */
+.call-preview { position: absolute; top: 8px; right: 8px; z-index: 7; aspect-ratio: 16 / 9; max-height: 60%; border-radius: 14px; overflow: hidden; cursor: pointer; background: #0b0c0f; box-shadow: var(--drop), 0 14px 30px -16px rgba(0,0,0,.7); }
+.call-preview .vid { width: 100%; height: 100%; display: block; }
+.cpv-people { position: absolute; inset: 0; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 8px; padding: 10px 10px 28px; }
+.cpv-person { border-radius: 50%; transition: box-shadow .08s; }
+.cpv-person.talking { box-shadow: 0 0 0 2px var(--online); }
+.cpv-person.sound { box-shadow: 0 0 0 2px var(--pri); }
+.cpv-label { position: absolute; left: 8px; bottom: 7px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 850; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.6); max-width: calc(100% - 40px); white-space: nowrap; overflow: hidden; }
+.cpv-grip { position: absolute; left: 0; bottom: 0; width: 22px; height: 22px; display: grid; place-items: center; color: #fff; cursor: nesw-resize; background: rgba(0,0,0,.35); border-top-right-radius: 8px; transform: scaleX(-1); }
+.call-preview:hover { box-shadow: 0 0 0 2px var(--pri), var(--drop); }
+/* Phones: Discord mobile's card (you, plus the inbox bell), padded off the edges and above the system bar.
+   Mute, deafen and settings move into your card's menu and the call bar. */
+.up-bell { display: none; position: relative; }
+.up-bell.on { color: var(--fg); background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.up-badge { position: absolute; top: -2px; right: -4px; }
+.me-settings { display: none; }
+.userpanel { bottom: calc(var(--gapx) + var(--sa-bottom)); }
+.callpanel { bottom: calc(var(--gapx) + var(--sa-bottom) + 58px + 6px); }
+@media (max-width: 700px) {
+  .userpanel { left: 10px; width: calc(100% - 20px); bottom: calc(10px + var(--sa-bottom)); height: 62px; padding: 0 10px 0 10px; border-radius: 18px; }
+  .up-ctl > :not(.up-bell) { display: none; }
+  .up-bell { display: grid; width: 42px; height: 42px; border-radius: 50%; }
+  .me-settings { display: flex; }
+  .callpanel { left: 10px; width: calc(100% - 20px); bottom: calc(10px + var(--sa-bottom) + 62px + 6px); }
+  .app .rail { padding-bottom: calc(80px + var(--sa-bottom)); }
+  .app .side { padding-bottom: calc(76px + var(--sa-bottom)); }
+  .app.in-call .rail { padding-bottom: calc(136px + var(--sa-bottom)); }
+  .app.in-call .side { padding-bottom: calc(132px + var(--sa-bottom)); }
+  .app { padding-left: var(--sa-left); padding-right: var(--sa-right); }
+  .composer-wrap { padding-bottom: calc(10px + var(--sa-bottom)); }
+  .mecard { left: 10px; right: 10px; width: auto; bottom: calc(10px + var(--sa-bottom) + 68px); }
+}
+/* Tablets: the desktop layout with touch sizes, and the bell on the card (there's no title bar). */
+@media (pointer: coarse) and (min-width: 701px) {
+  .up-bell { display: grid; }
+  .up-chev { display: none; }
+  .up-btn { width: 38px; height: 38px; }
+  .userpanel { height: 62px; }
+  .callpanel { bottom: calc(var(--gapx) + var(--sa-bottom) + 62px + 6px); }
+  .chan { min-height: 40px; }
+}
+.modal.cropper { padding: 18px 20px; width: min(560px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 12px; }
+.crop-stage { display: grid; place-items: center; padding: 10px; border-radius: 14px; background: #0b0c0f; }
+.crop-box { position: relative; width: 100%; max-height: 60vh; overflow: hidden; cursor: grab; touch-action: none; border-radius: 10px; box-shadow: 0 0 0 2px rgba(255,255,255,.8); }
+.crop-box.round { width: min(320px, 100%); border-radius: 50%; }
+.crop-box:active { cursor: grabbing; }
+.crop-box img { position: absolute; left: 50%; top: 50%; max-width: none; user-select: none; pointer-events: none; }
+.crop-zoom { display: flex; align-items: center; gap: 10px; color: var(--fg2); }
+.crop-zoom input { flex: 1; }
+/* Screen share picker, like Discord's Go Live */
+.modal.screen-picker { padding: 18px 20px; width: min(760px, calc(100vw - 24px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; gap: 10px; }
+.sp-head { display: flex; align-items: center; gap: 8px; }
+.sp-head h2 { margin: 0; font-size: 18px; }
+.sp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; overflow-y: auto; min-height: 180px; max-height: 52vh; padding: 2px; }
+.sp-tile { display: flex; flex-direction: column; gap: 5px; padding: 8px; border-radius: 14px; text-align: left; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
+.sp-tile:hover { box-shadow: inset 0 0 0 1px var(--fg2); }
+.sp-tile.on { box-shadow: inset 0 0 0 2px var(--pri); background: color-mix(in srgb, var(--pri) 10%, var(--well)); }
+.sp-thumb { aspect-ratio: 16 / 9; border-radius: 9px; overflow: hidden; display: grid; place-items: center; background: #0b0c0f; color: #889; }
+.sp-thumb img { width: 100%; height: 100%; object-fit: contain; }
+.sp-name { font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-tile small { font-size: 11.5px; margin-top: -4px; }
+.sp-empty { grid-column: 1 / -1; padding: 30px 10px; text-align: center; }
+.sp-opts { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
+.sp-opt { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 13px; }
+/* Dragging channels, categories, pins and favourites: a line where it lands */
+.chan-wrap.drop-line::before, .chan-tail.drop-line::before { content: ""; position: absolute; left: 8px; right: 8px; top: -2px; height: 3px; border-radius: 2px; background: var(--pri); z-index: 2; }
+.chan-wrap.dragging, .cat.dragging { opacity: .45; }
+.cat.drop-into { border-radius: 8px; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--pri) 60%, transparent); color: var(--fg); }
+.chan-tail { position: relative; min-height: 48px; flex: 1; }
+.chan-sub { display: block; font-size: 11px; font-weight: 700; color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-name:has(.chan-sub) { display: flex; flex-direction: column; line-height: 1.15; }
+/* The 3:1 band Mustela's cards show, marked on the banner cropper; the rest is dimmed, not hidden */
+.crop-band { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); z-index: 1; pointer-events: none; border-top: 2px dashed rgba(255,255,255,.9); border-bottom: 2px dashed rgba(255,255,255,.9); box-shadow: 0 0 0 999px rgba(0,0,0,.28); }
+/* Profile editor: which profile you're editing (main, or one server) */
+.pe-head { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.pe-note { margin: 0 0 10px; line-height: 1.4; }
+.pe-plate { width: min(380px, 100%); display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 14px; background: var(--md-surface-container-low, var(--s1)); box-shadow: inset 0 0 0 1px var(--edge); }
+.pe-plate .member { cursor: default; }
+/* Emoji in the quick reaction rows draw in your emoji style, at a size that fills the button */
+.ctx-quick button .uemoji-img, .react-row button .uemoji-img { width: 24px; height: 24px; vertical-align: middle; }
+.ctx-quick button { display: grid; place-items: center; }
+/* Dropdowns: a button that opens Mustela's own menu */
+button.select { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 120px; color: var(--fg); text-align: left; cursor: pointer; }
+button.select:hover { background: color-mix(in srgb, var(--fg) 8%, color-mix(in srgb, #000 16%, transparent)); }
+button.select:focus-visible { box-shadow: inset 0 0 0 2px var(--pri); }
+.select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-chev { flex: none; color: var(--fg2); }
+.cp-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-where { color: var(--fg2); font-weight: 650; }
+.sb-emoji .uemoji-img { width: 22px; height: 22px; vertical-align: middle; }
+/* See-through windows: everything that floats (menus, dialogs, pickers, the soundboard, toasts) frosts what's
+   behind it, the same as the main panels, so text on top stays readable over the desktop. Off with "Blur behind menus". */
+:root[data-material] :is(.modal, .emoji-pop, .gif-pop, .soundboard, .toast, .msg-tools.panel, .callpanel, .userpanel) {
+  -webkit-backdrop-filter: blur(22px) saturate(1.15); backdrop-filter: blur(22px) saturate(1.15);
+}
+:root[data-material] .msg-tools.panel { background: var(--glass); }
+/* The bottom-left card and the call bar above it: the same glass as the panels they sit over, with a hairline edge
+   and a soft shadow, so they read as part of the sidebar instead of a block stuck on top of it. */
+.userpanel, .callpanel {
+  background: linear-gradient(180deg, color-mix(in srgb, #fff 4%, var(--glass-2, var(--glass))), var(--glass-2, var(--glass)));
+  box-shadow: inset 0 0 0 1px var(--edge), inset 0 1px 0 var(--hi), 0 8px 22px -14px rgba(0,0,0,.55);
+}
+:root:not([data-material]) .userpanel, :root:not([data-material]) .callpanel { background: color-mix(in srgb, var(--fg) 4%, var(--s2)); }
+.seg button:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ---------- calls: before you join (who's in voice, then Join) ---------- */
+.cs-head { display: flex; align-items: center; gap: 10px; }
+.cs-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, #fff 8%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.1), inset 0 0 0 1px rgba(255,255,255,.08); }
+.cs-people { width: min(380px, 100%); border-radius: 16px; padding: 10px 6px 6px; background: color-mix(in srgb, #fff 5%, transparent); box-shadow: inset 0 0 0 1px rgba(255,255,255,.07); text-align: left; }
+.cs-people .label { padding: 0 10px 6px; color: #aab1b8; }
+.cs-people ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.cs-people li { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px; font-weight: 750; color: #e9ecef; }
+.cs-people li:hover { background: color-mix(in srgb, #fff 6%, transparent); }
+.cs-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-join { display: flex; align-items: center; gap: 10px; width: min(380px, 100%); }
+.cs-join-btn { flex: 1; justify-content: center; background: var(--online, #2f9e5b); --face: var(--online, #2f9e5b); color: #fff; }
+
+/* Desktop-only and phone-only call controls */
+.phone-only { display: none !important; }
+@media (max-width: 700px) {
+  .desk-only { display: none !important; }
+  .phone-only { display: grid !important; }
+  /* The call fills the screen; tiles two across, a stream across both; the controls float in a rounded bar. */
+  .voice-view { flex-direction: column; }
+  .cstage-main { padding: 8px 8px 0; }
+  .cgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 132px; align-content: start; }
+  .cgrid .ctile.stream { grid-column: span 2; grid-row: span 2; }
+  .cbar { margin: 8px 10px calc(10px + var(--sa-bottom)); padding: 8px 10px; border-radius: 22px; justify-content: center;
+    background: color-mix(in srgb, #fff 7%, #0d0f12); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), inset 0 0 0 1px rgba(255,255,255,.07), 0 10px 28px -12px rgba(0,0,0,.8); }
+  .cbar-side { flex: none; }
+  .cbar-mid { gap: 6px; }
+  .cs-join { position: sticky; bottom: calc(10px + var(--sa-bottom)); }
+  .voice-view.phone-chat .voice-chat { width: auto; flex: 1; box-shadow: none; }
+}
+.vc-back { display: flex; align-items: center; gap: 8px; margin: 8px 10px 0; padding: 10px 14px; border-radius: 14px; font-weight: 850;
+  background: color-mix(in srgb, var(--online, #2f9e5b) 18%, var(--s2)); color: var(--fg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--online, #2f9e5b) 40%, transparent); }
+.vc-back span { flex: 1; text-align: left; }
+
+/* ---------- the small call tile (phones and tablets) ---------- */
+.minicall { position: fixed; z-index: 60; width: 96px; height: 112px; border-radius: 18px; overflow: hidden; touch-action: none; cursor: pointer; user-select: none;
+  background: linear-gradient(180deg, color-mix(in srgb, #fff 8%, #15181d), #0d0f12); color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 0 0 1px rgba(255,255,255,.08), 0 14px 30px -10px rgba(0,0,0,.75); animation: pop-in .16s ease-out; }
+.minicall.stream { width: 176px; height: 99px; }
+.minicall.talking { box-shadow: 0 0 0 2px var(--online, #2f9e5b), 0 14px 30px -10px rgba(0,0,0,.75); }
+.minicall .vid { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mc-person { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px 18px; }
+.mc-person small { max-width: 100%; font-size: 11.5px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-live { position: absolute; left: 6px; top: 6px; font-size: 10px; font-weight: 900; padding: 1px 6px; border-radius: 6px; background: var(--busy, #e5484d); }
+.mc-mic { position: absolute; right: 6px; bottom: 6px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(0,0,0,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+.mc-mic.off { background: var(--busy, #e5484d); }

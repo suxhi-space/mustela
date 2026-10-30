@@ -11,7 +11,22 @@ import logo from "../../icons/app-icon.png";
  * the right, then the window buttons. It's ours (not the system's) so window
  * materials and blur reach the top edge. macOS keeps its traffic lights.
  */
-export const hasTitleBar = () => inTauri() && (platform === "windows" || platform === "mac" || platform === "linux");
+export const hasTitleBar = () => inTauri() && (platform === "windows" || platform === "mac" || platform === "linux") && !systemFrame;
+/** Read once at start: switching frames needs a restart, so the layout never jumps under you. */
+const systemFrame = (() => { try { return JSON.parse(localStorage.getItem("mustela:device") ?? "{}")?.titleBar === "system"; } catch { return false; } })();
+
+/**
+ * Puts the window frame in line with the setting on every start. Both ways are set explicitly:
+ * a window that once had the system frame must lose it again when Mustela's bar comes back,
+ * or Windows shows both bars.
+ */
+export async function applyWindowFrame() {
+  if (!inTauri() || (platform !== "windows" && platform !== "mac" && platform !== "linux")) return;
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const w = getCurrentWindow();
+  if (platform === "mac") await (w as any).setTitleBarStyle?.(systemFrame ? "visible" : "overlay").catch(() => {});
+  else await w.setDecorations(systemFrame).catch(() => {});
+}
 
 export function TitleBar() {
   const [max, setMax] = createSignal(false);

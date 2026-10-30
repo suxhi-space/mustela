@@ -18,4 +18,12 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn set_mic(&self, _: SetMic) -> Result<CallState> { Err(Error::Unsupported) }
   pub fn pip(&self, _: Pip) -> Result<PipResult> { Ok(PipResult { supported: false }) }
   pub fn call_state(&self) -> Result<CallState> { Ok(CallState::default()) }
+  pub fn background(&self) -> Result<()> { Ok(()) }
+  pub fn call_audio(&self, _: SetMic) -> Result<()> { Ok(()) }
+  pub fn set_call_overlay(&self, _: Overlay) -> Result<()> { Ok(()) }
+  pub fn overlay_allowed(&self) -> Result<Allowed> { Ok(Allowed::default()) }
+  pub fn request_overlay(&self) -> Result<Allowed> { Ok(Allowed::default()) }
+  pub fn screen_start(&self, _: ScreenStart) -> Result<()> { Err(Error::Unsupported) }
+  pub fn screen_ack(&self) -> Result<()> { Ok(()) }
+  pub fn screen_stop(&self) -> Result<()> { Ok(()) }
 }

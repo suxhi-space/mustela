@@ -12,6 +12,7 @@ import {
 } from "../lib/session/book";
 import { revokeSession } from "../lib/session/revoke";
 import { DEFAULT_SETTINGS, parseRemote, resolve, sanitize, type MustelaSettings } from "../lib/sync/settings";
+import { DEFAULT_EXT, parseExt, sanitizeExt, type ExtSettings } from "../lib/sync/ext";
 import { buildRoles, getTheme, gradientEnd, toCssVars } from "../lib/theme/palette";
 import { getSystemSeed } from "../lib/theme/system";
 
@@ -23,6 +24,7 @@ const kv = {
 const DEVICE_KEY = "mustela:device";
 const BACKDROP_KEY = "mustela:backdrop-image";
 const settingsKey = (accountId: string) => `mustela:settings:${accountId}`;
+const extKey = (accountId: string) => `mustela:settings-ext:${accountId}`;
 
 export const platform = detectPlatform();
 
@@ -37,6 +39,8 @@ const [settings, setSettingsRaw] = createSignal<MustelaSettings>(structuredClone
 export { settings };
 /** Every settings change passes through here so non-UI helpers (time formatting) stay in step. */
 export const setSettings = (s: MustelaSettings) => { setTimePrefs(s.locale); return setSettingsRaw(s); };
+/** Newer synced settings (profile privacy and the like), under their own sync key; see lib/sync/ext.ts */
+export const [ext, setExtSig] = createSignal<ExtSettings>(structuredClone(DEFAULT_EXT));
 export const [device, setDevice] = createSignal<DeviceSettings>(sanitizeDevice(safeJson(kv.getItem(DEVICE_KEY))));
 export const [syncState, setSyncState] = createSignal<"local" | "syncing" | "synced" | "error">("local");
 export const [systemSeed, setSystemSeed] = createSignal<string | null>(null);
@@ -96,6 +100,18 @@ export function updateSettings(fn: (s: MustelaSettings) => MustelaSettings) {
   }, 1500); // debounce: dragging a slider shouldn't hit the API on every tick
 }
 
+let extTimer: ReturnType<typeof setTimeout> | undefined;
+export function updateExt(fn: (s: ExtSettings) => ExtSettings) {
+  const next = sanitizeExt({ ...fn(ext()), updatedAt: Date.now() });
+  setExtSig(next);
+  const a = activeAccount(book());
+  if (a) kv.setItem(extKey(a.id), JSON.stringify(next));
+  const b = backend();
+  if (!b) return;
+  clearTimeout(extTimer);
+  extTimer = setTimeout(() => void b.pushExt(ext()).catch(() => {}), 1500);
+}
+
 export function updateDevice(patch: Partial<DeviceSettings>) {
   const next = sanitizeDevice({ ...device(), ...patch });
   setDevice(next);
@@ -121,6 +137,14 @@ function adopt(acc: Account, b: ChatBackend) {
     setPhase("ready");
     setSyncState("syncing");
   });
+  // The newer settings: local copy first, then whichever is newer.
+  const localExt = parseExt(kv.getItem(extKey(acc.id))) ?? structuredClone(DEFAULT_EXT);
+  setExtSig(localExt);
+  void b.pullExt().then((remote) => {
+    if (backend() !== b) return;
+    if (remote && remote.updatedAt > ext().updatedAt) { setExtSig(remote); kv.setItem(extKey(acc.id), JSON.stringify(remote)); }
+    else if (ext().updatedAt > (remote?.updatedAt ?? 0)) void b.pushExt(ext()).catch(() => {});
+  }).catch(() => {});
   // Merge with what the account has on the server, in the background.
   void (async () => {
     try {

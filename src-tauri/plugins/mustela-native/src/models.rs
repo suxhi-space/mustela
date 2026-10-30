@@ -51,3 +51,34 @@ pub struct CallState {
   pub speaking: Vec<String>,
   pub error: Option<String>,
 }
+
+/// The voice bubble over other apps while you're in a call: wanted (`on`) and showing you muted.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Overlay {
+  pub on: bool,
+  pub muted: bool,
+}
+
+/// Whether Mustela may draw over other apps (the bubble needs it).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Allowed {
+  pub allowed: bool,
+}
+
+/// Android screen share: the largest size and frame rate to send.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ScreenSize {
+  pub width: u32,
+  pub height: u32,
+  pub fps: u32,
+}
+
+/// What the Kotlin side gets: the size, and where frames go (each message is
+/// `{ f: "<base64 JPEG>" }`, or `{ end: true }` when the share stops).
+#[derive(Serialize)]
+pub struct ScreenStart {
+  pub width: u32,
+  pub height: u32,
+  pub fps: u32,
+  pub channel: tauri::ipc::Channel<serde_json::Value>,
+}

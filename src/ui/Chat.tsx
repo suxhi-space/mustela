@@ -1,10 +1,11 @@
 import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import type { ChannelInfo, Msg, Person } from "../lib/backend/types";
-import { Composer } from "./chat/Composer";
+import { Composer, composer } from "./chat/Composer";
 import { MessageRow } from "./chat/Message";
 import { Icon } from "./icons";
 import { backend } from "./store";
 import { jumpRequest, setJumpRequest } from "./nav";
+import { getDraft } from "./drafts";
 
 const day = (d: Date) => d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
 
@@ -26,10 +27,14 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   /** Showing an older stretch of history (after a jump), not the newest messages. */
   const [detached, setDetached] = createSignal(false);
   const [loadingNewer, setLoadingNewer] = createSignal(false);
+  /** Where you'd read up to when you opened this channel: drives the "new messages" bar and the New line. */
+  const [since, setSince] = createSignal<string | null>(null);
+  const [sinceBar, setSinceBar] = createSignal(false);
   let jumping = 0; // while a jump settles: no paging, no snapping to the bottom
   let list!: HTMLDivElement, inner!: HTMLDivElement, top!: HTMLDivElement, bottom!: HTMLDivElement;
 
   const b = () => backend()!;
+  const rules = createMemo(() => b().channelRules(props.channel.id));
   // A memo, so a refreshed channel object with the same id doesn't reload the conversation.
   const id = createMemo(() => props.channel.id);
   const toBottom = () => { if (list) list.scrollTop = list.scrollHeight; };
@@ -47,15 +52,68 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
 
   // (Re)load when the channel changes.
   createEffect(on(id, (cid) => {
-    batch(() => { setMsgs([]); setState("loading"); setReplyTo(null); setEditing(null); setTypers([]); setPinned(true); setMore(false); setDetached(false); });
+    // Read where you were up to before anything marks the channel read.
+    const marker = props.channel.unread ? b().lastRead(cid) ?? null : null;
+    batch(() => { setMsgs([]); setState("loading"); setReplyTo(null); setEditing(null); setTypers([]); setPinned(true); setMore(false); setDetached(false); setSince(marker); setSinceBar(!!marker); });
     let alive = true;
-    b().messages(cid).then((page) => {
+    const direct = props.channel.kind === "dm" || props.channel.kind === "group";
+    // DMs open at the first unread message; channels open at the newest, with a bar to jump back.
+    const load = direct && marker ? b().messagesAround(cid, marker).then((page) => ({ page, around: true })) : b().messages(cid).then((page) => ({ page, around: false }));
+    load.then(({ page, around }) => {
       if (!alive) return;
-      batch(() => { setMsgs(page); setMore(page.length >= 25); setState("ready"); });
-      queueMicrotask(() => { toBottom(); ack(); });
+      const at = around ? page.findIndex((m) => m.id === marker) : -1;
+      // An "around" page that reaches the newest message isn't detached history.
+      const tail = around ? page.length - at - 1 : 0;
+      batch(() => { setMsgs(page); setMore(page.length >= 25); setState("ready"); if (around && tail >= 24) { setDetached(true); setPinned(false); } });
+      queueMicrotask(() => {
+        if (around && at >= 0) {
+          jumping = Date.now() + 800;
+          document.getElementById("new-line")?.scrollIntoView({ block: "center" });
+          if (tail < 24) ack();
+        } else { toBottom(); ack(); }
+      });
+      // The reply you were writing comes back with the draft.
+      const rid = getDraft(cid).reply?.id;
+      if (rid) void (page.find((m) => m.id === rid) ? Promise.resolve(page.find((m) => m.id === rid)!) : b().message(cid, rid)).then((m) => { if (alive && m && id() === cid) setReplyTo(m); });
     }).catch(() => alive && setState("error"));
     onCleanup(() => { alive = false; });
   }));
+
+  /** The first message after where you'd read, if it's loaded. */
+  const firstNew = createMemo(() => {
+    const mk = since();
+    if (!mk) return null;
+    const list = msgs();
+    const i = list.findIndex((m) => m.id === mk);
+    if (i < 0) return null;
+    return list.slice(i + 1).find((m) => m.author.id !== b().me.id && !m.pending)?.id ?? null;
+  });
+  /** "12 new messages since 3:42 PM" (or "50+" when the marker isn't loaded). */
+  const sinceText = createMemo(() => {
+    const mk = since();
+    if (!mk) return "";
+    const list = msgs();
+    const i = list.findIndex((m) => m.id === mk);
+    const fresh = i < 0 ? null : list.slice(i + 1).filter((m) => m.author.id !== b().me.id);
+    if (fresh && !fresh.length) return "";
+    const when = i >= 0 ? list[i + 1]?.at : undefined;
+    const time = when ? when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+    const n = fresh ? `${fresh.length} new message${fresh.length === 1 ? "" : "s"}` : `${list.length}+ new messages`;
+    return time ? `${n} since ${time}` : n;
+  });
+  async function jumpToNew() {
+    const mk = since();
+    if (!mk) return;
+    if (!msgs().some((m) => m.id === mk)) {
+      jumping = Date.now() + 1200;
+      const page = await b().messagesAround(id(), mk).catch(() => []);
+      if (!page.length) return;
+      batch(() => { setMsgs(page); setMore(true); setDetached(true); setPinned(false); });
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    document.getElementById("new-line")?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+  const markRead = () => { b().markRead({ channel: id() }); setSinceBar(false); };
 
   // Live events for this channel.
   createEffect(on(id, (cid) => {
@@ -70,6 +128,16 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
         setMsgs(msgs().map((m) => (m.id === e.m.id ? e.m : m)));
       } else if (e.t === "delete" && e.channelId === cid) {
         setMsgs(msgs().filter((m) => m.id !== e.id));
+      } else if (e.t === "reconnected" && !detached() && msgs().length) {
+        // Load whatever arrived while the connection was down.
+        const last = msgs()[msgs().length - 1]!.id;
+        void b().messagesAfter(cid, last).then((page) => {
+          if (id() !== cid || !page.length) return;
+          const known = new Set(msgs().map((m) => m.id));
+          setMsgs([...msgs(), ...page.filter((m) => !known.has(m.id))]);
+          if (page.length >= 25) setDetached(true); // a long gap: let "Jump to present" reload the newest page
+          if (pinned()) queueMicrotask(toBottom);
+        }).catch(() => {});
       } else if (e.t === "typing" && e.channelId === cid) {
         setTypers(e.people.filter((p) => p.id !== b().me.id));
       }
@@ -149,9 +217,9 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     setTimeout(() => hl() === mid && setHl(null), 1800);
   }
 
-  async function send(text: string, files: File[], mention: boolean, onProgress: (f: number) => void) {
+  async function send(text: string, files: File[], spoilers: boolean[], mention: boolean, onProgress: (f: number) => void) {
     const r = replyTo();
-    await b().send(id(), { text, files, replies: r ? [{ id: r.id, mention }] : undefined, onProgress });
+    await b().send(id(), { text, files, spoilers, replies: r ? [{ id: r.id, mention }] : undefined, onProgress });
     setReplyTo(null);
   }
 
@@ -177,12 +245,13 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
 
   const act = {
     onProfile: props.onProfile,
-    onReply: (m: Msg) => { setReplyTo(m); setEditing(null); (document.querySelector(".composer textarea") as HTMLTextAreaElement | null)?.focus(); },
+    onReply: (m: Msg) => { setReplyTo(m); setEditing(null); composer.focus(); },
     onEdit: (m: Msg | null) => setEditing(m?.id ?? null),
     onJump: (mid: string) => void jump(mid),
     local: (mid: string) => msgs().find((m) => m.id === mid),
     ctx: { onUser: (uid: string) => props.onProfile(b().person(uid)), onChannel: props.onOpenChannel },
     get serverId() { return props.spaceId && props.spaceId !== "home" ? props.spaceId : undefined; },
+    rules: () => rules(),
   };
 
   /* Drop files anywhere on the chat. Counting enter/leave because they fire for every child element. */
@@ -197,6 +266,12 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
       onDragLeave={(e) => { if (hasFiles(e)) setDropping(Math.max(0, dropping() - 1)); }}
       onDrop={(e) => { if (!hasFiles(e)) return; e.preventDefault(); setDropping(0); setDropped([...(e.dataTransfer?.files ?? [])]); }}>
       {props.banner}
+      <Show when={sinceBar() && sinceText()}>
+        <div class="since-bar" role="status">
+          <button class="sb-jump" onClick={() => void jumpToNew()}>{sinceText()}<span class="grow" /><span class="sb-act">Jump<Icon name="arrow-in" size={14} /></span></button>
+          <button class="sb-read" onClick={markRead}>Mark as read<Icon name="check-all" size={15} /></button>
+        </div>
+      </Show>
       <div class="messages" ref={list} role="log" aria-live="polite" aria-relevant="additions"
         onScroll={() => setPinned(list.scrollHeight - list.scrollTop - list.clientHeight < 80)}>
         <div ref={inner} class="messages-inner">
@@ -216,6 +291,7 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
             return (
               <>
                 <Show when={newDay()}><div class="day" role="separator"><span>{day(m.at)}</span></div></Show>
+                <Show when={firstNew() === m.id}><div class="new-line" id="new-line" role="separator" aria-label="New messages"><span>New</span></div></Show>
                 <MessageRow m={m} prev={newDay() ? undefined : prev()} editing={editing() === m.id} act={act} highlight={hl() === m.id} />
               </>
             );
@@ -230,7 +306,7 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
       <div class="typing" aria-live="polite">
         <Show when={typingText()}><span class="dots" aria-hidden="true"><i /><i /><i /></span>{typingText()}</Show>
       </div>
-      <Composer channel={props.channel} people={people} replyTo={replyTo()} onCancelReply={() => setReplyTo(null)}
+      <Composer channel={props.channel} spaceId={props.spaceId && props.spaceId !== "home" ? props.spaceId : undefined} people={people} replyTo={replyTo()} onCancelReply={() => setReplyTo(null)}
         onEditLast={editLast} onSent={() => void present()} send={send}
         incoming={dropped} onIncomingTaken={() => setDropped(null)}
         sendGif={(url) => b().send(id(), { text: url }).then(() => { setPinned(true); queueMicrotask(toBottom); })} />
