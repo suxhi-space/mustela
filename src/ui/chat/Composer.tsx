@@ -321,7 +321,7 @@ export function Composer(props: {
   });
 
   return (
-    <div class="composer-wrap" ref={wrap}>
+    <div class="composer-wrap" ref={wrap} classList={{ "fmt-open": !items().length && !!toolbarPos() }}>
       <Show when={items().length && token()}>
         <div class="suggest panel" role="listbox" aria-label="Suggestions">
           <For each={items()}>{(it, i) => (

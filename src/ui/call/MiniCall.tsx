@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { Avatar } from "../Avatar";
 import { Icon } from "../icons";
 import { backend } from "../store";
@@ -85,11 +85,15 @@ export function MiniCall(props: { onOpen(): void }) {
  */
 export function PipView() {
   const { stream, person, talking } = callFocus();
+  // The picture fills the floating window (leaving room for the name under it).
+  const [size, setSize] = createSignal(72);
+  const fit = () => setSize(Math.max(40, Math.round(Math.min(innerWidth, innerHeight - 30) * 0.62)));
+  fit(); addEventListener("resize", fit); onCleanup(() => removeEventListener("resize", fit));
   return (
     <div class="pipview" classList={{ talking: talking() && !stream() }} aria-label="Call">
       <Show when={stream()} fallback={
         <Show when={person()}>{(p) => (
-          <span class="pip-person"><Avatar person={p()} size={72} presence={false} still={!talking()} /><small>{p().name}</small></span>
+          <span class="pip-person"><Avatar person={p()} size={size()} presence={false} still={!talking()} /><small>{p().name}</small></span>
         )}</Show>
       }>{(id) => <VideoFill id={id()} source="screen" fit="contain" />}</Show>
       <Show when={!call.on().mic}><span class="pip-muted"><Icon name="mic-off" size={14} /></span></Show>

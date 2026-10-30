@@ -2,7 +2,7 @@ import { createEffect, createMemo, createRoot, createSignal } from "solid-js";
 import type { ChannelInfo, Person, VoiceHandle, VoiceMember } from "../../lib/backend/types";
 import { inTauri } from "../../lib/platform";
 import { playSfx } from "../../lib/sfx";
-import { backend, device, platform } from "../store";
+import { backend, device, platform, ext } from "../store";
 import { pickScreen } from "./ScreenPicker";
 
 /**
@@ -67,11 +67,34 @@ export async function joinCall(c: ChannelInfo) {
       else throw e;
     }
     attach(h, c);
+    setCallBanner(null);
+    rememberCall(c);
     if (device().voice.joinDeafened && h.setDeaf) { await h.setDeaf(true); setOn(h.state?.() ?? on()); }
     void playEntrySound(h);
     if (device().sounds.call) playSfx("join");
   } catch (e) { setErr(e instanceof Error && e.message ? e.message : "Couldn't join voice. Check your connection and that you have permission."); }
   finally { setBusy(false); }
+}
+
+/* ---------- banners (desktop): the call moved to another device, or Mustela was closed mid-call ---------- */
+export type CallBanner = { kind: "moved" | "last"; channel: ChannelInfo };
+export const [callBanner, setCallBanner] = createSignal<CallBanner | null>(null);
+const LAST_KEY = "mustela:last-call";
+/** Remembered while you're in a call and forgotten when you leave it, so it's only still there if Mustela closed mid-call. */
+function rememberCall(c: ChannelInfo | null) {
+  try { if (c) localStorage.setItem(LAST_KEY, JSON.stringify({ id: c.id, name: c.name, kind: c.kind, at: Date.now() })); else localStorage.removeItem(LAST_KEY); } catch { /* storage off */ }
+}
+/** At start-up: were you in a call when Mustela last closed? (Within the last day.) */
+export function checkLastCall(find: (id: string) => ChannelInfo | undefined) {
+  try {
+    const raw = localStorage.getItem(LAST_KEY);
+    if (!raw) return;
+    localStorage.removeItem(LAST_KEY);
+    const v = JSON.parse(raw) as { id?: string; at?: number };
+    if (!v?.id || !v.at || Date.now() - v.at > 24 * 3600_000 || call.active()) return;
+    const c = find(v.id);
+    if (c) setCallBanner({ kind: "last", channel: c });
+  } catch { /* nothing remembered */ }
 }
 
 /** Channels we've just rejoined after a drop (once a minute at most, so a broken call doesn't loop). */
@@ -87,7 +110,8 @@ function attach(h: VoiceHandle, c: ChannelInfo) {
   });
   h.onEnd((reason) => {
     if (handle() !== h) return;
-    if (reason === "moved") { setHandle(null); setTick((t) => t + 1); return; } // joined from somewhere else with this account
+    // Joined from somewhere else with this account: let it go (no rejoining, which would kick the other device).
+    if (reason === "moved") { setHandle(null); setTick((t) => t + 1); rememberCall(null); setCallBanner({ kind: "moved", channel: c }); return; }
     // Dropped (the connection gave up after its own retries): rejoin once rather than end the call.
     if (!rejoined.has(c.id)) {
       rejoined.add(c.id);
@@ -123,6 +147,7 @@ export async function leaveCall() {
   const h = handle();
   if (h && device().sounds.call) playSfx("leave");
   setHandle(null); setChannel(null); setOn(OFF);
+  rememberCall(null);
   if (popped()) void closePopout();
   await h?.leave().catch(() => {});
 }
@@ -182,7 +207,7 @@ export function sendReaction(emoji: string) {
 
 /** Your entry sound, played for everyone right after you join. */
 async function playEntrySound(h: VoiceHandle) {
-  const id = device().voice.entrySound;
+  const id = ext().entrySound ?? device().voice.entrySound; // synced; older builds kept it on the device
   if (!id || !h.playSound) return;
   const { listSounds } = await import("../../lib/sounds");
   const s = (await listSounds().catch(() => [])).find((x) => x.id === id);
@@ -198,11 +223,14 @@ export function applyVoicePrefs() {
 
 /* ---------- Android picture-in-picture (web engine) ---------- */
 export const canPip = () => platform === "android" && inTauri() && !useNative();
+/** The floating window's shape: wide while you watch a stream (or a camera), square while you're just talking. */
+const pipWide = () => (tick(), call.streams().some((s) => s.watching) || call.people().some((p) => p.camera));
 async function pip(enter: boolean, auto: boolean) {
   if (!canPip()) return false;
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    const r = await invoke<{ supported: boolean }>("plugin:mustela-native|pip", { payload: { enter, auto, width: 16, height: 9 } });
+    const wide = pipWide();
+    const r = await invoke<{ supported: boolean }>("plugin:mustela-native|pip", { payload: { enter, auto, width: wide ? 16 : 1, height: wide ? 9 : 1 } });
     return r.supported;
   } catch { return false; }
 }
@@ -224,7 +252,10 @@ const bubble = () => overlayAllowed() && device().callOverlay !== "pip";
 if (android()) {
   void checkOverlay();
   // Holding the bubble mutes or unmutes (the web engine; the native one mutes on its own side).
-  void import("@tauri-apps/api/core").then(({ addPluginListener }) => addPluginListener("mustela-native", "bubble", (e: { action?: string }) => { if (e?.action === "mute" && handle()) void toggleCall("mic"); })).catch(() => {});
+  void import("@tauri-apps/api/core").then(({ addPluginListener }) => addPluginListener("mustela-native", "bubble", (e: { action?: string }) => {
+    if (e?.action === "mute" && handle()) void toggleCall("mic");
+    if (e?.action === "leave" && handle()) void leaveCall(); // "Leave" in the call notification
+  })).catch(() => {});
 }
 createRoot(() => {
   // In a call the phone treats Mustela as a call: the volume keys set call volume, not media volume.
@@ -234,6 +265,7 @@ createRoot(() => {
     if (!android()) return;
     const inCall = handle() !== null;
     void nativeCmd("set_call_overlay", { payload: { on: inCall && bubble(), muted: !on().mic } });
+    pipWide(); // reshape the floating window when a stream starts or stops
     void pip(false, inCall && !bubble());
   });
 });

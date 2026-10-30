@@ -9,7 +9,6 @@ import { device, updateDevice } from "./store";
 export interface UpdateConfig { version: string; repo: string | null; kind: string }
 export interface UpdateInfo { version: string; notes: string; page: string; file: string | null; size: number; selfInstalls: boolean }
 
-const EVERY = 6 * 60 * 60 * 1000;
 const SKIP_KEY = "mustela:update-skip";
 
 const [config, setConfig] = createSignal<UpdateConfig | null>(null);
@@ -50,33 +49,58 @@ export async function openReleasePage() {
 }
 
 /** Downloads and installs when this platform can; otherwise opens the release page. */
-export async function installUpdate() {
+export async function installUpdate(quiet = false) {
   const u = available();
   if (!u) return;
   if (!u.file || !["windows-nsis", "linux-appimage", "macos-dmg", "linux-deb"].includes(config()?.kind ?? "")) return openReleasePage();
   const { listen } = await import("@tauri-apps/api/event");
   const off = await listen<[number, number]>("mustela:update-progress", (e) => setProgress(e.payload[1] ? e.payload[0] / e.payload[1] : null));
   setProgress(0);
-  try { toast(await invoke<string>("install_update")); }
+  try { const msg = await invoke<string>("install_update"); if (!quiet) toast(msg); }
   catch (e) { toast(String((e as Error)?.message ?? e) || "The update didn't install.", true); }
   finally { off(); setProgress(null); }
 }
 
-/** Reads the build's update settings, then checks shortly after start and every few hours. */
+/**
+ * Like Discord: when Mustela starts (a real start, not a reload), it checks once. An update this system can
+ * install itself is downloaded and installed straight away, with a small "Updating" screen, and Mustela
+ * restarts on it. Anything else (a .deb, phones) shows the corner card instead. No checks while you use it.
+ */
+const BOOT_KEY = "mustela:update-checked";
+const [updating, setUpdating] = createSignal(false);
 let started = false;
 export function startUpdates() {
   if (!inTauri() || started) return;
   started = true;
+  let fresh = true;
+  try { fresh = !sessionStorage.getItem(BOOT_KEY); sessionStorage.setItem(BOOT_KEY, "1"); } catch { /* no storage: treat as a start */ }
   createRoot(() => {
-    void invoke<UpdateConfig>("update_config").then((c) => {
+    void invoke<UpdateConfig>("update_config").then(async (c) => {
       setConfig(c);
-      if (!c.repo) return;
-      const tick = () => { if (device().autoUpdate) void checkForUpdate(); };
-      const first = setTimeout(tick, 15_000);
-      const timer = setInterval(tick, EVERY);
-      onCleanup(() => { clearTimeout(first); clearInterval(timer); });
+      if (!c.repo || !fresh || !device().autoUpdate) return;
+      const info = await checkForUpdate();
+      if (!info?.selfInstalls || !/windows|macos|linux-appimage/.test(c.kind)) return;
+      setUpdating(true);
+      await installUpdate(true);
+      setUpdating(false); // only reached if installing failed; the corner card offers it again
     }).catch(() => {});
   });
+}
+
+/** The screen shown while an update installs at start-up. */
+export function UpdateSplash() {
+  return (
+    <Show when={updating()}>
+      <div class="update-splash" role="status" aria-live="polite">
+        <div class="us-card">
+          <span class="us-ic"><Icon name="download" size={26} /></span>
+          <strong>Updating Mustela</strong>
+          <p class="muted">{available() ? `Getting ${available()!.version}. Mustela restarts on its own when it's ready.` : "Getting the new version…"}</p>
+          <progress class="up-progress" value={progress() ?? 0} max={1} />
+        </div>
+      </div>
+    </Show>
+  );
 }
 
 const skipped = () => { try { return localStorage.getItem(SKIP_KEY); } catch { return null; } };
@@ -84,7 +108,7 @@ const skipped = () => { try { return localStorage.getItem(SKIP_KEY); } catch { r
 /** A small card in the corner when a new version is out, like the AppImage prompt. */
 export function UpdatePrompt() {
   const [hidden, setHidden] = createSignal(false);
-  const show = () => !hidden() && !!available() && skipped() !== available()!.version;
+  const show = () => !hidden() && !updating() && !!available() && skipped() !== available()!.version;
   const skip = () => { try { localStorage.setItem(SKIP_KEY, available()!.version); } catch { /* private storage */ } setHidden(true); };
   return (
     <Show when={show()}>
@@ -112,7 +136,7 @@ export function UpdatesGroup() {
     <Show when={inTauri()}>
       <Group title="Updates" hint={repo() ? `New versions come from github.com/${repo()}/releases.` : "This copy was built without an update repository, so it doesn't check for updates."}>
         <Show when={repo()}>
-          <Row label="Check for updates automatically"><Switch label="Check for updates automatically" on={device().autoUpdate} onChange={(autoUpdate) => updateDevice({ autoUpdate })} /></Row>
+          <Row label="Update when Mustela starts" hint="Checks once each time you open Mustela and installs the update right away."><Switch label="Update when Mustela starts" on={device().autoUpdate} onChange={(autoUpdate) => updateDevice({ autoUpdate })} /></Row>
           <Row label={available() ? `Mustela ${available()!.version} is available` : "Check now"} hint={lastError() ?? undefined}>
             <Show when={available()} fallback={<button class="btn small" disabled={checking()} onClick={() => void checkForUpdate(true)}>{checking() ? "Checking…" : "Check"}</button>}>
               <button class="btn small primary" disabled={progress() !== null} onClick={() => void installUpdate()}>{available()!.selfInstalls ? "Install" : "Download"}</button>

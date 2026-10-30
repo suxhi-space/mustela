@@ -38,7 +38,9 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   // A memo, so a refreshed channel object with the same id doesn't reload the conversation.
   const id = createMemo(() => props.channel.id);
   const toBottom = () => { if (list) list.scrollTop = list.scrollHeight; };
-  const ack = () => { if (document.hasFocus() && pinned()) b().ack(id()); };
+  /** "Mark as unread" picked this message: it and everything after stay unread until you leave the chat. */
+  const [unreadFrom, setUnreadFrom] = createSignal<string | null>(null);
+  const ack = () => { if (document.hasFocus() && pinned() && !unreadFrom()) b().ack(id()); };
 
   const [members] = createResource(() => props.spaceId && props.spaceId !== "home" ? props.spaceId : null, (s) => b().members(s).catch(() => []));
   const people = (): Person[] => {
@@ -54,7 +56,7 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   createEffect(on(id, (cid) => {
     // Read where you were up to before anything marks the channel read.
     const marker = props.channel.unread ? b().lastRead(cid) ?? null : null;
-    batch(() => { setMsgs([]); setState("loading"); setReplyTo(null); setEditing(null); setTypers([]); setPinned(true); setMore(false); setDetached(false); setSince(marker); setSinceBar(!!marker); });
+    batch(() => { setMsgs([]); setState("loading"); setReplyTo(null); setEditing(null); setTypers([]); setPinned(true); setMore(false); setDetached(false); setSince(marker); setSinceBar(!!marker); setUnreadFrom(null); });
     let alive = true;
     const direct = props.channel.kind === "dm" || props.channel.kind === "group";
     // DMs open at the first unread message; channels open at the newest, with a bar to jump back.
@@ -84,13 +86,14 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     const d = (e as CustomEvent<{ channelId: string; messageId: string }>).detail;
     if (d?.channelId !== id()) return;
     const list = msgs(), i = list.findIndex((m) => m.id === d.messageId);
-    if (i > 0) batch(() => { setSince(list[i - 1]!.id); setSinceBar(true); });
+    if (i >= 0) batch(() => { setUnreadFrom(d.messageId); setSince(i > 0 ? list[i - 1]!.id : null); setSinceBar(true); });
   };
   addEventListener("mustela:mark-unread", onMarkUnread);
   onCleanup(() => removeEventListener("mustela:mark-unread", onMarkUnread));
 
   /** The first message after where you'd read, if it's loaded. */
   const firstNew = createMemo(() => {
+    if (unreadFrom()) return unreadFrom();
     const mk = since();
     if (!mk) return null;
     const list = msgs();
@@ -100,6 +103,14 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   });
   /** "12 new messages since 3:42 PM" (or "50+" when the marker isn't loaded). */
   const sinceText = createMemo(() => {
+    const from = unreadFrom();
+    if (from) {
+      const list = msgs(), i = list.findIndex((m) => m.id === from);
+      if (i >= 0) {
+        const n = list.length - i, at = list[i]!.at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        return `${n} new message${n === 1 ? "" : "s"} since ${at}`;
+      }
+    }
     const mk = since();
     if (!mk) return "";
     const list = msgs();
@@ -112,6 +123,8 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     return time ? `${n} since ${time}` : n;
   });
   async function jumpToNew() {
+    const from = unreadFrom();
+    if (from) { document.getElementById(`msg-${from}`)?.scrollIntoView({ block: "center" }); return; }
     const mk = since();
     if (!mk) return;
     if (!msgs().some((m) => m.id === mk)) {
@@ -123,7 +136,7 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     }
     document.getElementById("new-line")?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
-  const markRead = () => { b().markRead({ channel: id() }); setSinceBar(false); };
+  const markRead = () => { setUnreadFrom(null); b().markRead({ channel: id() }); setSinceBar(false); };
 
   // Live events for this channel.
   createEffect(on(id, (cid) => {
@@ -270,7 +283,15 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes("Files");
 
   return (
-    <div class="chat"
+    <div class="chat" ref={(el) => {
+      // The message box's height, so the "viewing older messages" card floats just above it whatever its size.
+      onMount(() => {
+        const box = el.querySelector<HTMLElement>(".composer-wrap");
+        if (!box) return;
+        const ro = new ResizeObserver(() => el.style.setProperty("--composer-h", `${box.offsetHeight}px`));
+        ro.observe(box); onCleanup(() => ro.disconnect());
+      });
+    }}
       onDragEnter={(e) => { if (hasFiles(e)) { e.preventDefault(); setDropping(dropping() + 1); } }}
       onDragOver={(e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer!.dropEffect = "copy"; } }}
       onDragLeave={(e) => { if (hasFiles(e)) setDropping(Math.max(0, dropping() - 1)); }}

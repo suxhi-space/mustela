@@ -18,17 +18,18 @@ import { VoiceVideo } from "./settings/VoiceVideo";
 import { ActivityPage } from "./settings/ActivityPage";
 import { DesktopPage } from "./settings/DesktopPage";
 import { PerformancePage } from "./settings/PerformancePage";
+import { AccessibilityPage } from "./settings/AccessibilityPage";
 import { isDesktopApp } from "./desktop";
 import { openProfileEditor } from "./ProfileEditor";
 import { book, meNow, removeAccountById, settings } from "./store";
 
-export type Tab = "account" | "profile" | "sessions" | "bots" | "voice" | "appearance" | "notifications" | "language" | "desktop" | "accounts" | "sync" | "activity" | "performance" | "advanced";
+export type Tab = "account" | "profile" | "sessions" | "bots" | "voice" | "appearance" | "accessibility" | "notifications" | "language" | "desktop" | "accounts" | "sync" | "activity" | "performance" | "advanced";
 /** Same sections and order as Stoat's settings, with Mustela's extras in their own group before Advanced. */
 const GROUPS = (): { title: string; tabs: { id: Tab; label: string; icon: string }[] }[] => [
   { title: "User settings", tabs: [{ id: "profile", label: "Profile", icon: "user" }, { id: "sessions", label: "Sessions", icon: "shield" }] },
   { title: "Stoat", tabs: [{ id: "bots", label: "My bots", icon: "bot" }] },
   { title: "Client settings", tabs: [
-    { id: "voice", label: "Voice & video", icon: "mic" }, { id: "appearance", label: "Appearance", icon: "palette" },
+    { id: "voice", label: "Voice & video", icon: "mic" }, { id: "appearance", label: "Appearance", icon: "palette" }, { id: "accessibility", label: "Accessibility", icon: "eye" },
     { id: "notifications", label: "Notifications", icon: "bell" }, { id: "language", label: "Language", icon: "globe" },
     ...(isDesktopApp() ? [{ id: "desktop" as Tab, label: "Desktop", icon: "screen" }] : []),
   ] },
@@ -37,7 +38,7 @@ const GROUPS = (): { title: string; tabs: { id: Tab; label: string; icon: string
     { id: "accounts", label: "Accounts", icon: "swap" }, { id: "advanced", label: "Advanced", icon: "flask" },
   ] },
 ];
-const TITLE: Record<Tab, string> = { account: "My account", profile: "Profile", sessions: "Sessions", bots: "My bots", voice: "Voice & video", appearance: "Appearance", notifications: "Notifications", language: "Language", desktop: "Desktop", accounts: "Accounts", sync: "Sync & servers", activity: "Activity", performance: "Performance", advanced: "Advanced" };
+const TITLE: Record<Tab, string> = { account: "My account", profile: "Profile", sessions: "Sessions", bots: "My bots", voice: "Voice & video", appearance: "Appearance", accessibility: "Accessibility", notifications: "Notifications", language: "Language", desktop: "Desktop", accounts: "Accounts", sync: "Sync & servers", activity: "Activity", performance: "Performance", advanced: "Advanced" };
 
 const KEYWORDS: Partial<Record<Tab, string>> = {
   profile: "avatar banner bio about decoration frame nameplate effect name color pronouns",
@@ -51,6 +52,7 @@ const KEYWORDS: Partial<Record<Tab, string>> = {
   activity: "game playing rich presence discord rpc detection",
   sync: "cloud server backup",
   accounts: "switch add log out",
+  accessibility: "text size readable font motion reduce animation contrast colour color underline links role density zoom",
   performance: "animation lag slow gif emoji blur title bar frame fps battery game",
   advanced: "debug cache reset",
 };
@@ -77,7 +79,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
     <div class="settings" role="dialog" aria-label="Settings" data-narrow={narrowNav() ? "nav" : "page"} onKeyDown={(e) => e.key === "Escape" && props.onClose()} onClick={(e) => e.target === e.currentTarget && props.onClose()}>
       <div class="settings-card">
       <div class="settings-body">
-        <nav class="snav panel" role="tablist" aria-label="Settings sections">
+        <nav class="snav panel" role="tablist" aria-label="Settings sections" ref={(el) => queueMicrotask(() => el.querySelector<HTMLElement>("button.on")?.scrollIntoView({ block: "center" }))}>
           <button class="snav-me" role="tab" aria-selected={tab() === "account"} classList={{ on: tab() === "account" }} onClick={() => go("account")}>
             <Avatar person={me()} size={36} profile={settings().profile} presence={false} />
             <span><small>{me().name}</small><strong>My account</strong></span>
@@ -120,6 +122,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <Match when={tab() === "activity"}><ActivityPage /></Match>
             <Match when={tab() === "accounts"}><AccountsPage onClose={props.onClose} /></Match>
             <Match when={tab() === "performance"}><PerformancePage /></Match>
+            <Match when={tab() === "accessibility"}><AccessibilityPage /></Match>
             <Match when={tab() === "advanced"}><AdvancedPage /></Match>
           </Switch>
         </div>

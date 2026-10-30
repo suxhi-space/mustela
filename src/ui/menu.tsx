@@ -20,7 +20,9 @@ const [menu, setMenu] = createSignal<Open | null>(null);
 /** `sheet`: phones, a card that comes up from the bottom (with `head` drawn at its top) instead of a small menu. */
 export function openMenu(at: MouseEvent | Element, items: MenuItem[], opts: { width?: number; sheet?: boolean; head?: () => JSX.Element } = {}) {
   const clean = items.filter((it, i, a) => !("sep" in it) || (i > 0 && i < a.length - 1 && !("sep" in a[i - 1]!)));
-  const extra = { sheet: opts.sheet, head: opts.head };
+  // Touch screens: every menu (hold menus, dropdowns) is a card from the bottom with big rows.
+  const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  const extra = { sheet: opts.sheet ?? touch, head: opts.head };
   if ("getBoundingClientRect" in at) { const r = at.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: clean, doc: at.ownerDocument, width: opts.width, ...extra }); }
   else { at.preventDefault(); at.stopPropagation(); setMenu({ x: at.clientX, y: at.clientY, items: clean, doc: (at.target as Node | null)?.ownerDocument ?? document, ...extra }); }
   return false;
@@ -58,8 +60,12 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
         if ("header" in it) return <div class="ctx-head">{it.header}</div>;
         if ("custom" in it) return it.custom();
         if (it.sub) return (
-          <button role="menuitem" aria-haspopup="menu" class="ctx-item" onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setOpenSub({ i: i(), x: r.right + 2, y: r.top - 6 }); }}
-            onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setOpenSub({ i: i(), x: r.right + 2, y: r.top - 6 }); }}>
+          <button role="menuitem" aria-haspopup="menu" class="ctx-item" onMouseEnter={(e) => { if (props.sheet) return; const r = e.currentTarget.getBoundingClientRect(); setOpenSub({ i: i(), x: r.right + 2, y: r.top - 6 }); }}
+            onClick={(e) => {
+              // In a card, a submenu replaces the card's rows (with its name on top) instead of opening beside it.
+              if (props.sheet) { const sub = it.sub!; setMenu((m) => (m ? { ...m, head: undefined, items: [{ header: it.label }, ...sub] } : m)); return; }
+              const r = e.currentTarget.getBoundingClientRect(); setOpenSub({ i: i(), x: r.right + 2, y: r.top - 6 });
+            }}>
             <Show when={it.icon}><Icon name={it.icon!} size={16} /></Show><span class="ctx-label">{it.label}</span><Icon name="right" size={14} class="muted" />
           </button>
         );
@@ -70,6 +76,8 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
             <Show when={it.icon} fallback={<Show when={it.checked !== undefined}><span class="ctx-check">{it.checked ? "✓" : ""}</span></Show>}><Icon name={it.icon!} size={16} /></Show>
             <span class="ctx-label">{it.label}</span>
             <Show when={it.hint}><span class="ctx-hint">{it.hint}</span></Show>
+            {/* In a card, choices show as radio buttons on the right */}
+            <Show when={props.sheet && it.checked !== undefined && it.icon}><span class="ctx-radio" classList={{ on: !!it.checked }} aria-hidden="true" /></Show>
           </button>
         );
       }}</For>

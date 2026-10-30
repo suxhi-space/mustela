@@ -126,7 +126,7 @@ class ScreenService : Service() {
             nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Screen sharing", NotificationManager.IMPORTANCE_LOW))
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_slideshow)
+            .setSmallIcon(resources.getIdentifier("ic_notification", "drawable", packageName).takeIf { it != 0 } ?: android.R.drawable.ic_menu_slideshow) // icons/notification.png, if you added one
             .setContentTitle("Sharing your screen")
             .setContentText("Mustela is sharing your screen in a call.")
             .setOngoing(true)

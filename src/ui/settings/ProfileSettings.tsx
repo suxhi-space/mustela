@@ -6,6 +6,7 @@ import { DEFAULT_PROFILE, type NameStyle, type ProfileConfig } from "../../lib/p
 import { NAME_EFFECTS, NAME_FONTS, SLOT_LABEL, SLOT_PRESETS, slotFromPreset, getSlotPreset, type SlotKind } from "../../lib/profile/presets";
 import { ratingOf } from "../anim";
 import { Avatar } from "../Avatar";
+import { openColorPicker } from "../ColorPicker";
 import { ColorInput, Group, RatingBadge, Row, Select, Slider } from "../controls";
 import { createProfileInfo } from "../hooks";
 import { Icon } from "../icons";
@@ -35,6 +36,16 @@ export function Thumb(props: { kind: SlotKind; slot: SlotConfig; size?: number; 
 }
 
 /** The tiles and knobs for one slot. Controlled: the caller owns the value. */
+/** Decorations take a hue: the picker shows it as a colour and turns your pick back into its hue. */
+const hueHex = (h: number) => { const f = (n: number) => { const k = (n + h / 30) % 12; return Math.round(255 * (0.5 - 0.5 * Math.max(-1, Math.min(k - 3, 9 - k, 1)))).toString(16).padStart(2, "0"); }; return `#${f(0)}${f(8)}${f(4)}`; };
+function hueOf(hex: string) {
+  const n = parseInt(hex.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+  if (!d) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return Math.round((h * 60 + 360) % 360) % 360;
+}
+
 export function SlotPicker(props: { kind: SlotKind; slot: SlotConfig; profile: ProfileConfig; onChange(s: SlotConfig): void; size?: number }) {
   const preset = () => getSlotPreset(props.kind, props.slot.preset);
   const part = () => ratingOf(props.profile).parts[props.kind];
@@ -54,7 +65,10 @@ export function SlotPicker(props: { kind: SlotKind; slot: SlotConfig; profile: P
       </div>
       <Show when={preset()}>
         <Group title="Adjust" hint={part().reasons.join(" ") || undefined}>
-          <Show when={preset()!.knobs.includes("hue")}><Row label="Color"><Slider hue label="Color" min={0} max={359} value={props.slot.hue} onChange={(hue) => set({ ...props.slot, hue })} suffix="°" /></Row></Show>
+          <Show when={preset()!.knobs.includes("hue")}>
+            <Row label="Color"><Slider hue label="Color" min={0} max={359} value={props.slot.hue} onChange={(hue) => set({ ...props.slot, hue })} suffix="°" /></Row>
+            <button class="link small adv-color" onClick={(e) => openColorPicker(e.currentTarget, hueHex(props.slot.hue), (hex) => set({ ...props.slot, hue: hueOf(hex) }), "Color")}>Advanced color picker</button>
+          </Show>
           <Show when={preset()!.knobs.includes("speed")}><Row label="Speed"><Slider label="Speed" min={0} max={15} value={props.slot.speed} onChange={(speed) => set({ ...props.slot, speed })} /></Row></Show>
           <Show when={preset()!.knobs.includes("intensity")}><Row label="Intensity"><Slider label="Intensity" min={0} max={15} value={props.slot.intensity} onChange={(intensity) => set({ ...props.slot, intensity })} /></Row></Show>
           <Row label="Performance"><RatingBadge rating={part().rating} label={part().label} /></Row>

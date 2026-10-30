@@ -38,7 +38,7 @@ impl Kind {
         } else { Kind::Other }
     }
     /// Installed in place by Mustela itself. Everything else opens the file or the release page.
-    pub fn self_installs(self) -> bool { matches!(self, Kind::WindowsNsis | Kind::LinuxAppimage) }
+    pub fn self_installs(self) -> bool { matches!(self, Kind::WindowsNsis | Kind::LinuxAppimage | Kind::MacosDmg) }
 }
 
 /// Picks this platform's file from a release. Names follow scripts/build.mjs:

@@ -203,6 +203,30 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
     async restart(o) { await processor.destroy(); await processor.init(o); },
     async destroy() { mixer?.src.disconnect(); mixer?.voice.disconnect(); mixer?.sounds.disconnect(); mixer = null; },
   };
+  let soundTrack: { dest: MediaStreamAudioDestinationNode } | null = null;
+  async function playOnOwnTrack(data: ArrayBuffer, volume: number) {
+    if (ctx.state === "suspended") await ctx.resume();
+    if (!soundTrack) {
+      const dest = ctx.createMediaStreamDestination();
+      const track = dest.stream.getAudioTracks()[0];
+      if (!track) throw new Error("Sounds can't play into the call on this system.");
+      await room.localParticipant.publishTrack(track, { source: Track.Source.Unknown, name: "soundboard", dtx: false });
+      soundTrack = { dest };
+    }
+    const b = await ctx.decodeAudioData(data.slice(0));
+    const src = ctx.createBufferSource();
+    src.buffer = b;
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    src.connect(gain);
+    gain.connect(soundTrack.dest);
+    if (!deaf) gain.connect(ctx.destination);
+    src.onended = () => { gain.disconnect(); src.disconnect(); };
+    src.start();
+    const secs = Math.min(10, b.duration);
+    announceSound(me.id, secs);
+    void room.localParticipant.publishData(enc.encode(JSON.stringify({ d: secs })), { reliable: true, topic: "mustela.sound" }).catch(() => {});
+  }
   const micPub = () => room.localParticipant.getTrackPublication(Track.Source.Microphone);
   async function attachMixer() {
     const t = micPub()?.track as LocalAudioTrack | undefined;
@@ -310,7 +334,9 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       if (!micPub()) { await room.localParticipant.setMicrophoneEnabled(true); await micPub()?.mute(); }
       await attachMixer();
       const m = mixer;
-      if (!m) throw new Error("Sounds can't be mixed into the call on this system.");
+      // Some systems (Android's web view among them) can't run the microphone mixer: the sound goes out
+      // on its own track instead. Mustela users hear it; Stoat's own apps only play microphones.
+      if (!m) return playOnOwnTrack(data, volume);
       if (m.ctx.state === "suspended") await m.ctx.resume();
       const b = await m.ctx.decodeAudioData(data.slice(0));
       const src = m.ctx.createBufferSource();
@@ -371,7 +397,7 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       return pub?.track?.mediaStreamTrack ?? null;
     },
     onEnd: (cb) => {
-      const f = (reason?: DisconnectReason) => { if (!ended || reason !== undefined) cb(reason === DisconnectReason.DUPLICATE_IDENTITY ? "moved" : "dropped"); };
+      const f = (reason?: DisconnectReason) => { if (!ended || reason !== undefined) cb(reason === DisconnectReason.DUPLICATE_IDENTITY || reason === DisconnectReason.PARTICIPANT_REMOVED ? "moved" : "dropped"); };
       room.on(RoomEvent.Disconnected, f);
       return () => void room.off(RoomEvent.Disconnected, f);
     },

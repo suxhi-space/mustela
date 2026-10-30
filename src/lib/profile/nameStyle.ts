@@ -24,11 +24,13 @@ export function readable(c: number, surface: number, min = 3): number {
   return target;
 }
 
-export function nameCss(n: NameStyle | null, surface: number): NameCss {
+/** `fontOnly`: just the font, no colours or effects (chat messages and voice lists, where they get busy). */
+export function nameCss(n: NameStyle | null, surface: number, fontOnly = false): NameCss {
   if (!n) return { style: {}, class: "" };
   const style: Record<string, string> = {};
   const f = nameFont(n.font);
   if (n.font) style["font-family"] = f.css;
+  if (fontOnly) return { style, class: "" };
   const c1 = hex(readable(n.c1, surface));
   const c2 = hex(readable(n.c2, surface));
   let cls = "";

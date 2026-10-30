@@ -22,10 +22,12 @@ export const profileOpen = () => profileView()?.person ?? null;
 export const setProfileOpen = (p: Person | null) => (p ? openProfile(p) : setProfileView(null));
 export const [settingsOpen, setSettingsOpen] = createSignal<string | false>(false);
 
-type Go = { channel(id: string): void; reply(m: { id: string }): void };
+type Go = { channel(id: string): void; reply(m: { id: string }): void; list(): void };
 let go: Partial<Go> = {};
 export const registerNav = (g: Partial<Go>) => { go = { ...go, ...g }; };
 export const openChannel = (id: string) => go.channel?.(id);
+/** Phones: back to the channel list (the call keeps going, in the small tile). */
+export const backToList = () => go.list?.();
 
 /** The server you're looking at (null on Home), so profiles can show roles and "Member since" there. */
 export const [currentServer, setCurrentServer] = createSignal<string | null>(null);

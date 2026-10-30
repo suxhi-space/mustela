@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-landscape"
+description = "Enables the landscape command without any pre-configured scope."
+commands.allow = ["landscape"]
+
+[[permission]]
+identifier = "deny-landscape"
+description = "Denies the landscape command without any pre-configured scope."
+commands.deny = ["landscape"]

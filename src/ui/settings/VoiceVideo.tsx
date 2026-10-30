@@ -4,7 +4,7 @@ import { inTauri } from "../../lib/platform";
 import { listSounds } from "../../lib/sounds";
 import { applyVoicePrefs, overlayAllowed, requestOverlay } from "../call/state";
 import { Group, Row, Seg, Select, Slider, Switch } from "../controls";
-import { backend, device, platform, updateDevice } from "../store";
+import { backend, device, ext, platform, updateDevice, updateExt } from "../store";
 import { QUALITIES, qualityHint } from "../call/ScreenPicker";
 
 export async function devices() {
@@ -106,10 +106,10 @@ export function VoiceVideo() {
         </Row>
       </Group>
 
-      <Group title="Soundboard" hint="Sounds live on this device. Add them from the soundboard button in a call.">
+      <Group title="Soundboard" hint="Sounds added from a link (and your entry sound) follow you to every device; sounds added from a file stay on this one. Add them from the soundboard button in a call.">
         <Row icon="music" label="Soundboard volume"><Slider label="Soundboard volume" min={0} max={100} value={v().soundboardVolume} suffix="%" onChange={(soundboardVolume) => set({ soundboardVolume })} /></Row>
         <Row label="Entry sound" hint="Plays for everyone when you join a call">
-          <Select label="Entry sound" value={v().entrySound} onChange={(entrySound) => set({ entrySound })}
+          <Select label="Entry sound" value={ext().entrySound ?? v().entrySound} onChange={(entrySound) => { set({ entrySound }); updateExt((x) => ({ ...x, entrySound })); }}
             options={[{ v: "", label: "None" }, ...(sounds() ?? []).map((s) => ({ v: s.id, label: `${s.emoji} ${s.name}` }))]} />
         </Row>
       </Group>

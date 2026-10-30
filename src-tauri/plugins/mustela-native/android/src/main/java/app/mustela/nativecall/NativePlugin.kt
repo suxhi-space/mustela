@@ -5,8 +5,10 @@ import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.media.AudioDeviceInfo
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -15,6 +17,8 @@ import android.util.Rational
 import android.webkit.WebView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.WindowCompat
 import androidx.activity.result.ActivityResult
 import app.tauri.PermissionState
 import app.tauri.annotation.ActivityCallback
@@ -26,6 +30,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.Plugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +66,11 @@ class OverlayArgs {
 }
 
 @InvokeArg
+class OutputArgs {
+    var id: Int = 0
+}
+
+@InvokeArg
 class ScreenArgs {
     var width: Int = 1280
     var height: Int = 720
@@ -85,6 +95,7 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
      */
     override fun load(webView: WebView) {
         super.load(webView)
+        web = webView
         // Mustela has its own text size setting and a layout made for 100%; Android's font scale on top of
         // it made everything too big and cut off. Layout stays at 100%, the system scale just nudges the
         // page's base size (--font-scale) a little.
@@ -101,8 +112,38 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
             (v as WebView).evaluateJavascript(js, null)
             insets
         }
+        // Picture-in-picture: tell the page when the app goes in or out, so it shows just the call.
+        var lastPip: Boolean? = null
+        webView.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            val inPip = Build.VERSION.SDK_INT >= 24 && activity.isInPictureInPictureMode
+            if (inPip != lastPip) {
+                lastPip = inPip
+                (v as WebView).evaluateJavascript("document.documentElement.toggleAttribute('data-pip',$inPip);window.dispatchEvent(new CustomEvent('mustela:pip',{detail:$inPip}))", null)
+            }
+        }
+        // A Stoat invite link this app was opened with.
+        activity.intent?.data?.let { deliverLink(webView, it.toString()) }
         // The page loads after this; ask again once it's had time to start, so it gets the sizes too.
         for (delay in longArrayOf(300, 1200, 3000)) webView.postDelayed({ ViewCompat.requestApplyInsets(webView) }, delay)
+    }
+
+    private var web: WebView? = null
+
+    /** A link opened while Mustela was already running (launchMode singleTask). */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val url = intent.data?.toString() ?: return
+        web?.let { deliverLink(it, url) }
+    }
+
+    /**
+     * Hands a link to the page: kept on window.__mustelaLink for a page that's still starting, and sent as a
+     * "mustela:open-link" event for one that's running. Tried a few times, since the page may not be ready yet.
+     */
+    private fun deliverLink(webView: WebView, url: String) {
+        val safe = url.replace("\\", "").replace("'", "%27").take(500)
+        val js = "(function(u){if(window.__mustelaLinkDone===u)return;window.__mustelaLink=u;window.dispatchEvent(new CustomEvent('mustela:open-link',{detail:u}));})('$safe')"
+        for (delay in longArrayOf(0, 1500, 4000)) webView.postDelayed({ webView.evaluateJavascript(js, null) }, delay)
     }
 
     /** Wallpaper-derived accent for "Use system colors" (Android 12+). */
@@ -172,6 +213,84 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun callState(invoke: Invoke) = invoke.resolve(state())
 
+    /** Watching a stream: the phone may turn sideways (even with rotation locked, like video apps); off goes back to normal. */
+    @Command
+    fun landscape(invoke: Invoke) {
+        val args = invoke.parseArgs(MicArgs::class.java)
+        activity.runOnUiThread {
+            activity.requestedOrientation = if (args.on) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            invoke.resolve()
+        }
+    }
+
+    /**
+     * The phone's status bar and nav buttons: hidden while a stream fills the screen (a swipe from the edge
+     * shows them for a moment, like video apps), shown the rest of the time.
+     */
+    @Command
+    fun systemBars(invoke: Invoke) {
+        val args = invoke.parseArgs(MicArgs::class.java)
+        activity.runOnUiThread {
+            val c = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+            if (args.on) c.show(WindowInsetsCompat.Type.systemBars())
+            else {
+                c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                c.hide(WindowInsetsCompat.Type.systemBars())
+            }
+            invoke.resolve()
+        }
+    }
+
+    /* ---------- where call audio plays: earpiece, speaker, Bluetooth, a headset ---------- */
+
+    private fun kindOf(type: Int): String = when (type) {
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "earpiece"
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, 26 /* BLE headset */, 27 /* BLE speaker */ -> "bluetooth"
+        AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired"
+        AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE -> "usb"
+        else -> "other"
+    }
+
+    /** The outputs a call can use right now, and which one it's on. Android 12+ lists them all; older ones get earpiece or speaker. */
+    @Command
+    fun audioOutputs(invoke: Invoke) {
+        val am = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val list = JSArray()
+        if (Build.VERSION.SDK_INT >= 31) {
+            val current = am.communicationDevice?.id
+            for (d in am.availableCommunicationDevices) {
+                val kind = kindOf(d.type)
+                val name = when (kind) { "earpiece" -> "Phone"; "speaker" -> "Speaker"; else -> d.productName?.toString()?.takeIf { it.isNotBlank() } ?: kind.replaceFirstChar { it.uppercase() } }
+                val o = JSObject(); o.put("id", d.id); o.put("kind", kind); o.put("name", name); o.put("selected", d.id == current)
+                list.put(o)
+            }
+        } else {
+            @Suppress("DEPRECATION") val speaker = am.isSpeakerphoneOn
+            val e = JSObject(); e.put("id", 1); e.put("kind", "earpiece"); e.put("name", "Phone"); e.put("selected", !speaker); list.put(e)
+            val s = JSObject(); s.put("id", 2); s.put("kind", "speaker"); s.put("name", "Speaker"); s.put("selected", speaker); list.put(s)
+        }
+        val ret = JSObject(); ret.put("outputs", list)
+        invoke.resolve(ret)
+    }
+
+    @Command
+    fun setAudioOutput(invoke: Invoke) {
+        val args = invoke.parseArgs(OutputArgs::class.java)
+        val am = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        activity.runOnUiThread {
+            runCatching {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    am.availableCommunicationDevices.firstOrNull { it.id == args.id }?.let { am.setCommunicationDevice(it) }
+                } else {
+                    @Suppress("DEPRECATION")
+                    am.isSpeakerphoneOn = args.id == 2
+                }
+            }
+            invoke.resolve()
+        }
+    }
+
     /** Back on the first screen: leave Mustela running in the background (calls keep going), like Discord. */
     @Command
     fun background(invoke: Invoke) {
@@ -237,6 +356,17 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
                 } else {
                     am.mode = AudioManager.MODE_NORMAL
                     activity.volumeControlStream = AudioManager.USE_DEFAULT_STREAM_TYPE
+                }
+            }
+            // The Web engine (video) gets the same background service as the voice engine: the call keeps
+            // going when you leave the app or swipe it away, with a notification to come back or leave.
+            if (!CallEngine.active()) runCatching {
+                if (args.on) {
+                    CallService.onLeave = { activity.runOnUiThread { val e = JSObject(); e.put("action", "leave"); trigger("bubble", e) } }
+                    CallService.start(activity.applicationContext, "Voice call")
+                } else {
+                    CallService.onLeave = null
+                    CallService.stop(activity.applicationContext)
                 }
             }
             invoke.resolve()

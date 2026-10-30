@@ -11,8 +11,9 @@ const VARIANT_INFO: { id: Variant; label: string }[] = [
   { id: "content", label: "Content" }, { id: "rainbow", label: "Rainbow" }, { id: "fruit", label: "Fruit salad" },
 ];
 import { inTauri } from "../../lib/platform";
+import { openColorPicker } from "../ColorPicker";
 import { ColorInput, Group, Row, Seg, Select, Slider, Switch } from "../controls";
-import { backdropImage, device, ext, pictureSeed, materials, platform, setBackdropImage, settings, systemSeed, updateDevice, updateExt, updateSettings } from "../store";
+import { backdropImage, device, ext, look, pictureSeed, setSyncLook, updateLook, materials, platform, setBackdropImage, settings, systemSeed, updateDevice, updateExt, updateSettings } from "../store";
 
 const PACKS: { id: EmojiPack; label: string }[] = [
   { id: "fluent-3d", label: "Fluent 3D" }, { id: "fluent-color", label: "Fluent Color" }, { id: "fluent-flat", label: "Fluent Flat" },
@@ -57,8 +58,7 @@ export function Appearance() {
     };
     input.click();
   }
-  const look = () => settings().look;
-  const setLook = (patch: Partial<ReturnType<typeof look>>) => updateSettings((s) => ({ ...s, look: { ...s.look, ...patch } }));
+  const setLook = updateLook;
   const systemOk = () => systemSeed() !== null;
   const mode = () => (look(), document.documentElement.dataset.mode === "light" ? "light" : "dark") as "light" | "dark";
   const curSeed = () => (device().colorSource === "system" && systemSeed()) || (device().colorSource === "picture" && pictureSeed()) || (look().theme === "custom" ? look().seed : THEMES.find((t) => t.id === look().theme)?.seed ?? look().seed);
@@ -73,7 +73,10 @@ export function Appearance() {
 
   return (
     <div class="page">
-      <Group title="Colors" hint="Colors follow your account to every device. Style, layout and window settings stay on this one.">
+      <Group title="Colors" hint={device().syncLook ? "Colors follow your account to every device. Style, layout and window settings stay on this one." : "This device keeps its own colors. Your profile, favorites and everything else still sync."}>
+        <Row label="Sync with my other devices" hint="Off: this device keeps its own colors and theme.">
+          <Switch label="Sync colors with my other devices" on={device().syncLook} onChange={setSyncLook} />
+        </Row>
         <Row label="Mode">
           <Seg label="Mode" value={look().mode} onChange={(mode) => setLook({ mode })} options={[{ v: "light", label: "Light" }, { v: "dark", label: "Dark" }, { v: "auto", label: "System" }]} />
         </Row>
@@ -91,10 +94,10 @@ export function Appearance() {
                 classList={{ on: device().colorSource === "theme" && look().theme === t.id }} style={{ background: swatch(t.seed) }}
                 onClick={() => { updateDevice({ colorSource: "theme" }); setLook({ theme: t.id }); }} />
             )}</For>
-            <label class="swatch-tile custom" classList={{ on: device().colorSource === "theme" && look().theme === "custom" }} title="Pick any color" style={{ background: swatch(look().seed) }}>
-              <input type="color" value={look().seed} aria-label="Custom accent color" onInput={(e) => { updateDevice({ colorSource: "theme" }); setLook({ theme: "custom", seed: e.currentTarget.value }); }} />
+            <button class="swatch-tile custom" classList={{ on: device().colorSource === "theme" && look().theme === "custom" }} title="Pick any color" aria-label="Pick any color" style={{ background: swatch(look().seed) }}
+              onClick={(e) => openColorPicker(e.currentTarget, look().seed, (seed) => { updateDevice({ colorSource: "theme" }); setLook({ theme: "custom", seed, ...(look().variant === "neutral" || look().variant === "monochrome" ? { variant: "vibrant" as const } : {}) }); }, "Accent color")}>
               <Icon name="plus" size={18} />
-            </label>
+            </button>
           </div>
         </div>
         <Row label="Contrast">

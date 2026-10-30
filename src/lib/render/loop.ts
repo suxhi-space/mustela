@@ -5,7 +5,7 @@
  * place that decides whether anything may move at all.
  *
  * Rules (these are why decorations stay cheap, even on a 2019 laptop running a game):
- *  - At most MAX_ACTIVE canvases animate at once; the rest show a still frame.
+ *  - At most MAX_ACTIVE canvases animate at once (the most recently shown first); the rest show a still frame.
  *  - 30 fps normally, 15 fps when reduced, lower again during calls (see setGates).
  *  - Nothing runs while the window is hidden, or (by default) while Mustela isn't the focused
  *    window, so games get the computer back. Each canvas keeps its last frame on screen.
@@ -75,7 +75,8 @@ function tick(now: number) {
   if (now - last >= frameMs - 2) {
     last = now;
     let n = 0;
-    for (const e of entries) {
+    // Newest first: the card or profile you just opened gets a slot before the avatars already in the list.
+    for (const e of [...entries].reverse()) {
       if (!e.running || !e.visible) continue;
       if (++n > MAX_ACTIVE) break;
       e.draw((now - e.t0) / 1000);

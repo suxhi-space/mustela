@@ -129,6 +129,15 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
   );
 }
 
+const fmtDay = (d: Date) => d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+/** When someone made their Stoat account: the first 10 characters of a Stoat id are the time it was made. */
+function joinedStoat(id: string) {
+  const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  let t = 0;
+  for (const c of id.slice(0, 10).toUpperCase()) t = t * 32 + Math.max(0, B32.indexOf(c));
+  return new Date(t);
+}
+
 /** Inside a server: "Member since" and their roles, which you can add or remove if you're allowed (like Discord). */
 function ServerSection(props: { person: Person; serverId: string }) {
   const b = () => backend()!;
@@ -145,7 +154,14 @@ function ServerSection(props: { person: Person; serverId: string }) {
       <section class="pc-section">
         <Show when={since()}>
           <h3 class="label">Member since</h3>
-          <p class="pc-since"><span class="mini-orb tiny">{serverName()?.slice(0, 1)}</span>{since()!.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" })}</p>
+          <p class="pc-since">
+            <span class="pc-since-item" title="Joined Stoat"><Icon name="user" size={14} />{fmtDay(joinedStoat(props.person.id))}</span>
+            <span class="pc-since-dot" />
+            <span class="pc-since-item" title={`Joined ${serverName() ?? "this server"}`}>
+              <Show when={b().serverInfo(props.serverId)?.iconUrl} fallback={<span class="mini-orb tiny">{serverName()?.slice(0, 1)}</span>}>{(u) => <img class="mini-orb tiny" src={u()} alt="" />}</Show>
+              {fmtDay(since()!)}
+            </span>
+          </p>
         </Show>
         <Show when={has().length || can()}>
           <h3 class="label">Roles</h3>
@@ -170,32 +186,33 @@ export function ActivityCard(props: { a: Activity; compact?: boolean }) {
   onCleanup(() => clearInterval(t));
   return (
     <section class="pc-section pc-activity" classList={{ compact: !!props.compact }}>
-      <h3 class="label">{verb(props.a.kind)}</h3>
+      {/* Like Discord: "Listening to YouTube Music" on top, then the song (or the game's details) in bold. */}
+      <h3 class="label">{verb(props.a.kind)} {props.a.details ? props.a.name : ""}</h3>
       <div class="pa-row">
         <span class="pa-art">
           <Show when={props.a.image} fallback={<span class="pa-img blank"><Icon name={props.a.kind === "listening" ? "headphones" : "gamepad"} size={22} /></span>}><img class="pa-img" src={props.a.image} alt="" title={props.a.largeText} /></Show>
           <Show when={props.a.smallImage}><img class="pa-small" src={props.a.smallImage} alt="" title={props.a.smallText} /></Show>
         </span>
         <span class="pa-text">
-          <strong>{props.a.name}</strong>
-          <Show when={props.a.details}><span>{props.a.details}</span></Show>
-          <Show when={props.a.state}><span>{props.a.kind === "listening" ? `by ${props.a.state}` : props.a.state}</span></Show>
+          <strong>{props.a.details || props.a.name}</strong>
+          <Show when={props.a.state}><span>{props.a.state}</span></Show>
+          <Show when={props.a.kind === "listening" && props.a.largeText}><span class="pa-sub">{props.a.largeText}</span></Show>
           <Show when={props.a.startedAt && !props.a.endsAt}><span class="pa-time">{elapsed(props.a.startedAt, now())} elapsed</span></Show>
+        <Show when={props.a.endsAt && props.a.startedAt}>
+          {(() => {
+            const total = () => Math.max(1, props.a.endsAt! - props.a.startedAt!);
+            const done = () => Math.min(total(), Math.max(0, now() - props.a.startedAt!));
+            return (
+              <div class="pa-progress" role="progressbar" aria-valuemin={0} aria-valuemax={total()} aria-valuenow={done()}>
+                <span>{elapsed(props.a.startedAt, props.a.startedAt! + done())}</span>
+                <i><b style={{ width: `${(done() / total()) * 100}%` }} /></i>
+                <span>{elapsed(props.a.startedAt, props.a.endsAt)}</span>
+              </div>
+            );
+          })()}
+        </Show>
         </span>
       </div>
-      <Show when={props.a.endsAt && props.a.startedAt}>
-        {(() => {
-          const total = () => Math.max(1, props.a.endsAt! - props.a.startedAt!);
-          const done = () => Math.min(total(), Math.max(0, now() - props.a.startedAt!));
-          return (
-            <div class="pa-progress" role="progressbar" aria-valuemin={0} aria-valuemax={total()} aria-valuenow={done()}>
-              <span>{elapsed(props.a.startedAt, props.a.startedAt! + done())}</span>
-              <i><b style={{ width: `${(done() / total()) * 100}%` }} /></i>
-              <span>{elapsed(props.a.startedAt, props.a.endsAt)}</span>
-            </div>
-          );
-        })()}
-      </Show>
       <Show when={props.a.buttons?.length}>
         <div class="pa-buttons">
           <For each={props.a.buttons}>{(b) => <a class="btn small" href={b.url} target="_blank" rel="noopener noreferrer">{b.label}</a>}</For>

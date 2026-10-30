@@ -1,10 +1,10 @@
 import { useAutoplay } from "../autoplay";
 import { useBack } from "../back";
-import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import type { CustomEmoji } from "../../lib/backend/types";
 import type { FavGif } from "../../lib/sync/settings";
-import { backend, settings, updateSettings } from "../store";
-import { EMOJI_GROUPS, searchEmoji } from "../../lib/emoji";
+import { backend, ext, settings, updateExt, updateSettings } from "../store";
+import { EMOJI_GROUPS, emojiName, searchEmoji } from "../../lib/emoji";
 import { Icon } from "../icons";
 import { UEmoji } from "./UEmoji";
 
@@ -22,72 +22,137 @@ export function openEmojiPicker(anchor: Element, onPick: (p: EmojiPick) => void)
   setPicker({ x: r.right, y: r.top, onPick });
 }
 
+/** Emoji you use, most used first (this device only, like Discord's "Frequently used"). */
+const RECENT_KEY = "mustela:emoji-recent";
+function recentCounts(): Record<string, number> { try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "{}") ?? {}; } catch { return {}; } }
+function noteUse(key: string) {
+  try {
+    const c = recentCounts(); c[key] = (c[key] ?? 0) + 1;
+    const top = Object.entries(c).sort((x, y) => y[1] - x[1]).slice(0, 60);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(Object.fromEntries(top)));
+  } catch { /* storage off: just don't remember */ }
+}
+const isCustomKey = (k: string) => /^[0-9A-HJKMNP-TV-Z]{26}$/.test(k);
+const toggleFavEmoji = (key: string) => updateExt((x) => ({ ...x, favEmoji: x.favEmoji.includes(key) ? x.favEmoji.filter((k) => k !== key) : [...x.favEmoji, key] }));
+
+/**
+ * The emoji picker, like Discord's: one list you scroll through (Favorites, Frequently used, then each of your
+ * servers in the order they're on your server list, then the standard groups), with a rail on the side to
+ * jump around. Point at an emoji to see its name; star it (or right-click / hold it) to favorite it.
+ */
 export function EmojiPicker() {
   return (
-    <Show when={picker()}>{(req) => {
+    <Show when={picker()} keyed>{(req) => {
       useBack(() => setPicker(null));
       const [q, setQ] = createSignal("");
-      const [tab, setTab] = createSignal<string>("0");
+      const [hover, setHover] = createSignal<{ key: string; name: string; render: () => JSX.Element } | null>(null);
+      const [active, setActive] = createSignal("fav");
       const custom = createMemo(() => backend()?.emojis() ?? []);
+      const [order] = createResource(() => backend(), async (b) => (await b.spaces()).filter((x) => !x.home).map((x) => x.id));
       const servers = createMemo(() => {
         const m = new Map<string, { id: string; name: string; icon?: string; items: CustomEmoji[] }>();
         for (const e of custom()) {
           const g = m.get(e.serverId!) ?? { id: e.serverId!, name: e.serverName ?? "Server", icon: e.serverIcon, items: [] };
           g.items.push(e); m.set(e.serverId!, g);
         }
-        return [...m.values()];
+        const rank = order() ?? [];
+        return [...m.values()].sort((x, y) => (rank.indexOf(x.id) + 1 || 1e9) - (rank.indexOf(y.id) + 1 || 1e9));
       });
+      const byKey = (k: string) => (isCustomKey(k) ? custom().find((e) => e.id === k) : undefined);
+      const favs = createMemo(() => ext().favEmoji.filter((k) => !isCustomKey(k) || byKey(k)));
+      const frequent = createMemo(() => Object.entries(recentCounts()).sort((x, y) => y[1] - x[1]).map(([k]) => k).filter((k) => !isCustomKey(k) || byKey(k)).slice(0, 24));
       const results = createMemo(() => {
-        const s = q().trim().toLowerCase().replace(/^:/, "");
+        const s = q().trim().toLowerCase().replace(/^:|:$/g, "");
         if (!s) return null;
-        return {
-          custom: custom().filter((e) => e.name.toLowerCase().includes(s)).slice(0, 40),
-          unicode: searchEmoji(s, 80),
-        };
+        return { custom: custom().filter((e) => e.name.toLowerCase().includes(s)).slice(0, 60), unicode: searchEmoji(s, 120) };
       });
-      const W = 340, H = 380;
-      const left = () => Math.max(8, Math.min(req().x - W, innerWidth - W - 8));
-      const top = () => (req().y - H - 8 > 8 ? req().y - H - 8 : Math.min(req().y + 36, innerHeight - H - 8));
-      let input!: HTMLInputElement;
-      onMount(() => input.focus());
-      const pick = (p: EmojiPick) => { req().onPick(p); setPicker(null); };
-      const pickCustom = (e: CustomEmoji) => pick({ text: `:${e.id}:`, key: e.id });
+      const phone = matchMedia("(max-width: 700px)").matches;
+      const W = 420, H = 440;
+      const left = () => Math.max(8, Math.min(req.x - W, innerWidth - W - 8));
+      const top = () => (req.y - H - 8 > 8 ? req.y - H - 8 : Math.min(req.y + 36, innerHeight - H - 8));
+      let input!: HTMLInputElement, list!: HTMLDivElement;
+      onMount(() => { if (!phone) input.focus(); });
+      const pick = (p: EmojiPick) => { noteUse(p.key); req.onPick(p); setPicker(null); };
+      const pickKey = (k: string) => { const e = byKey(k); if (e) pick({ text: `:${e.id}:`, key: e.id }); else pickUnicode(k); };
       // Like Stoat: the text carries your pack so other Stoat users see the same art. Reactions stay plain.
       const pickUnicode = (c: string) => pick({ text: `${PUA_OF[settings().emojiPack] ?? ""}${c}`, key: c });
       const esc = (e: KeyboardEvent) => e.key === "Escape" && setPicker(null);
       onMount(() => addEventListener("keydown", esc));
       onCleanup(() => removeEventListener("keydown", esc));
-      const group = () => servers().find((g) => g.id === tab());
+
+      // One button for any emoji: pick on click, favorite on right-click or a long press, name on hover.
+      const Btn = (p: { k: string; title: string; render: () => JSX.Element }) => {
+        let t: ReturnType<typeof setTimeout> | undefined, held = false;
+        return (
+          <button title={p.title} classList={{ fav: ext().favEmoji.includes(p.k) }}
+            onMouseEnter={() => setHover({ key: p.k, name: p.title, render: p.render })} onFocus={() => setHover({ key: p.k, name: p.title, render: p.render })}
+            onClick={() => { if (held) { held = false; return; } pickKey(p.k); }}
+            onContextMenu={(e) => { e.preventDefault(); toggleFavEmoji(p.k); }}
+            onPointerDown={(e) => { if (e.pointerType !== "touch") return; held = false; t = setTimeout(() => { held = true; toggleFavEmoji(p.k); setHover({ key: p.k, name: p.title, render: p.render }); }, 500); }}
+            onPointerUp={() => clearTimeout(t)} onPointerLeave={() => clearTimeout(t)}>{p.render()}</button>
+        );
+      };
+      const uni = (c: string) => () => <UEmoji e={c} />;
+      const img = (e: CustomEmoji) => () => <img src={e.url} alt={e.name} loading="lazy" />;
+      const titleOf = (k: string) => { const e = byKey(k); return e ? `:${e.name}:` : `:${emojiName(k) ?? "emoji"}:`; };
+      const renderOf = (k: string) => { const e = byKey(k); return e ? img(e) : uni(k); };
+
+      const sections = createMemo(() => [
+        ...(favs().length ? [{ id: "fav", title: "Favorites", icon: () => <Icon name="star" size={18} />, keys: favs() }] : []),
+        ...(frequent().length ? [{ id: "recent", title: "Frequently used", icon: () => <Icon name="clock" size={18} />, keys: frequent() }] : []),
+        ...servers().map((g) => ({ id: g.id, title: g.name, icon: () => (g.icon ? <img src={g.icon} alt="" /> : <span class="et-letter">{g.name.slice(0, 1)}</span>), keys: g.items.map((e) => e.id) })),
+        ...EMOJI_GROUPS.map((g, i) => ({ id: `u${i}`, title: g.title, icon: () => <UEmoji e={g.items[0]!.char} />, keys: g.items.map((e) => e.char) })),
+      ]);
+      const jump = (id: string) => { setActive(id); list.querySelector(`[data-sec="${id}"]`)?.scrollIntoView({ block: "start" }); };
+      const onScroll = () => {
+        const top = list.getBoundingClientRect().top;
+        let cur = sections()[0]?.id ?? "";
+        for (const h of list.querySelectorAll<HTMLElement>("[data-sec]")) { if (h.getBoundingClientRect().top - top <= 8) cur = h.dataset.sec!; else break; }
+        if (cur !== active()) setActive(cur);
+      };
+
       return (
-        <div class="pop-scrim" onClick={() => setPicker(null)}>
-          <div class="emoji-pop panel" style={{ left: `${left()}px`, top: `${Math.max(8, top())}px`, width: `${W}px`, height: `${H}px` }}
+        <div class="pop-scrim emoji-scrim" classList={{ sheet: phone }} onClick={() => setPicker(null)}>
+          <div class="emoji-pop panel" classList={{ "emoji-sheet": phone }} style={phone ? {} : { left: `${left()}px`, top: `${Math.max(8, top())}px`, width: `${W}px`, height: `${H}px` }}
             onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Emoji picker">
-            <input ref={input} class="emoji-search" placeholder="Find an emoji" value={q()} onInput={(e) => setQ(e.currentTarget.value)}
-              onKeyDown={(e) => { if (e.key !== "Enter") return; const r = results(); if (r?.custom[0]) pickCustom(r.custom[0]); else if (r?.unicode[0]) pickUnicode(r.unicode[0].char); }} aria-label="Search emoji" />
-            <Show when={!q()}>
-              <div class="emoji-tabs" role="tablist">
-                <For each={servers()}>{(g) => (
-                  <button role="tab" aria-selected={tab() === g.id} classList={{ on: tab() === g.id }} title={g.name} onClick={() => setTab(g.id)}>
-                    <Show when={g.icon} fallback={<span class="et-letter">{g.name.slice(0, 1)}</span>}><img src={g.icon} alt="" /></Show>
-                  </button>
-                )}</For>
-                <For each={EMOJI_GROUPS}>{(g, i) => (
-                  <button role="tab" aria-selected={tab() === String(i())} classList={{ on: tab() === String(i()) }} title={g.title} onClick={() => setTab(String(i()))}>{g.items[0]!.char}</button>
-                )}</For>
-              </div>
-            </Show>
-            <div class="emoji-grid">
-              <Show when={results()} fallback={
-                <Show when={group()} fallback={<For each={EMOJI_GROUPS[Number(tab())]?.items ?? []}>{(e) => <button title={`:${e.name}:`} onClick={() => pickUnicode(e.char)}><UEmoji e={e.char} /></button>}</For>}>
-                  <p class="eg-title">{group()!.name}</p>
-                  <For each={group()!.items}>{(e) => <button title={`:${e.name}:`} onClick={() => pickCustom(e)}><img src={e.url} alt={e.name} loading="lazy" /></button>}</For>
-                </Show>
-              }>
-                <For each={results()!.custom}>{(e) => <button title={`:${e.name}: (${e.serverName})`} onClick={() => pickCustom(e)}><img src={e.url} alt={e.name} loading="lazy" /></button>}</For>
-                <For each={results()!.unicode}>{(e) => <button title={`:${e.name}:`} onClick={() => pickUnicode(e.char)}><UEmoji e={e.char} /></button>}</For>
-                <Show when={!results()!.custom.length && !results()!.unicode.length}><p class="empty small">No emoji called “{q()}”.</p></Show>
-              </Show>
+            <div class="emoji-top">
+              <input ref={input} class="emoji-search" placeholder="Find the perfect emoji" value={q()} onInput={(e) => setQ(e.currentTarget.value)}
+                onKeyDown={(e) => { if (e.key !== "Enter") return; const r = results(); if (r?.custom[0]) pickKey(r.custom[0].id); else if (r?.unicode[0]) pickUnicode(r.unicode[0].char); }} aria-label="Search emoji" />
             </div>
+            <div class="emoji-main">
+              <Show when={!q()}>
+                <nav class="emoji-rail" aria-label="Emoji groups">
+                  <For each={sections()}>{(s) => (
+                    <button classList={{ on: active() === s.id }} title={s.title} aria-label={s.title} onClick={() => jump(s.id)}>{s.icon()}</button>
+                  )}</For>
+                </nav>
+              </Show>
+              <div class="emoji-list" ref={list} onScroll={onScroll}>
+                <Show when={results()} fallback={
+                  <For each={sections()}>{(s) => (<>
+                    <p class="eg-title" data-sec={s.id}>{s.title}</p>
+                    <div class="emoji-grid">
+                      <For each={s.keys}>{(k) => <Btn k={k} title={titleOf(k)} render={renderOf(k)} />}</For>
+                    </div>
+                  </>)}</For>
+                }>
+                  <div class="emoji-grid">
+                    <For each={results()!.custom}>{(e) => <Btn k={e.id} title={`:${e.name}:`} render={img(e)} />}</For>
+                    <For each={results()!.unicode}>{(e) => <Btn k={e.char} title={`:${e.name}:`} render={uni(e.char)} />}</For>
+                    <Show when={!results()!.custom.length && !results()!.unicode.length}><p class="empty small">No emoji called “{q()}”.</p></Show>
+                  </div>
+                </Show>
+              </div>
+            </div>
+            <footer class="emoji-foot">
+              <Show when={hover()} fallback={<span class="muted small">Right-click or hold an emoji to favorite it.</span>}>{(h) => (<>
+                <span class="ef-art">{h().render()}</span>
+                <span class="ef-name">{h().name}</span>
+                <span class="grow" />
+                <button class="icon-btn ef-star" classList={{ on: ext().favEmoji.includes(h().key) }} aria-pressed={ext().favEmoji.includes(h().key)}
+                  title={ext().favEmoji.includes(h().key) ? "Remove from favorites" : "Add to favorites"} onClick={() => toggleFavEmoji(h().key)}><Icon name="star" size={18} /></button>
+              </>)}</Show>
+            </footer>
           </div>
         </div>
       );

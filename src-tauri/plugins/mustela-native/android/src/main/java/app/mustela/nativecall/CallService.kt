@@ -24,6 +24,7 @@ class CallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            onLeave?.invoke() // a call in the web view (the Web engine): the page leaves it
             CallEngine.stop()
             stopForegroundCompat()
             stopSelf()
@@ -66,7 +67,7 @@ class CallService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+            .setSmallIcon(resources.getIdentifier("ic_notification", "drawable", packageName).takeIf { it != 0 } ?: android.R.drawable.stat_sys_phone_call) // icons/notification.png, if you added one
             .setContentTitle("In voice call")
             .setContentText(title)
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -80,6 +81,8 @@ class CallService : Service() {
 
     companion object {
         const val ACTION_STOP = "app.mustela.nativecall.STOP"
+        /** Set by the plugin: "Leave" in the notification ends a call the page is running. */
+        @Volatile var onLeave: (() -> Unit)? = null
         const val EXTRA_TITLE = "title"
         private const val CHANNEL_ID = "mustela_call"
         private const val NOTIFICATION_ID = 4711

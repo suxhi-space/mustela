@@ -17,11 +17,33 @@
     <application>
         <!-- Merged into the app's own activity: calls can continue in a floating
              picture-in-picture window (like Discord) with camera and screen share. -->
+        <!-- Also: Stoat invite links tapped in other apps can open here ("Open with Mustela"), plus mustela://invite/CODE. -->
         <activity
             android:name="${applicationId}.MainActivity"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
-            tools:node="merge" />
+            tools:node="merge">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="stt.gg" />
+                <data android:scheme="https" android:host="rvlt.gg" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="stoat.chat" android:pathPrefix="/invite/" />
+                <data android:scheme="https" android:host="app.stoat.chat" android:pathPrefix="/invite/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mustela" />
+            </intent-filter>
+        </activity>
         <!-- stopWithTask=false: swiping Mustela out of recents must not stop the call.
              The foreground service keeps the process (and the call) alive. -->
         <service

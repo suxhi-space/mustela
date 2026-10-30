@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the accent command without any pre-configured scope."
         },
         {
+          "description": "Enables the audio_outputs command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audio-outputs",
+          "markdownDescription": "Enables the audio_outputs command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audio_outputs command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audio-outputs",
+          "markdownDescription": "Denies the audio_outputs command without any pre-configured scope."
+        },
+        {
           "description": "Enables the background command without any pre-configured scope.",
           "type": "string",
           "const": "allow-background",
@@ -353,6 +365,18 @@
           "type": "string",
           "const": "deny-end-call",
           "markdownDescription": "Denies the end_call command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the landscape command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-landscape",
+          "markdownDescription": "Enables the landscape command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the landscape command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-landscape",
+          "markdownDescription": "Denies the landscape command without any pre-configured scope."
         },
         {
           "description": "Enables the overlay_allowed command without any pre-configured scope.",
@@ -427,6 +451,18 @@
           "markdownDescription": "Denies the screen_stop command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_audio_output command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-audio-output",
+          "markdownDescription": "Enables the set_audio_output command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_audio_output command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-audio-output",
+          "markdownDescription": "Denies the set_audio_output command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_call_overlay command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-call-overlay",
@@ -463,10 +499,22 @@
           "markdownDescription": "Denies the start_call command without any pre-configured scope."
         },
         {
-          "description": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`",
+          "description": "Enables the system_bars command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-system-bars",
+          "markdownDescription": "Enables the system_bars command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the system_bars command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-system-bars",
+          "markdownDescription": "Denies the system_bars command without any pre-configured scope."
+        },
+        {
+          "description": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`"
+          "markdownDescription": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`"
         }
       ]
     }

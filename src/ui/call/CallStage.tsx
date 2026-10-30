@@ -1,12 +1,13 @@
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import type { ChannelInfo, Person, VoiceMember, VoicePrefs } from "../../lib/backend/types";
 import { Select, Slider, Switch } from "../controls";
 import { devices } from "../settings/VoiceVideo";
 import { Avatar, NameText } from "../Avatar";
 import { Icon } from "../icons";
 import { openMenu, type MenuItem } from "../menu";
-import { setProfileOpen, setSettingsOpen } from "../nav";
-import { backend, device, updateDevice } from "../store";
+import { backToList, setProfileOpen, setSettingsOpen } from "../nav";
+import { backend, device, platform, updateDevice } from "../store";
+import { inTauri } from "../../lib/platform";
 import { createPhone } from "../hooks";
 import { openSoundboard } from "./Soundboard";
 import { applyVoicePrefs, call, canPip, closePopout, enterPip, joinCall, leaveCall, openPopout, toggleCall } from "./state";
@@ -133,6 +134,36 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   const phone = createPhone();
   const elsewhere = () => call.active() && !here();
   const [focus, setFocus] = createSignal<string | null>(null);
+  // Phones, in the call itself: the controls (and the top bar) step aside after a few seconds so the call
+  // or a stream gets the whole screen. A tap brings them back.
+  const [chrome, setChrome] = createSignal(true);
+  // A phone held either way (sideways it's wider than the phone layout, but still a phone).
+  const touchPhone = (() => { const mq = matchMedia("(max-width: 700px), (pointer: coarse) and (max-height: 500px)"); const [m, setM] = createSignal(mq.matches); const f = () => setM(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); return m; })();
+  let chromeTimer: ReturnType<typeof setTimeout> | undefined;
+  let swallow = false; // the tap that brings the controls back doesn't also press what's under it
+  onMount(() => stage.addEventListener("click", (e) => { if (swallow) { swallow = false; e.stopPropagation(); } }, true));
+  const wake = () => {
+    setChrome(true); clearTimeout(chromeTimer);
+    if (touchPhone() && here() && !props.popout && (!props.chatOpen || !phone())) chromeTimer = setTimeout(() => { if (!document.querySelector(".call-sheet.open, .ctx-sheet, .soundboard")) setChrome(false); else wake(); }, 4000);
+  };
+  createEffect(() => { touchPhone(); here(); props.chatOpen; wake(); });
+  createEffect(() => document.documentElement.classList.toggle("call-immersive", touchPhone() && here() && (!props.chatOpen || !phone()) && !chrome()));
+  // Phones in the call: its own bar on top replaces the channel's.
+  createEffect(() => document.documentElement.classList.toggle("call-top-on", phone() && here() && !props.popout && !props.chatOpen));
+  onCleanup(() => document.documentElement.classList.remove("call-top-on"));
+  // Watching a stream on a phone: let it turn sideways, like a video (back to normal when you stop watching).
+  createEffect(on(() => touchPhone() && here() && !props.popout && !!focused() && focused()!.startsWith("s:") && platform === "android" && inTauri(), (wide) => {
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|landscape", { payload: { on: wide } })).catch(() => {});
+  }));
+  // The phone's status bar and nav buttons: hidden only while a stream you're focused on fills the screen.
+  createEffect(on(() => platform === "android" && inTauri() && touchPhone() && here() && !chrome() && !!focused()?.startsWith("s:"), (full) => {
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|system_bars", { payload: { on: !full } })).catch(() => {});
+  }));
+  onCleanup(() => {
+    if (platform !== "android" || !inTauri()) return;
+    void import("@tauri-apps/api/core").then(({ invoke }) => { void invoke("plugin:mustela-native|landscape", { payload: { on: false } }); void invoke("plugin:mustela-native|system_bars", { payload: { on: true } }); }).catch(() => {});
+  });
+  onCleanup(() => { clearTimeout(chromeTimer); document.documentElement.classList.remove("call-immersive"); });
   const [full, setFull] = createSignal(false);
   // The stage's own window: the main one, or the pop-out.
   const doc = () => stage?.ownerDocument ?? document;
@@ -213,7 +244,8 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   };
 
   return (
-    <section ref={stage} class="cstage" classList={{ compact: !!props.compact, full: full() }} aria-label="Call">
+    <section ref={stage} class="cstage" classList={{ compact: !!props.compact, full: full(), "chrome-off": !chrome() }} aria-label="Call"
+      onPointerDown={() => { if (!chrome()) swallow = true; wake(); }}>
       <Show when={props.header}>{props.header}</Show>
       <Show when={here() && (!call.popped() || props.popout)} fallback={
         <div class="cstage-idle">
@@ -271,7 +303,7 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
       }>
         <div class="cstage-main" classList={{ focused: !!focused() }}>
           <Show when={focused()} fallback={
-            <div class="cgrid" style={{ "--n": String(Math.min(keys().length, 16)) }}>
+            <div class="cgrid" data-n={Math.min(keys().length, 16)} style={{ "--n": String(Math.min(keys().length, 16)) }}>
               <For each={keys()}>{(k) => <TileView k={k} />}</For>
             </div>
           }>{(f) => (
@@ -282,6 +314,19 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
           )}</Show>
         </div>
         <Show when={call.error()}><p class="err cstage-err" role="alert">{call.error()}</p></Show>
+        {/* Phones: a simple bar on top, like other apps' call screens: minimise, the channel, sound, chat, people */}
+        <Show when={phone() && !props.popout}>
+          <header class="call-top">
+            <button class="ct-btn" aria-label="Minimise the call" onClick={() => backToList()}><Icon name="down" size={22} /></button>
+            <button class="ct-name" aria-label={`${props.channel.name}, open the chat`} onClick={() => props.onToggleChat?.()}>
+              <Icon name="speaker" size={16} /><span>{props.channel.name}</span><Icon name="right" size={14} />
+            </button>
+            <span class="grow" />
+            <button class="ct-btn" classList={{ on: !call.on().deaf }} aria-label="Sound: where it plays and how loud" onClick={(e) => void openOutputSheet(e.currentTarget)}>
+              <Icon name={call.on().deaf ? "headphones-off" : "volume"} size={20} /></button>
+            <Show when={props.onToggleChat}><button class="ct-btn" aria-label="Open the chat" onClick={() => props.onToggleChat?.()}><Icon name="chat" size={20} /></button></Show>
+          </header>
+        </Show>
         <Show when={phone() && !props.popout}>
           <CallSheet chatOpen={props.chatOpen} onToggleChat={props.onToggleChat} full={full()} toggleFull={toggleFull} />
         </Show>
@@ -364,10 +409,10 @@ function CallSheet(props: { chatOpen?: boolean; onToggleChat?(): void; full: boo
         role="toolbar" aria-label="Call controls" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         <button class="sheet-grab" aria-label={open() ? "Fewer call options" : "More call options"} aria-expanded={open()}><i /></button>
         <div class="sheet-main">
-          <button class="cbtn" aria-label="Soundboard" onClick={(e) => { const el = e.currentTarget; setOpen(false); openSoundboard(el); }}><Icon name="music" size={22} /></button>
+          <button class="cbtn" classList={{ on: call.on().cam }} aria-label={call.on().cam ? "Turn off camera" : "Turn on camera"} aria-pressed={call.on().cam} onClick={() => void toggleCall("cam")}><Icon name={call.on().cam ? "video" : "video-off"} size={22} /></button>
           <button class="cbtn" classList={{ off: !call.on().mic }} aria-label={call.on().mic ? "Mute" : "Unmute"} aria-pressed={!call.on().mic} onClick={() => void toggleCall("mic")}><Icon name={call.on().mic ? "mic" : "mic-off"} size={22} /></button>
           <button class="cbtn" classList={{ on: call.on().screen }} aria-label={call.on().screen ? "Stop sharing" : "Share your screen"} aria-pressed={call.on().screen} onClick={() => void toggleCall("screen")}><Icon name="screen" size={22} /></button>
-          <button class="cbtn" classList={{ on: call.on().cam }} aria-label={call.on().cam ? "Turn off camera" : "Turn on camera"} aria-pressed={call.on().cam} onClick={() => void toggleCall("cam")}><Icon name={call.on().cam ? "video" : "video-off"} size={22} /></button>
+          <button class="cbtn" aria-label="Soundboard" onClick={(e) => { const el = e.currentTarget; setOpen(false); openSoundboard(el); }}><Icon name="music" size={22} /></button>
           <button class="cbtn leave" aria-label="Leave call" onClick={() => void leaveCall()}><Icon name="hangup" size={24} /></button>
         </div>
         <div class="sheet-more" ref={body}>
@@ -416,4 +461,40 @@ function QuickVoiceSettings(props: { onAll(): void }) {
       <button class="btn small ss-all" onClick={props.onAll}>All voice & video settings</button>
     </section>
   );
+}
+
+/**
+ * Phones: the speaker button in a call. Where the sound plays (phone, speaker, Bluetooth, headphones; on a
+ * computer, the output devices), how loud, and deafen, in one card from the bottom.
+ */
+async function openOutputSheet(anchor: Element) {
+  type Out = { id: string; kind: string; name: string; selected: boolean };
+  let outs: Out[] = [];
+  const android = platform === "android" && inTauri();
+  try {
+    if (android) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const r = await invoke<{ outputs: { id: number; kind: string; name: string; selected: boolean }[] }>("plugin:mustela-native|audio_outputs");
+      outs = r.outputs.map((o) => ({ ...o, id: String(o.id) }));
+    } else {
+      const v = device().voice;
+      outs = (await devices()).output.map((d, i) => ({ id: d.deviceId, kind: "other", name: d.label || `Speaker ${i + 1}`, selected: d.deviceId === v.outputDevice }));
+      if (outs.length) outs.unshift({ id: "", kind: "other", name: "System default", selected: !v.outputDevice });
+    }
+  } catch { /* no list: just volume and deafen */ }
+  const pick = async (o: Out) => {
+    if (android) { const { invoke } = await import("@tauri-apps/api/core"); await invoke("plugin:mustela-native|set_audio_output", { payload: { id: Number(o.id) } }).catch(() => {}); }
+    else { updateDevice({ voice: { ...device().voice, outputDevice: o.id } }); applyVoicePrefs(); }
+  };
+  const icon = (k: string) => ({ earpiece: "phone", speaker: "volume", bluetooth: "headphones", wired: "headphones", usb: "headphones" } as Record<string, string>)[k] ?? "speaker";
+  const row = (o: Out): MenuItem => ({ label: o.name, icon: icon(o.kind), checked: o.selected, onSelect: () => void pick(o) });
+  const builtIn = outs.filter((o) => o.kind === "earpiece" || o.kind === "speaker"), external = outs.filter((o) => o.kind !== "earpiece" && o.kind !== "speaker");
+  const items: MenuItem[] = [
+    ...(builtIn.length ? [{ header: "This phone" } as MenuItem, ...builtIn.map(row)] : []),
+    ...(external.length ? [{ header: android ? "External devices" : "Output device" } as MenuItem, ...external.map(row)] : []),
+    { sep: true },
+    { custom: () => <VolumeRow label="Call volume" value={device().voice.outputVolume / 100} onChange={(v) => { updateDevice({ voice: { ...device().voice, outputVolume: Math.round(v * 100) } }); applyVoicePrefs(); }} /> },
+    { label: call.on().deaf ? "Undeafen" : "Deafen", icon: call.on().deaf ? "headphones" : "headphones-off", onSelect: () => void toggleCall("deaf") },
+  ];
+  openMenu(anchor, items, { sheet: true, head: () => <h3 class="out-title">Audio output</h3> });
 }

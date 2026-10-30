@@ -112,6 +112,23 @@ export function updateExt(fn: (s: ExtSettings) => ExtSettings) {
   extTimer = setTimeout(() => void b.pushExt(ext()).catch(() => {}), 1500);
 }
 
+/** Colours and theme in use: your account's, or this device's own when "Sync appearance" is off. */
+export type Look = MustelaSettings["look"];
+export function look(): Look {
+  const d = device();
+  return d.syncLook || !d.localLook ? settings().look : sanitize({ look: d.localLook }).look;
+}
+/** Changes colours and theme where they live (account, or this device). */
+export function updateLook(patch: Partial<Look>) {
+  if (device().syncLook) updateSettings((s) => ({ ...s, look: { ...s.look, ...patch } }));
+  else updateDevice({ localLook: { ...look(), ...patch } });
+}
+/** Turns appearance sync on or off for this device; turning it off starts from what you have now. */
+export function setSyncLook(on: boolean) {
+  if (on) updateDevice({ syncLook: true, localLook: null });
+  else updateDevice({ syncLook: false, localLook: { ...settings().look } });
+}
+
 export function updateDevice(patch: Partial<DeviceSettings>) {
   const next = sanitizeDevice({ ...device(), ...patch });
   setDevice(next);
@@ -169,6 +186,11 @@ export async function openAccount(acc: Account) {
   setError("");
   try {
     adopt(acc, await connect(acc));
+    // Back on a real account: the demo was just for looking around, so it goes.
+    if (acc.kind !== "demo") {
+      const demos = book().accounts.filter((a) => a.kind === "demo" && a.id !== acc.id);
+      if (demos.length) { let next = book(); for (const d of demos) { kv.setItem(settingsKey(d.id), ""); next = removeAccount(next, d.id); } commitBook(setActive(next, acc.id)); }
+    }
   } catch (e) {
     setError(e instanceof Error && e.message ? e.message : "Couldn't connect. Try again.");
     commitBook(setActive(book(), acc.id));
@@ -277,7 +299,7 @@ export function startAppearance() {
     if (inTauri() && (platform === "windows" || platform === "mac" || platform === "linux")) root.dataset.titlebar = platform;
 
     createEffect(() => {
-      const l = settings().look, d = device();
+      const l = look(), d = device();
       const sys = d.colorSource === "system" ? systemSeed() : d.colorSource === "picture" ? pictureSeed() : null;
       const def = getTheme(l.theme);
       const seed = sys ?? (l.theme === "custom" ? l.seed : def.seed);
@@ -318,8 +340,13 @@ export function startAppearance() {
       root.dataset.layout = d.layout;
       for (const [k, v] of Object.entries(DENSITY_VARS[d.density])) root.style.setProperty(k, v);
       // Stoat's "Display & Text": message size and the gap between message groups.
-      root.style.setProperty("--msg-font", `${d.text.size}px`);
+      // Touch screens read a little bigger (Settings > Accessibility can turn that off).
+      const bump = d.a11y.touchText && matchMedia("(pointer: coarse)").matches ? 2 : 0;
+      root.style.setProperty("--msg-font", `${d.text.size + bump}px`);
       root.style.setProperty("--msg-gap", `${d.text.spacing}px`);
+      root.toggleAttribute("data-underline-links", d.a11y.underlineLinks);
+      root.toggleAttribute("data-no-role-colors", !d.a11y.roleColors);
+      root.toggleAttribute("data-readable", d.a11y.readable);
       if (d.text.font) root.dataset.font = d.text.font; else root.removeAttribute("data-font");
     });
 

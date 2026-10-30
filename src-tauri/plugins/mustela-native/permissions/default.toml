@@ -1,4 +1,4 @@
 [default]
 description = "Accent color and native voice call commands"
 permissions = ["allow-accent", "allow-start-call", "allow-end-call", "allow-set-mic", "allow-call-state", "allow-pip", "allow-background",
-  "allow-call-audio", "allow-set-call-overlay", "allow-overlay-allowed", "allow-request-overlay", "allow-screen-start", "allow-screen-ack", "allow-screen-stop"]
+  "allow-call-audio", "allow-set-call-overlay", "allow-overlay-allowed", "allow-request-overlay", "allow-screen-start", "allow-screen-ack", "allow-screen-stop", "allow-landscape", "allow-system-bars", "allow-audio-outputs", "allow-set-audio-output"]

@@ -4,22 +4,23 @@ import type { CategoryInfo, ChannelInfo, Space } from "../lib/backend/types";
 import { plain } from "../lib/markdown";
 import { notify } from "../lib/notify";
 import { NotifyPrompt } from "./NotifyPrompt";
+import { InviteDialogHost } from "./InviteDialog";
 import { playSfx } from "../lib/sfx";
 import { inTauri } from "../lib/platform";
 import { MeCardHost, UserPanel } from "./UserPanel";
 import { orderChanged, Rail } from "./Rail";
 import { AppImagePrompt } from "./AppImagePrompt";
-import { startUpdates, UpdatePrompt } from "./updates";
+import { startUpdates, UpdatePrompt, UpdateSplash } from "./updates";
 import { startPerf } from "./perf";
 import { setScreenBack, startBackButton } from "./back";
 import { Avatar } from "./Avatar";
 import { CallPanel } from "./call/CallPanel";
 import { CallPreview } from "./call/CallPreview";
 import { MiniCall, PipView } from "./call/MiniCall";
-import { createProfileInfo } from "./hooks";
+import { createPhone, createProfileInfo } from "./hooks";
 import { phoneVoiceChat, setPhoneVoiceChat } from "./Voice";
 import { ScreenPickerHost } from "./call/ScreenPicker";
-import { call, joinCall, toggleCall } from "./call/state";
+import { call, callBanner, checkLastCall, joinCall, setCallBanner, toggleCall } from "./call/state";
 import { Chat } from "./Chat";
 import { EmojiPicker, GifPicker, Lightbox } from "./chat/overlays";
 import { Friends, JoinServer } from "./Friends";
@@ -107,8 +108,9 @@ export function Shell() {
   });
   /** Favorites as a server of their own, when that button is on. */
   const favSpace = createMemo<Space>(() => ({ id: "favs", name: "Favorites", channels: favourites().map((f) => f.c) }));
-  const space = createMemo<Space | undefined>(() => (spaceId() === "favs" && ext().favRail ? favSpace() : spaces()?.find((s) => s.id === spaceId()) ?? spaces()?.[0]));
+  const space = createMemo<Space | undefined>(() => (spaceId() === "favs" ? favSpace() : spaces()?.find((s) => s.id === spaceId()) ?? spaces()?.[0]));
   const isFavs = () => space()?.id === "favs";
+  const phone = createPhone();
   /** Home with nothing picked shows Friends, like Stoat. Servers fall back to their first text channel. */
   const channel = createMemo<ChannelInfo | undefined>(() => {
     const s = space();
@@ -136,9 +138,15 @@ export function Shell() {
   const peerBanner = () => (channel()?.peer ? peerInfo()?.bannerUrl : undefined);
   // Picture-in-picture (Android shrinks the whole app into a small floating window).
   const [pip, setPip] = createSignal(false);
-  { const mq = matchMedia("(max-width: 520px) and (max-height: 520px)"); const f = () => setPip(mq.matches); f(); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); }
+  {
+    // Android says when it's in picture-in-picture (NativePlugin.kt); a tiny window counts too, just in case.
+    const mq = matchMedia("(max-width: 520px) and (max-height: 520px)");
+    const f = () => setPip(mq.matches || document.documentElement.hasAttribute("data-pip"));
+    f(); mq.addEventListener("change", f); addEventListener("mustela:pip", f);
+    onCleanup(() => { mq.removeEventListener("change", f); removeEventListener("mustela:pip", f); });
+  }
   /** Phones and tablets: the small call tile, whenever the call itself isn't what's on screen. */
-  const showMini = () => !wide() && call.active() && !call.popped()
+  const showMini = () => !wide() && call.active() && !call.popped() && device().miniCall
     && !(view() === "chat" && channel()?.id === call.channel()?.id && !phoneVoiceChat());
   const sideWidth = () => (matchMedia("(max-width: 1100px)").matches ? 214 : 244);
   const canMembers = () => !!chanSpace() && !chanSpace()!.home && chanSpace()!.id !== "favs";
@@ -166,8 +174,15 @@ export function Shell() {
     const s = spaces()?.find((x) => x.channels.some((c) => c.id === cid));
     if (s) open(s.id, cid);
   };
-  registerNav({ channel: (id) => { void refetch(); setTimeout(() => openChannelById(id), 150); } });
+  registerNav({ channel: (id) => { void refetch(); setTimeout(() => openChannelById(id), 150); }, list: () => setView("nav") });
   // Clicking a desktop notification (Windows) opens its chat.
+  // Desktop: were you in a call when Mustela last closed? Asked once the server list has loaded.
+  { let asked = false; createEffect(() => {
+    const list = spaces();
+    if (asked || !list?.length || phone()) return;
+    asked = true;
+    setTimeout(() => checkLastCall((id) => list.flatMap((sp) => sp.channels).find((c) => c.id === id)), 2500);
+  }); }
   let offNotify: (() => void) | undefined;
   onCleanup(() => offNotify?.());
   if (inTauri()) void import("@tauri-apps/api/event").then(({ listen }) => listen<string>("mustela:notify-open", (e) => { if (typeof e.payload === "string") openChannelById(e.payload); })).then((off) => { offNotify = off; }).catch(() => {});
@@ -293,7 +308,8 @@ export function Shell() {
         </Show>
         <span class="chan-name">{c.name}<Show when={o.sub}><small class="chan-sub">{o.sub}</small></Show></span>
         <Show when={call.active() && call.channel()?.id === c.id}><Icon name="speaker" size={14} class="live-ic" /></Show>
-        <Show when={c.mentions}><span class="badge">{c.mentions}</span></Show>
+        {/* DMs count every unread message (like the orbs above the server list); channels count mentions. */}
+        <Show when={(c.kind === "dm" || c.kind === "group") && c.unread && !c.muted ? Math.max(c.mentions ?? 0, backend()!.unreadCount(c.id)) : c.mentions}>{(n) => <span class="badge">{n() > 99 ? "99+" : n()}</span>}</Show>
       </button>
       <Show when={!o.server && !space()?.home && (serverPerms()?.invite || serverPerms()?.manageChannels)}>
         <span class="chan-acts">
@@ -308,7 +324,7 @@ export function Shell() {
   /** Your favorites: the plain list, then your own categories. Each opens where it is, without leaving. */
   const favMenu = (e: MouseEvent) => openMenu(e, [
     { label: "New category…", icon: "plus", onSelect: () => newFavGroup() },
-    { label: ext().favRail ? "Show on Home instead" : "Show as a button under Home", icon: "star", onSelect: () => updateExt((s) => ({ ...s, favRail: !s.favRail })) },
+    { label: ext().favRail ? (phone() ? "Show as a button in Home instead" : "Show on Home instead") : "Show as a button under Home", icon: "star", onSelect: () => updateExt((s) => ({ ...s, favRail: !s.favRail })) },
   ]);
   const favSection = () => {
     const plain = () => favourites().filter((f) => !ext().favIn[f.c.id]);
@@ -322,10 +338,10 @@ export function Shell() {
         {/* In the Favorites view the top bar is already the heading: just the list, the + and ⋯ live up there. */}
         <Show when={isFavs()}>
           <Show when={!favourites().length}><p class="empty small">Right-click a channel in any server and pick "Add to Favorites".</p></Show>
-          <Show when={drag()?.kind === "fav" && ext().favGroups.length}><div class="chan-tail" classList={{ "drop-line": dropAt() === "fgrp:" }} {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))} /></Show>
+          <Show when={drag()?.kind === "fav" && ext().favGroups.length}><div class="fav-drop" classList={{ "drop-line": dropAt() === "fgrp:" }} {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))}>No category</div></Show>
           <For each={plain()}>{(f) => favRow(f, null)}</For>
         </Show>
-        <Show when={!isFavs() && (plain().length || !ext().favGroups.length || drag()?.kind === "fav")}>
+        <Show when={!isFavs()}>
           <div class="cat pin-cat fav-cat" classList={{ "drop-into": dropAt() === "fgrp:" }} style={{ "--pin": "#f0b232" }} onContextMenu={favMenu}
             {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))}>
             <button class="fav-toggle" aria-expanded={!collapsed("\u2605favs")} onClick={() => toggleCat("\u2605favs")}>
@@ -343,7 +359,7 @@ export function Shell() {
           const key = `\u2605fav:${g.id}`;
           return (
             <>
-              <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `fgrp:${g.id}` }} style={{ "--pin": g.color }} aria-expanded={!collapsed(key)} onClick={() => toggleCat(key)} onContextMenu={(e) => openMenu(e, favGroupItems(g))}
+              <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `fgrp:${g.id}`, plain: g.color === "none" }} style={{ "--pin": g.color === "none" ? "currentColor" : g.color }} aria-expanded={!collapsed(key)} onClick={() => toggleCat(key)} onContextMenu={(e) => openMenu(e, favGroupItems(g))}
                 {...dropTo(`fgrp:${g.id}`, (d) => d.kind === "fav", (d) => setFavGroup(d.id, g.id))}>
                 <Icon name="down" size={12} class={collapsed(key) ? "rot" : ""} /><i class="pin-dot" />{g.name}
               </button>
@@ -368,6 +384,16 @@ export function Shell() {
   });
 
   return (
+    <>
+    <Show when={!phone() && callBanner()}>{(bn) => (
+      <div class="call-banner" role="status" classList={{ moved: bn().kind === "moved" }}>
+        <Icon name="speaker" size={16} />
+        <span>{bn().kind === "moved" ? "Your voice has been disconnected because you connected at another location." : "You were in a voice channel last time you left Mustela."}</span>
+        <button class="btn small" onClick={() => { const c = bn().channel; setCallBanner(null); void joinCall(c); }}>Reconnect</button>
+        <span class="grow" />
+        <button class="icon-btn" aria-label="Close" onClick={() => setCallBanner(null)}><Icon name="close" size={16} /></button>
+      </div>
+    )}</Show>
     <div class="app" data-view={view()} classList={{ "no-members": !device().showMembers, "in-call": call.active() }}>
       <nav class="rail" aria-label="Servers">
         <For each={spaces()?.filter((s) => s.home)}>{(s) => (
@@ -389,7 +415,7 @@ export function Shell() {
             <Show when={c.kind === "dm" && c.peer} fallback={<Show when={c.iconUrl} fallback={<span><Icon name="users" size={22} /></span>}><img src={c.iconUrl} alt="" /></Show>}>
               <Avatar person={c.peer!} size={48} presence={false} still />
             </Show>
-            <span class="badge orb-badge">{c.mentions || 1}</span>
+            <span class="badge orb-badge">{(() => { const n = Math.max(c.mentions ?? 0, backend()!.unreadCount(c.id)); return n > 99 ? "99+" : n; })()}</span>
           </button>
         )}</For>
         <div class="rail-sep" />
@@ -456,7 +482,14 @@ export function Shell() {
               <Icon name="compass" size={20} class="chan-ic" /><span class="chan-name">Discover</span>
             </button>
             <For each={home().saved}>{(c) => row(c, { saved: true })}</For>
-            <Show when={!ext().favRail && favourites().length}>{favSection()}</Show>
+            {/* Phones: Favorites is a button in Home that opens them like a server (or sits under Home, if you chose that). */}
+            <Show when={!ext().favRail && phone()}>
+              <button class="chan big" onClick={() => open("favs")} onContextMenu={favMenu}>
+                <Icon name="star" size={20} class="chan-ic" /><span class="chan-name">Favorites</span>
+                <Show when={favourites().reduce((n, f) => n + (f.c.mentions ?? 0), 0)}>{(n) => <span class="badge">{n()}</span>}</Show>
+              </button>
+            </Show>
+            <Show when={!ext().favRail && !phone() && (favourites().length || ext().favGroups.length)}>{favSection()}</Show>
             <For each={home().groups}>{(g) => (
               <>
                 <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `grp:${g.group.id}` }} style={{ "--pin": g.group.color }} aria-expanded={!collapsed(`pin:${g.group.id}`)} onClick={() => toggleCat(`pin:${g.group.id}`)} onContextMenu={(e) => openMenu(e, groupItems(g.group))}
@@ -494,10 +527,12 @@ export function Shell() {
             <>
               <header class="bar main-bar">
                 <button class="icon-btn back" onClick={() => setView("nav")} aria-label="Back"><Icon name="back" size={20} /></button>
-                <Show when={c().kind === "dm" && c().peer} fallback={<Icon name={c().kind === "voice" ? "speaker" : c().kind === "group" ? "users" : "hash"} size={20} class="muted" />}>
-                  <Avatar person={c().peer!} size={26} />
+                <Show when={c().kind === "dm" && c().peer} fallback={<><Icon name={c().kind === "voice" ? "speaker" : c().kind === "group" ? "users" : "hash"} size={20} class="muted" /><h2>{c().name}</h2></>}>
+                  {/* Their picture and name: on phones, tap them for their card (instead of a separate button) */}
+                  <button class="bar-peer" aria-label={`${c().name}'s profile`} onClick={() => phone() && setProfileView({ person: c().peer!, full: false, x: 0, y: 0 })}>
+                    <Avatar person={c().peer!} size={26} /><h2>{c().name}</h2>
+                  </button>
                 </Show>
-                <h2>{c().name}</h2>
                 <Show when={c().description}><span class="topic" title={c().description}>{c().description}</span></Show>
                 <span class="grow" />
                 <Show when={direct(c())}>
@@ -516,7 +551,7 @@ export function Shell() {
                   <button class="icon-btn not-phone" aria-label={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} title={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} onClick={() => setGroupInvite(c())}><Icon name="user-plus" size={20} /></button>
                 </Show>
                 <Show when={c().kind === "dm" && c().peer}>
-                  <button class="icon-btn" classList={{ on: device().dmProfile }} aria-pressed={device().dmProfile} aria-label="User profile" title={device().dmProfile ? "Hide user profile" : "Show user profile"}
+                  <button class="icon-btn not-phone" classList={{ on: device().dmProfile }} aria-pressed={device().dmProfile} aria-label="User profile" title={device().dmProfile ? "Hide user profile" : "Show user profile"}
                     onClick={() => (matchMedia("(max-width: 700px)").matches ? setProfileView({ person: c().peer!, full: false, x: 0, y: 0 }) : updateDevice({ dmProfile: !device().dmProfile }))}><Icon name="profile-side" size={20} /></button>
                 </Show>
                 <Show when={!hasTitleBar()}>
@@ -583,8 +618,11 @@ export function Shell() {
       </Show>
       <AppImagePrompt />
       <UpdatePrompt />
+      <UpdateSplash />
       <NotifyPrompt />
+      <InviteDialogHost />
       <Show when={pip() && call.active()}><PipView /></Show>
     </div>
+    </>
   );
 }

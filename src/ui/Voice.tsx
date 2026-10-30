@@ -28,7 +28,7 @@ export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string
       <For each={props.members}>{(m) => (
         <li classList={{ talking: call.speaking().includes(m.id) && !call.soundboard().includes(m.id), sound: call.soundboard().includes(m.id) }} onContextMenu={(e) => callMemberMenu(e, m)}>
           <Avatar person={m} size={22} presence={false} still={!(call.speaking().includes(m.id))} />
-          <span class="vm-name"><NameText person={m} /></span>
+          <span class="vm-name"><NameText person={m} fontOnly /></span>
           <MemberIcons m={live(m)} />
         </li>
       )}</For>

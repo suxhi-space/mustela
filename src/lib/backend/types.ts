@@ -369,6 +369,8 @@ export interface ChatBackend {
   markUnread(channelId: string, messageId: string): void;
   /** The last message I've read in a channel (ids sort by time), for "new messages since" and jumping to unread. */
   lastRead(channelId: string): string | undefined;
+  /** How many messages are unread in a channel, from what this session has seen (at least 1 if it's unread). */
+  unreadCount(channelId: string): number;
   /** Unread messages that mention me (or my roles, @everyone, @online), by channel. */
   mentionIds(): { channelId: string; ids: string[] }[];
   onEvent(cb: (e: ChatEvent) => void): () => void;

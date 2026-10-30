@@ -9,14 +9,32 @@ use tauri::{image::Image, AppHandle, Emitter, Manager, Runtime};
 
 pub struct Shell<R: Runtime> {
     pub close_to_tray: AtomicBool,
+    in_call: AtomicBool,
     tray: Mutex<Option<TrayIcon<R>>>,
     mute: Mutex<Option<CheckMenuItem<R>>>,
     deafen: Mutex<Option<CheckMenuItem<R>>>,
     leave: Mutex<Option<MenuItem<R>>>,
 }
 
-const ICON: &[u8] = include_bytes!("../icons/tray.png");
-const ICON_CALL: &[u8] = include_bytes!("../icons/tray-call.png");
+// The tray icon, in a light-mode and a dark-mode version (icons/tray/ in the project; the build copies them here).
+const ICON_LIGHT: &[u8] = include_bytes!("../icons/tray-light.png");
+const ICON_DARK: &[u8] = include_bytes!("../icons/tray-dark.png");
+const ICON_CALL_LIGHT: &[u8] = include_bytes!("../icons/tray-call-light.png");
+const ICON_CALL_DARK: &[u8] = include_bytes!("../icons/tray-call-dark.png");
+
+/// The tray icon that suits the system's light or dark mode, in a call or not.
+fn tray_icon<R: Runtime>(app: &AppHandle<R>, in_call: bool) -> &'static [u8] {
+    let dark = app.get_webview_window("main").and_then(|w| w.theme().ok()).map_or(true, |t| t == tauri::Theme::Dark);
+    match (in_call, dark) { (false, false) => ICON_LIGHT, (false, true) => ICON_DARK, (true, false) => ICON_CALL_LIGHT, (true, true) => ICON_CALL_DARK }
+}
+
+/// The system switched between light and dark mode: swap the tray icon to match.
+pub fn refresh_tray<R: Runtime>(app: &AppHandle<R>) {
+    let Some(s) = app.try_state::<Shell<R>>() else { return };
+    let in_call = s.in_call.load(std::sync::atomic::Ordering::Relaxed);
+    let tray = s.tray.lock().unwrap();
+    if let Some(t) = tray.as_ref() { let _ = t.set_icon(Image::from_bytes(tray_icon(app, in_call)).ok()); }
+}
 
 pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window("main") {
@@ -39,7 +57,7 @@ pub fn setup<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
         &PredefinedMenuItem::separator(h)?, &settings, &quit,
     ])?;
     let tray = TrayIconBuilder::with_id("main")
-        .icon(Image::from_bytes(ICON)?)
+        .icon(Image::from_bytes(tray_icon(h, false))?)
         .tooltip("Mustela")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -57,6 +75,7 @@ pub fn setup<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
         .build(h)?;
     app.manage(Shell {
         close_to_tray: AtomicBool::new(true),
+        in_call: AtomicBool::new(false),
         tray: Mutex::new(Some(tray)),
         mute: Mutex::new(Some(mute)),
         deafen: Mutex::new(Some(deafen)),
@@ -72,7 +91,8 @@ pub fn tray_state<R: Runtime>(app: AppHandle<R>, in_call: bool, channel: Option<
     {
         let tray = s.tray.lock().unwrap();
         if let Some(t) = tray.as_ref() {
-            let _ = t.set_icon(Image::from_bytes(if in_call { ICON_CALL } else { ICON }).ok());
+            s.in_call.store(in_call, std::sync::atomic::Ordering::Relaxed);
+            let _ = t.set_icon(Image::from_bytes(tray_icon(&app, in_call)).ok());
             let tip = match (&channel, in_call) { (Some(c), true) => format!("Mustela: in {c}"), _ => "Mustela".to_string() };
             let _ = t.set_tooltip(Some(tip));
         }

@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import { device, updateDevice } from "../store";
 import { Icon } from "../icons";
 import { call, closePopout, leaveCall, openPopout, toggleCall } from "./state";
 
@@ -22,6 +23,9 @@ export function CallPanel(props: { onOpen(): void; /** Where the call is: the se
           </button>
         </Show>
         <button class="icon-btn" classList={{ on: call.on().screen }} aria-pressed={call.on().screen} onClick={() => void toggleCall("screen")} aria-label={call.on().screen ? "Stop sharing" : "Share your screen"} title={call.on().screen ? "Stop sharing" : "Share your screen"}><Icon name="screen" size={18} /></button>
+        {/* Phones: show or hide the small call tile that follows you around the app */}
+        <button class="icon-btn phone-only" classList={{ on: device().miniCall }} aria-pressed={device().miniCall} onClick={() => updateDevice({ miniCall: !device().miniCall })}
+          aria-label={device().miniCall ? "Hide the mini call view" : "Show the mini call view"} title={device().miniCall ? "Hide the mini call view" : "Show the mini call view"}><Icon name={device().miniCall ? "eye" : "eye-off"} size={18} /></button>
         <button class="icon-btn danger" onClick={() => void leaveCall()} aria-label="Leave call" title="Leave call"><Icon name="hangup" size={18} /></button>
       </div>
     </Show>

@@ -229,3 +229,12 @@ tested. ✅ done · ⬜ to do · 🧪 built, needs testing on a real device
 - 🧪 Favorites have their own right-click menu (no "Pin to top"; move to category, remove, mute, open in its server)
 - 🧪 Desktop notifications: "Name (#channel, Server)" with the sender's picture (round on Windows; click opens the
   chat), picture on Linux and macOS
+
+## 30 Oct, evening: 0.1.4-build3
+See docs/releases/0.1.4-build3.md for the full list. Built and checked in the demo (desktop and phone sizes);
+needs a real device for: Android PiP and landscape, Android soundboard and screen share, the call notification's
+Leave button, invite links opened from other apps, macOS in-place updates, Windows toasts with pictures.
+- 🧪 Start-up updates (desktop), tray icons for light and dark mode, notification icon from icons/notification.png
+- 🧪 Call moved to another device banner; "you were in a call" banner; phone immersive call and landscape streams
+- 🧪 Emoji picker (continuous, server order, favorites synced), colour picker with Apply, Accessibility page,
+  appearance sync off per device, view reactions, mark as unread fix, unread counts, Discover window

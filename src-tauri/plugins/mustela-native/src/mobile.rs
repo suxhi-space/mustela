@@ -31,6 +31,10 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn call_state(&self) -> Result<CallState> { self.0.run_mobile_plugin("callState", ()).map_err(Into::into) }
   pub fn background(&self) -> Result<()> { self.0.run_mobile_plugin("background", ()).map_err(Into::into) }
   pub fn call_audio(&self, p: SetMic) -> Result<()> { self.0.run_mobile_plugin("callAudio", p).map_err(Into::into) }
+  pub fn landscape(&self, p: SetMic) -> Result<()> { self.0.run_mobile_plugin("landscape", p).map_err(Into::into) }
+  pub fn system_bars(&self, p: SetMic) -> Result<()> { self.0.run_mobile_plugin("systemBars", p).map_err(Into::into) }
+  pub fn audio_outputs(&self) -> Result<AudioOutputs> { self.0.run_mobile_plugin("audioOutputs", ()).map_err(Into::into) }
+  pub fn set_audio_output(&self, p: SetOutput) -> Result<()> { self.0.run_mobile_plugin("setAudioOutput", p).map_err(Into::into) }
   pub fn set_call_overlay(&self, p: Overlay) -> Result<()> { self.0.run_mobile_plugin("setCallOverlay", p).map_err(Into::into) }
   pub fn overlay_allowed(&self) -> Result<Allowed> { self.0.run_mobile_plugin("overlayAllowed", ()).map_err(Into::into) }
   pub fn request_overlay(&self) -> Result<Allowed> { self.0.run_mobile_plugin("requestOverlay", ()).map_err(Into::into) }

@@ -82,3 +82,23 @@ pub struct ScreenStart {
   pub fps: u32,
   pub channel: tauri::ipc::Channel<serde_json::Value>,
 }
+
+/// Where call audio plays on a phone: the earpiece, the speaker, Bluetooth, a headset…
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AudioOutput {
+  pub id: i32,
+  /// "earpiece", "speaker", "bluetooth", "wired", "usb" or "other"
+  pub kind: String,
+  pub name: String,
+  pub selected: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AudioOutputs {
+  pub outputs: Vec<AudioOutput>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SetOutput {
+  pub id: i32,
+}

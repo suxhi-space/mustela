@@ -20,6 +20,10 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn call_state(&self) -> Result<CallState> { Ok(CallState::default()) }
   pub fn background(&self) -> Result<()> { Ok(()) }
   pub fn call_audio(&self, _: SetMic) -> Result<()> { Ok(()) }
+  pub fn landscape(&self, _: SetMic) -> Result<()> { Ok(()) }
+  pub fn system_bars(&self, _: SetMic) -> Result<()> { Ok(()) }
+  pub fn audio_outputs(&self) -> Result<AudioOutputs> { Ok(AudioOutputs::default()) }
+  pub fn set_audio_output(&self, _: SetOutput) -> Result<()> { Ok(()) }
   pub fn set_call_overlay(&self, _: Overlay) -> Result<()> { Ok(()) }
   pub fn overlay_allowed(&self) -> Result<Allowed> { Ok(Allowed::default()) }
   pub fn request_overlay(&self) -> Result<Allowed> { Ok(Allowed::default()) }

@@ -178,6 +178,12 @@ export class DemoBackend implements ChatBackend {
     this.readUpTo = { c1: welcome.id, d1: this.store.d1![1]!.id };
   }
   private readUpTo: Record<string, string> = {};
+  unreadCount(channelId: string) {
+    if (this.read.has(channelId)) return 0;
+    const up = this.readUpTo[channelId];
+    const n = (this.store[channelId] ?? []).filter((m) => (!up || m.id > up) && m.author.id !== this.me.id).length;
+    return n || (this.read.has(channelId) ? 0 : 1);
+  }
   lastRead(channelId: string) { return this.read.has(channelId) ? this.store[channelId]?.at(-1)?.id : this.readUpTo[channelId]; }
   mentionIds() {
     return Object.entries(this.store).filter(([cid]) => !this.read.has(cid)).map(([channelId, list]) => ({ channelId, ids: list.filter((m) => m.mentionsMe).map((m) => m.id) })).filter((x) => x.ids.length);

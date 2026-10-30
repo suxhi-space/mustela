@@ -2,12 +2,13 @@ import { For, Show, type JSX } from "solid-js";
 import type { Rating } from "../lib/decor/spec";
 import { Icon } from "./icons";
 import { openMenu, type MenuItem } from "./menu";
+import { openColorPicker } from "./ColorPicker";
 
 /** iOS-style grouped table: an optional title, rounded container, hairline-separated rows. */
-export function Group(props: { title?: string; count?: number; hint?: string; children: JSX.Element }) {
+export function Group(props: { title?: string; count?: number; hint?: string; children: JSX.Element; action?: JSX.Element }) {
   return (
     <section class="group">
-      <Show when={props.title}><h3 class="group-title">{props.title}<Show when={props.count}><span class="count">{props.count}</span></Show></h3></Show>
+      <Show when={props.title}><h3 class="group-title">{props.title}<Show when={props.count}><span class="count">{props.count}</span></Show><Show when={props.action}><span class="grow" />{props.action}</Show></h3></Show>
       <div class="group-body">{props.children}</div>
       <Show when={props.hint}><p class="group-hint">{props.hint}</p></Show>
     </section>
@@ -88,11 +89,12 @@ export function RatingBadge(props: { rating: Rating; label: string }) {
   return <span class={`rating r-${props.rating}`}><i aria-hidden="true">{RATING_GLYPH[props.rating]}</i>{props.label}</span>;
 }
 
+/** A colour swatch that opens Mustela's colour picker; `onChange` runs once, when you press Apply. */
 export function ColorInput(props: { value: string; onChange(hex: string): void; label: string }) {
   return (
-    <label class="swatch" style={{ background: props.value }}>
-      <input type="color" value={props.value} aria-label={props.label} onInput={(e) => props.onChange(e.currentTarget.value)} />
+    <button type="button" class="swatch" style={{ background: props.value }} aria-label={props.label} title={props.label}
+      onClick={(e) => openColorPicker(e.currentTarget, props.value, props.onChange, props.label)}>
       <Icon name="palette" size={16} />
-    </label>
+    </button>
   );
 }

@@ -1,5 +1,18 @@
 import type { VoicePrefs } from "./backend/types";
 
+export interface A11yPrefs {
+  /** Hold animations still: always, never, or when the system asks (Windows' animation effects off, etc.) */
+  reduceMotion: "on" | "off" | "system";
+  /** Touch screens: text a size up */
+  touchText: boolean;
+  /** Links in messages always underlined */
+  underlineLinks: boolean;
+  /** Names in their role's colour */
+  roleColors: boolean;
+  /** Messages a little heavier and more spaced out, easier to read */
+  readable: boolean;
+}
+
 export const DEFAULT_VOICE_PREFS: VoicePrefs = {
   inputDevice: "", outputDevice: "", videoDevice: "", echoCancellation: true, noiseSuppression: true, autoGain: true,
   outputVolume: 100, screenQuality: "720p30", joinMuted: false, joinDeafened: false, autoSensitivity: true, threshold: -55, soundboardVolume: 80, entrySound: "",
@@ -68,6 +81,14 @@ export interface DeviceSettings {
   panelBlur: boolean;
   /** Microphone, speakers, camera and processing (Settings > Voice & Video) */
   voice: VoicePrefs;
+  /** Phones: the small call tile that follows you around the app */
+  miniCall: boolean;
+  /** Settings > Accessibility */
+  a11y: A11yPrefs;
+  /** Off: this device keeps its own colours and theme instead of following your account's */
+  syncLook: boolean;
+  /** This device's own colours and theme, while syncLook is off (same shape as the synced look) */
+  localLook: unknown;
   /** Game detection and Discord Rich Presence (desktop) */
   activity: { detect: boolean; rpc: boolean; share: boolean; hidden: string[] };
   /** Voice channels: show the text chat beside the call */
@@ -110,7 +131,7 @@ export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "fu
 
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
-  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, voice: { ...DEFAULT_VOICE_PREFS },
+  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, localLook: null, miniCall: true, voice: { ...DEFAULT_VOICE_PREFS },
 };
 
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
@@ -165,6 +186,18 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     panelBlur: r.panelBlur !== false,
     panelOpacity: typeof r.panelOpacity === "number" && Number.isFinite(r.panelOpacity) ? Math.round(Math.min(100, Math.max(15, r.panelOpacity))) : d.panelOpacity,
     voice: sanitizeVoice(r.voice),
+    a11y: (() => {
+      const a = (r.a11y ?? {}) as Record<string, unknown>;
+      // Before this page existed, "follow the system's reduce motion" lived under Performance.
+      const old = (r.perf as any)?.systemMotion === true ? "system" : "off";
+      return {
+        reduceMotion: oneOf(a.reduceMotion, ["on", "off", "system"], old),
+        touchText: a.touchText !== false, underlineLinks: a.underlineLinks === true, roleColors: a.roleColors !== false, readable: a.readable === true,
+      };
+    })(),
+    syncLook: r.syncLook !== false,
+    miniCall: r.miniCall !== false,
+    localLook: r.localLook && typeof r.localLook === "object" ? r.localLook : null,
     collapsed: Array.isArray(r.collapsed) ? r.collapsed.filter((x): x is string => typeof x === "string").slice(0, 200) : [],
   };
 }

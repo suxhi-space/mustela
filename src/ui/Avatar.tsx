@@ -52,10 +52,10 @@ export function Avatar(props: {
 }
 
 /** A display name with the person's chosen font and effect, readable on this viewer's surface. */
-export function NameText(props: { person: Person; profile?: ProfileConfig | null; class?: string }) {
+export function NameText(props: { person: Person; profile?: ProfileConfig | null; class?: string; fontOnly?: boolean }) {
   // The ref matters: profiles load once a name has been on screen, so without it other people's
   // name styles only ever appeared inside their profile card.
   const { profile, ref } = createPerson(() => props.person, () => props.profile);
-  const css = createMemo(() => nameCss(profile()?.name ?? null, surfaceInt()));
+  const css = createMemo(() => nameCss(profile()?.name ?? null, surfaceInt(), !!props.fontOnly));
   return <span ref={ref} class={`name ${props.class ?? ""} ${css().class}`} style={css().style}>{props.person.name}</span>;
 }

@@ -194,12 +194,6 @@ function Roles(props: { info: ServerInfo }) {
   const later = () => { bump(); setTimeout(bump, 600); };
   return (
     <div class="page">
-      <div class="dialog-actions start">
-        <button class="btn small primary" onClick={async () => {
-          const n = await promptDialog("Create role", "Role name", "Create role", "", { max: 32, placeholder: "Moderators" });
-          if (n?.trim()) await attempt(() => b().createRole(props.info.id, n.trim()), "Role created").then(bump);
-        }}><Icon name="plus" size={14} />New role</button>
-      </div>
       <Group title="Everyone" hint="What everyone in the server can do. Roles add to this.">
         <Row icon="users" label="Default permissions">
           <button class="btn small" aria-expanded={open() === "default"} onClick={() => toggle("default")}>{open() === "default" ? "Close" : "Edit"}</button>
@@ -208,12 +202,17 @@ function Roles(props: { info: ServerInfo }) {
           <div class="role-perms"><FlagEditor value={defaults() ?? 0} disabled={!props.info.perms.manageRoles} onChange={(v) => void attempt(() => b().setServerPermissions(props.info.id, "default", v), "Saved").then(later)} /></div>
         </Show>
       </Group>
-      <Group title="Roles" count={roles().length} hint="Higher roles are listed first. A role's permissions add to what everyone can do, ✕ takes one away.">
+      <Group title="Roles" count={roles().length} action={
+        <button class="btn small primary" onClick={async () => {
+          const n = await promptDialog("Create role", "Role name", "Create role", "", { max: 32, placeholder: "Moderators" });
+          if (n?.trim()) await attempt(() => b().createRole(props.info.id, n.trim()), "Role created").then(bump);
+        }}><Icon name="plus" size={14} />New role</button>
+      } hint="Higher roles are listed first. A role's permissions add to what everyone can do, ✕ takes one away.">
         <For each={roles()} fallback={<Row label={<span class="muted">No roles yet. Everyone has the default permissions.</span>} />}>{(r) => (<>
           <Row label={<span class="ss-role"><i style={{ background: r.colour && !/gradient/.test(r.colour) ? r.colour : "var(--fg2)" }} />{r.name}</span>}>
             <span class="small muted">Show separately</span>
             <Switch label={`Show ${r.name} separately in the member list`} on={r.hoist} onChange={(v) => void attempt(() => b().editRole(props.info.id, r.id, { hoist: v })).then(bump)} />
-            <ColorInput label={`${r.name} colour`} value={r.colour && /^#[0-9a-f]{6}$/i.test(r.colour) ? r.colour : "#999999"} onChange={(hex) => void attempt(() => b().editRole(props.info.id, r.id, { colour: hex })).then(bump)} />
+            <ColorInput label={`${r.name} colour`} value={r.colour && /^#[0-9a-f]{6}$/i.test(r.colour) ? r.colour : "#999999"} onChange={(hex) => void attempt(() => b().editRole(props.info.id, r.id, { colour: hex }), "Colour saved").then(later)} />
             <button class="btn small" aria-expanded={open() === r.id} onClick={() => toggle(r.id)}>Permissions</button>
             <button class="icon-btn" aria-label={`Rename ${r.name}`} title="Rename" onClick={async () => {
               const v = await promptDialog("Rename role", "Role name", "Save", r.name, { max: 32 });

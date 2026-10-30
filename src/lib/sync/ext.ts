@@ -23,6 +23,10 @@ export interface ExtSettings {
   favIn: Record<string, string>;
   /** Show Favorites as its own button under Home on the server list, like a server */
   favRail: boolean;
+  /** Favorite emoji, in order: unicode characters, or custom emoji ids */
+  favEmoji: string[];
+  /** The soundboard sound played when you join a call ("" for none); follows you to every device */
+  entrySound?: string;
   /** Your look per server (decorations, colours, about me, banner), over your main profile */
   serverLooks: ServerLooks;
   /** ms since epoch of the last local change; last write wins */
@@ -31,7 +35,7 @@ export interface ExtSettings {
 
 export interface FavGroup { id: string; name: string; color: string }
 
-export const DEFAULT_EXT: ExtSettings = { v: 1, privacy: { mode: "everyone", servers: [] }, channelPins: [], favourites: [], favGroups: [], favIn: {}, favRail: false, serverLooks: {}, updatedAt: 0 };
+export const DEFAULT_EXT: ExtSettings = { v: 1, privacy: { mode: "everyone", servers: [] }, channelPins: [], favourites: [], favGroups: [], favIn: {}, favRail: false, favEmoji: [], serverLooks: {}, updatedAt: 0 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
 function favGroupsOf(v: unknown): FavGroup[] {
@@ -41,7 +45,7 @@ function favGroupsOf(v: unknown): FavGroup[] {
     if (!g || typeof g.id !== "string" || !g.id || g.id.length > 40 || seen.has(g.id)) return [];
     seen.add(g.id);
     const name = typeof g.name === "string" && g.name.trim() ? g.name.trim().slice(0, 40) : "Category";
-    return [{ id: g.id, name, color: typeof g.color === "string" && HEX.test(g.color) ? g.color.toLowerCase() : "#f0b232" }];
+    return [{ id: g.id, name, color: g.color === "none" ? "none" : typeof g.color === "string" && HEX.test(g.color) ? g.color.toLowerCase() : "#f0b232" }];
   }).slice(0, 30);
 }
 
@@ -57,7 +61,7 @@ export function sanitizeExt(raw: unknown): ExtSettings {
   const groupIds = new Set(favGroups.map((g) => g.id));
   const favIn: Record<string, string> = {};
   if (r.favIn && typeof r.favIn === "object") for (const [k, g] of Object.entries(r.favIn as Record<string, unknown>)) if (favourites.includes(k) && typeof g === "string" && groupIds.has(g)) favIn[k] = g;
-  return { v: 1, privacy: { mode, servers }, channelPins: ids(r.channelPins), favourites, favGroups, favIn, favRail: r.favRail === true, serverLooks: sanitizeServerLooks(r.serverLooks), updatedAt: typeof r.updatedAt === "number" && r.updatedAt >= 0 ? r.updatedAt : 0 };
+  return { v: 1, privacy: { mode, servers }, channelPins: ids(r.channelPins), favourites, favGroups, favIn, favRail: r.favRail === true, entrySound: typeof r.entrySound === "string" && r.entrySound.length <= 64 ? r.entrySound : undefined, favEmoji: Array.isArray(r.favEmoji) ? [...new Set((r.favEmoji as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0 && x.length <= 40))].slice(0, 100) : [], serverLooks: sanitizeServerLooks(r.serverLooks), updatedAt: typeof r.updatedAt === "number" && r.updatedAt >= 0 ? r.updatedAt : 0 };
 }
 
 export function parseExt(value: string | undefined | null): ExtSettings | null {

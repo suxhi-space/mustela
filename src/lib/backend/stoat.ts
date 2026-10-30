@@ -433,6 +433,14 @@ export class StoatBackend implements ChatBackend {
     try { if (on) ch?.startTyping(); else ch?.stopTyping(); } catch { /* socket not ready */ }
   }
   lastRead(channelId: string) { return (this.client as any).channelUnreads?.get(channelId)?.lastMessageId as string | undefined; }
+  unreadCount(channelId: string) {
+    const ch: any = this.client.channels.get(channelId);
+    if (!ch?.unread) return 0;
+    const read = this.lastRead(channelId) ?? "";
+    let n = 0;
+    for (const m of (this.client.messages as any).toList() as any[]) if (m.channelId === channelId && m.id > read && m.authorId !== this.sess.user_id) n++;
+    return Math.max(1, n);
+  }
   mentionIds() {
     const out: { channelId: string; ids: string[] }[] = [];
     for (const c of this.client.channels.toList() as any[]) {
@@ -699,7 +707,9 @@ export class StoatBackend implements ChatBackend {
   deleteServer(sid: string) { return this.wrap(async () => void (await this.server(sid).delete()), "delete the server"); }
   async memberSince(sid: string, uid: string) {
     const m: any = this.member(sid, uid) ?? (await this.client.servers.get(sid)?.fetchMember(uid).catch(() => null));
-    return m?.joinedAt instanceof Date ? m.joinedAt : undefined;
+    const j = m?.joinedAt ?? m?.joined_at;
+    const d = j instanceof Date ? j : typeof j === "string" || typeof j === "number" ? new Date(j) : undefined;
+    return d && !Number.isNaN(d.getTime()) ? d : undefined;
   }
   deleteChannel(cid: string) { return this.wrap(async () => void (await this.client.channels.get(cid)!.delete()), "delete the channel"); }
   private member(sid: string, uid: string): any { return (this.client as any).serverMembers?.getByKey?.({ server: sid, user: uid }); }

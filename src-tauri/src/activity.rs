@@ -44,6 +44,27 @@ pub struct ActivityState {
     detect: Mutex<Option<watch::Sender<bool>>>,
     rpc: Mutex<Option<(watch::Sender<bool>, &'static str)>>,
     assets: Mutex<HashMap<String, HashMap<String, String>>>,
+    /// Application id -> (name, icon url), from Discord's public app info.
+    apps: Mutex<HashMap<String, (Option<String>, Option<String>)>>,
+}
+
+/// A Rich Presence app's name and icon ("YouTube Music"), looked up once per app. Games rarely send their
+/// own name; Discord shows the app's.
+async fn app_info<R: Runtime>(app: &AppHandle<R>, client_id: &str) -> (Option<String>, Option<String>) {
+    if client_id.is_empty() || !client_id.chars().all(|c| c.is_ascii_digit()) { return (None, None); }
+    let state = app.state::<ActivityState>();
+    if let Some(v) = state.apps.lock().unwrap().get(client_id).cloned() { return v; }
+    let url = format!("https://discord.com/api/v9/applications/{client_id}/rpc");
+    let info: (Option<String>, Option<String>) = async {
+        let r = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().ok()?.get(url).send().await.ok()?;
+        if !r.status().is_success() { return None; }
+        let v: Value = serde_json::from_slice(&r.bytes().await.ok()?).ok()?;
+        let name = v.get("name").and_then(|n| n.as_str()).map(|n| n.chars().take(64).collect::<String>());
+        let icon = v.get("icon").and_then(|i| i.as_str()).map(|h| format!("https://cdn.discordapp.com/app-icons/{client_id}/{h}.png?size=128"));
+        Some((name, icon))
+    }.await.unwrap_or((None, None));
+    state.apps.lock().unwrap().insert(client_id.to_string(), info.clone());
+    info
 }
 
 fn os_key() -> &'static str {
@@ -214,11 +235,12 @@ async fn to_activity<R: Runtime>(app: &AppHandle<R>, client_id: &str, a: &Value)
     let games = load_games(app).await;
     let game = games.iter().find(|g| g.id == client_id);
     let kind = match a.get("type").and_then(|t| t.as_u64()).unwrap_or(0) { 1 => "streaming", 2 => "listening", 3 => "watching", 5 => "competing", _ => "playing" };
-    let name = game.map(|g| g.name.clone()).or_else(|| a.get("name").and_then(|n| n.as_str()).map(String::from)).unwrap_or_else(|| "Something".into());
+    let looked_up = if game.is_none() { app_info(app, client_id).await } else { (None, None) };
+    let name = game.map(|g| g.name.clone()).or_else(|| a.get("name").and_then(|n| n.as_str()).map(String::from)).or(looked_up.0).unwrap_or_else(|| "Something".into());
     let start = a.pointer("/timestamps/start").and_then(|t| t.as_u64()).map(|t| if t < 1_000_000_000_000 { t * 1000 } else { t });
     let mut image = None;
     if let Some(k) = a.pointer("/assets/large_image").and_then(|k| k.as_str()) { image = asset_url(app, client_id, k).await; }
-    if image.is_none() { image = game.and_then(|g| g.icon.clone()); }
+    if image.is_none() { image = game.and_then(|g| g.icon.clone()).or(looked_up.1); }
     let end = a.pointer("/timestamps/end").and_then(|t| t.as_u64()).map(|t| if t < 1_000_000_000_000 { t * 1000 } else { t });
     let small = match a.pointer("/assets/small_image").and_then(|k| k.as_str()) { Some(k) => asset_url(app, client_id, k).await, None => None };
     let text = |p: &str| a.pointer(p).and_then(|v| v.as_str()).map(|s| s.chars().take(128).collect::<String>());

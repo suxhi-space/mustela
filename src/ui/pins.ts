@@ -100,7 +100,11 @@ export function favGroupItems(g: FavGroup): MenuItem[] {
   });
   return [
     { label: "Rename category", icon: "pencil", onSelect: async () => { const v = await promptDialog("Rename category", "Category name", "Save", g.name, { max: 40 }); if (v?.trim()) edit({ name: v.trim() }); } },
-    { label: "Color", icon: "palette", sub: PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => edit({ color: c }) })) },
+    { label: "Color", icon: "palette", sub: [
+      { label: "No color", checked: g.color === "none", onSelect: () => edit({ color: "none" }) },
+      { sep: true },
+      ...PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => edit({ color: c }) })),
+    ] },
     { label: "Move up", icon: "up", onSelect: () => move(-1) },
     { label: "Move down", icon: "down", onSelect: () => move(1) },
     { label: "New category…", icon: "plus", onSelect: () => newFavGroup() },

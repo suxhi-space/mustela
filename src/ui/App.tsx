@@ -5,6 +5,8 @@ import { startCallBridge } from "./call/state";
 import { Shell } from "./Shell";
 import { ContextMenu, Dialogs, Toast } from "./menu";
 import { CropperHost } from "./Cropper";
+import { ColorPickerHost } from "./ColorPicker";
+import { ReactionsHost } from "./chat/Reactions";
 import { applyWindowFrame, hasTitleBar, TitleBar } from "./TitleBar";
 import { activeAccount } from "../lib/session/book";
 import { addingAccount, book, boot, error, openAccount, phase, removeAccountById, setAddingAccount, startAppearance } from "./store";
@@ -44,6 +46,8 @@ export function App() {
     </Switch>
     <Show when={hasTitleBar()}><TitleBar /></Show>
     <ContextMenu />
+    <ColorPickerHost />
+    <ReactionsHost />
     <Dialogs />
     <CropperHost />
     <Toast />

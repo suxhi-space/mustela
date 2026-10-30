@@ -14,7 +14,14 @@ async fn icon_file<R: Runtime>(app: &AppHandle<R>, url: &str) -> Option<PathBuf>
     let path = dir.join(format!("{:016x}.png", h.finish()));
     if path.exists() { return Some(path); }
     let bytes = crate::fetch::fetch_capped(url).await.ok()?;
-    let img = image::load_from_memory(&bytes).ok()?.thumbnail(128, 128);
+    // Avatars come from other people: decode with limits, so a tiny file can't claim a huge picture.
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(4096);
+    limits.max_image_height = Some(4096);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let img = reader.decode().ok()?.thumbnail(128, 128);
     std::fs::create_dir_all(&dir).ok()?;
     img.save_with_format(&path, image::ImageFormat::Png).ok()?;
     Some(path)

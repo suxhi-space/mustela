@@ -15,4 +15,16 @@ To regenerate the icons without building: `npx tauri icon icons/app-icon.png`
 Tips:
 - Keep important details away from the edges. Android crops launcher icons into circles and squircles.
 - Windows, Linux and Android use the free-standing mark; only macOS gets the tile.
-- The tray icon is `src-tauri/icons/tray.png` (and `tray-call.png` while you're in a call).
+
+## Tray and notification icons
+
+| File | What it's for |
+|---|---|
+| `tray/tray-light.png` | The tray icon when the system is in **light** mode (so usually a dark shape). |
+| `tray/tray-dark.png` | The tray icon in **dark** mode (usually a light shape). |
+| `tray/tray-call-light.png`, `tray/tray-call-dark.png` | The same two while you're in a call. |
+| `notification.png` | Optional. Android's small icon in the status bar and on notifications: a **white** shape on a transparent background, about 96×96. Without it Android's own phone icon is used. |
+
+Mustela picks the light or dark tray icon from the system's theme and switches when it changes. Replace the files
+and build; the build script copies them where they're needed. Desktop notifications show the sender's picture
+and the app icon, so they follow `app-icon.png`.

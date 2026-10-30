@@ -112,7 +112,7 @@ body, .settings, .scrim.full, .popout { background: var(--world); }
 }
 /* "Blur behind panels": frosted glass over a picture or gradient; off, the background shows through sharp. */
 :root[data-panel-blur]:is([data-backdrop="image"], [data-backdrop="gradient"]) :is(.panel, .menu, .modal:not(.profile-modal), .userpanel, .callpanel) {
-  -webkit-backdrop-filter: blur(22px) saturate(1.15); backdrop-filter: blur(22px) saturate(1.15); }
+  -webkit-backdrop-filter: blur(22px) saturate(1.15) !important; backdrop-filter: blur(22px) saturate(1.15) !important; } /* wins over Performance's "blur behind menus" off */
 :root:is([data-backdrop="image"], [data-backdrop="gradient"]) .settings-card { background: color-mix(in srgb, var(--s1) calc(var(--panel-op, 80) * 1%), transparent); -webkit-backdrop-filter: blur(22px); backdrop-filter: blur(22px); }
 /* Gradient themes: windows and panels take on the gradient too. */
 :root[data-wingrad] :is(.panel, .settings-card, .modal, .menu, .ctx) { background-image: var(--win-tint), linear-gradient(var(--glass), var(--glass)); }
@@ -601,7 +601,8 @@ a.em-title:hover { text-decoration: underline; }
 .preview-wrap { width: min(400px, 100%); margin: 0 auto; }
 
 /* grouped list: a lighter slab inside the panel, hairline rows */
-.group-title { padding: 0 6px 8px; }
+.group-title { padding: 0 6px 8px; display: flex; align-items: center; gap: 6px; }
+.group-title .btn { text-transform: none; letter-spacing: 0; }
 .group-body { border-radius: 14px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); overflow: hidden; }
 :root[data-mode="light"] .group-body { background: #fff; }
 .group-hint { font-size: 12.5px; color: var(--fg2); font-weight: 600; padding: 8px 6px 0; }
@@ -778,7 +779,9 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .media.gif video, .media.gif img { cursor: default; }
 .gif-star { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff;
   background: rgba(8,10,18,.6); opacity: 0; transition: opacity .12s; z-index: 2; }
-.gif-star.on { color: #ffcc33; opacity: 1; }
+.gif-star.on { color: #ffcc33; }
+/* Touch screens: no star on the GIF; "Add GIF to favorites" is in the hold menu instead. */
+@media (pointer: coarse) { .media.gif .gif-star { display: none; } }
 .gif-star.on .ic path { fill: currentColor; }
 .media.gif:hover .gif-star, .gif-tile:hover .gif-star, .gif-star:focus-visible { opacity: 1; }
 .gif-pop { position: fixed; z-index: 71; display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; }
@@ -1215,7 +1218,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 /* ---------- profile popout (next to the click), status bubble, full profile ---------- */
 .pc-head { align-items: flex-end; gap: 10px; }
 .pc-avatar { position: relative; }
-.pc-dot.pdot { position: absolute; right: 6px; bottom: 6px; width: 20px; height: 20px; box-shadow: 0 0 0 4px var(--pc-bg); }
+.pc-dot.pdot { position: absolute; right: 6px; bottom: 6px; width: 20px; height: 20px; box-shadow: 0 0 0 4px var(--pc-bg); z-index: 7; }
 .pc-bubble { align-self: center; margin-top: 46px; max-width: calc(100% - 120px); display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px; border-radius: 14px 14px 14px 4px;
   background: color-mix(in srgb, var(--pc-fg) 9%, var(--pc-bg)); color: var(--pc-fg); font-size: 12.5px; font-weight: 750; box-shadow: 0 2px 8px rgba(0,0,0,.18);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1454,7 +1457,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .up-progress { width: 100%; height: 6px; accent-color: var(--pri); }
 
 /* "N new messages since…" and the New line, like Discord and Stoat */
-.since-bar { position: absolute; top: 8px; left: 14px; right: 14px; z-index: 5; display: flex; border-radius: 12px; overflow: hidden; color: #fff; background: var(--busy); box-shadow: 0 4px 14px rgba(0,0,0,.18); font-size: 13px; font-weight: 800; }
+.since-bar { position: relative; flex: none; margin: 8px 14px 4px; z-index: 5; display: flex; border-radius: 12px; overflow: hidden; color: #fff; background: var(--busy); box-shadow: 0 4px 14px rgba(0,0,0,.18); font-size: 13px; font-weight: 800; }
 .since-bar button { display: flex; align-items: center; gap: 6px; padding: 7px 12px; color: inherit; }
 .since-bar .sb-jump { flex: 1; min-width: 0; text-align: left; }
 .since-bar .sb-read { border-left: 1px solid rgba(255,255,255,.3); white-space: nowrap; }
@@ -1892,3 +1895,229 @@ button.mp-file { flex-direction: row; align-items: center; gap: 10px; padding: 1
 .orb.fav-orb.on { color: var(--on-pri); }
 .swatch-tile.pic { background-size: cover; background-position: center; color: #fff; display: grid; place-items: center; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
 .swatch-tile.pic .ic { filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+/* favorites: a category without a colour, and the drop strip for "no category" while dragging */
+.cat.pin-cat.plain .pin-dot { display: none; }
+.fav-drop { margin: 2px 8px 6px; padding: 6px 10px; border-radius: 10px; font-size: 12px; font-weight: 750; color: var(--fg2); border: 1.5px dashed var(--edge); text-align: center; }
+.fav-drop.drop-line { border-color: var(--pri); color: var(--fg); }
+
+/* Mustela's colour picker */
+.cp-scrim { position: fixed; inset: 0; z-index: 95; }
+.cp-scrim.sheet { background: rgba(0,0,0,.45); }
+.cp { position: fixed; width: 260px; padding: 12px; border-radius: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--md-surface-container-high, var(--s2)); }
+.cp.cp-sheet { left: 0; right: 0; bottom: 0; width: auto; border-radius: 24px 24px 0 0; padding: 16px 16px calc(16px + var(--sa-bottom)); animation: sheet-up .2s cubic-bezier(.2,.8,.2,1); }
+.cp-title { margin: 0; font-size: 14px; font-weight: 850; }
+.cp-sv { position: relative; height: 150px; border-radius: 12px; cursor: crosshair; touch-action: none; outline-offset: 2px;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(var(--h) 100% 50%)); }
+.cp-sheet .cp-sv { height: 200px; }
+.cp-hue { position: relative; height: 16px; border-radius: 8px; cursor: pointer; touch-action: none;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.cp-knob { position: absolute; width: 18px; height: 18px; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 2.5px #fff, 0 1px 4px rgba(0,0,0,.5); pointer-events: none; }
+.cp-hue .cp-knob { top: 50%; }
+.cp-row { display: flex; align-items: center; gap: 8px; }
+.cp-now { width: 34px; height: 34px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--edge); flex: none; }
+.cp-hex { flex: 1; min-width: 0; font-family: ui-monospace, monospace; text-transform: lowercase; }
+.cp-quick { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.cp-quick button { aspect-ratio: 1; border: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); cursor: pointer; }
+.cp-quick button.on { box-shadow: 0 0 0 2px var(--fg); }
+.cp-actions { display: flex; justify-content: flex-end; gap: 8px; }
+button.swatch { border: 0; cursor: pointer; }
+.adv-color { align-self: flex-start; margin: -2px 0 6px 14px; }
+/* Rich Presence laid out like Discord's: bigger art, song, artist, album, then the progress under them */
+.pc-activity .pa-row { align-items: flex-start; }
+.pc-activity .pa-img { width: 72px; height: 72px; }
+.pa-text { flex: 1; }
+.pa-text .pa-progress { margin-top: 6px; }
+.pa-sub { color: var(--pc-sub, var(--fg2)); font-weight: 650; }
+.pa-buttons .btn { min-height: 34px; }
+.pc-since { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.pc-since-item { display: inline-flex; align-items: center; gap: 6px; }
+.pc-since-item .ic { color: var(--pc-sub, var(--fg2)); }
+.pc-since-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--pc-sub, var(--fg2)); }
+img.mini-orb.tiny { object-fit: cover; }
+/* editing a message: the same editor as the message box (chips for mentions) */
+.edit-row { display: flex; align-items: flex-end; gap: 8px; }
+.edit-ed { align-self: stretch; padding: 2px 10px; max-height: 260px; }
+.edit-head { display: none; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; color: var(--pri); }
+@media (max-width: 700px) {
+  /* Phones: edit where the message box is, marked as editing */
+  .edit-box { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; margin: 0; padding: 10px 12px calc(10px + var(--sa-bottom));
+    background: var(--md-surface-container, var(--s2)); box-shadow: 0 -1px 0 var(--edge), 0 -12px 30px -14px rgba(0,0,0,.6); border-radius: 18px 18px 0 0; }
+  .edit-head { display: flex; }
+  .edit-save { min-height: 42px; }
+}
+/* View reactions */
+.reactions-view { width: min(460px, 100%); height: min(440px, 100%); display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.rv-head { display: flex; align-items: center; padding: 14px 14px 10px 18px; }
+.rv-head h2 { margin: 0; font-size: 18px; }
+.rv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 96px 1fr; }
+.rv-tabs { display: flex; flex-direction: column; gap: 4px; padding: 6px; overflow-y: auto; box-shadow: inset -1px 0 0 var(--edge); }
+.rv-tabs button { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 0; border-radius: 10px; background: none; color: var(--fg); font-weight: 800; }
+.rv-tabs button.on { background: color-mix(in srgb, var(--pri) 20%, transparent); }
+.rv-tabs .cemoji, .rv-tabs .uemoji-img, .rv-tabs .ue { width: 22px; height: 22px; font-size: 20px; }
+.rv-people { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
+.rv-people button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 10px; background: none; color: var(--fg); text-align: left; }
+.rv-people button:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.rv-people span { display: flex; flex-direction: column; min-width: 0; font-weight: 800; }
+.rv-people small { color: var(--fg2); font-weight: 650; }
+@media (max-width: 700px) { .rv-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } .rv-tabs { flex-direction: row; overflow-x: auto; box-shadow: inset 0 -1px 0 var(--edge); } }
+/* Phones: "Jump to present" is a bar right above the message box, not a floating pill */
+@media (max-width: 700px) {
+  .jump-present { left: 10px; right: 10px; transform: none; bottom: calc(var(--bar) + 18px + var(--sa-bottom)); justify-content: center; border-radius: 14px; padding: 10px 14px; font-size: 14px;
+    background: var(--pri); color: var(--on-pri); box-shadow: 0 6px 18px -8px rgba(0,0,0,.6); }
+}
+@media (max-width: 700px) {
+  .older-bar { left: 10px; right: 10px; transform: none; bottom: calc(var(--bar) + 18px + var(--sa-bottom)); white-space: normal; justify-content: space-between; }
+}
+
+/* Phones: settings are a solid page (nothing shows through behind the gesture bar), scroll all the way,
+   and the heading of the section you're in stays on top while you scroll. */
+@media (max-width: 700px) {
+  :root .settings-card, :root:is([data-backdrop="image"], [data-backdrop="gradient"]) .settings-card { background: var(--s1) !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .settings-card .snav, .settings-card .spage { padding-bottom: calc(24px + var(--sa-bottom)); }
+  .settings-card { padding-bottom: 0; }
+  .settings-card::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height: var(--sa-bottom); background: var(--s1); z-index: 3; pointer-events: none; }
+  .spage .group-title { position: sticky; top: 0; z-index: 2; margin: 0 -4px; padding: 10px 10px 8px; background: var(--s1); }
+  .spage-head { position: sticky; top: 0; z-index: 3; background: var(--s1); margin: 0; padding: 10px 4px 8px; }
+  .snav-head { position: sticky; top: 0; z-index: 2; background: var(--s1); padding-top: 8px; padding-bottom: 6px; }
+}
+
+/* Touch screens (phones and tablets, any way round): bigger, friendlier text, and holding on a button,
+   channel or category opens its menu without selecting the text around it. Messages, bios and the
+   text you type can still be selected. */
+@media (pointer: coarse) {
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  :is(.msg-text, .md, .pc-bio, .mp-text, input, textarea, [contenteditable], .cm-content, .edit-box) { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+  .chan-name { font-size: 16px; }
+  .chan-sub { font-size: 12px; }
+  .cat { font-size: 13.5px; }
+  .bar h2 { font-size: 18px; }
+  .row { font-size: 15.5px; }
+  .row small, .row-label small, .group-hint { font-size: 13px; }
+  .member-name, .fr-text, .vm-name { font-size: 15.5px; }
+  .msg-head .name, .msg-head time { font-size: 15px; }
+  .ctx-item { font-size: 16px; }
+  .ctx-sheet .ctx-item { min-height: 52px; }
+  .ctx-head { font-size: 13px; padding: 10px 12px 4px; }
+  .toast { font-size: 15px; }
+}
+
+/* Settings > Accessibility */
+:root[data-underline-links] :is(.md, .msg-text) a { text-decoration: underline; text-underline-offset: 2px; }
+:root[data-no-role-colors] :is(.member-name, .msg-head .name, .vm-name, .rr-name, .pc-name) { color: var(--fg) !important; }
+:root[data-no-role-colors] :is(.member-name, .msg-head .name, .vm-name, .rr-name) [style*="background-image"] { background-image: none !important; -webkit-text-fill-color: currentColor; color: var(--fg) !important; }
+:root[data-readable] :is(.msg-text, .md) { font-weight: 550; letter-spacing: .015em; word-spacing: .05em; line-height: 1.55; }
+.bar-peer { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: default; }
+.bar-peer h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) { .bar-peer { cursor: pointer; } }
+
+/* Emoji picker: one scrolling list with a rail to jump around, and a footer naming the emoji you point at */
+.pop-scrim.emoji-scrim { z-index: 92; background: transparent; }
+.pop-scrim.emoji-scrim.sheet { background: rgba(0,0,0,.45); }
+.emoji-pop { z-index: 93; background: var(--md-surface-container-high, var(--s2)) !important; }
+.emoji-pop.emoji-sheet { left: 0; right: 0; bottom: 0; top: auto; width: auto; height: min(70vh, 560px); border-radius: 24px 24px 0 0; padding-bottom: var(--sa-bottom); animation: sheet-up .2s cubic-bezier(.2,.8,.2,1); }
+.emoji-top { padding: 2px 0 0; }
+.emoji-main { flex: 1; min-height: 0; display: flex; }
+.emoji-rail { flex: none; width: 46px; display: flex; flex-direction: column; gap: 4px; padding: 4px 6px; overflow-y: auto; scrollbar-width: none; box-shadow: inset -1px 0 0 var(--edge); }
+.emoji-rail button { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--fg2); font-size: 18px; filter: grayscale(.6); opacity: .75; }
+.emoji-rail button.on, .emoji-rail button:hover { filter: none; opacity: 1; background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
+.emoji-rail img { width: 26px; height: 26px; border-radius: 8px; object-fit: cover; }
+.emoji-rail .uemoji-img { width: 22px; height: 22px; }
+.emoji-list { flex: 1; min-width: 0; overflow-y: auto; padding: 0 6px 8px; }
+.emoji-list .eg-title { position: sticky; top: 0; z-index: 1; margin: 0; padding: 8px 4px 6px; background: var(--md-surface-container-high, var(--s2)); }
+.emoji-list .emoji-grid { overflow: visible; padding: 0; }
+.emoji-grid button.fav { box-shadow: inset 0 -2px 0 color-mix(in srgb, #ffcc33 70%, transparent); }
+.emoji-foot { flex: none; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 12px; box-shadow: 0 -1px 0 var(--edge); font-weight: 800; }
+.ef-art { width: 30px; height: 30px; display: grid; place-items: center; font-size: 24px; }
+.ef-art img, .ef-art .uemoji-img { width: 28px; height: 28px; object-fit: contain; }
+.ef-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ef-star.on { color: #ffcc33; }
+.ef-star.on .ic path { fill: currentColor; }
+@media (pointer: coarse) { .emoji-grid button { font-size: 26px; } .emoji-grid img, .emoji-grid button .uemoji-img { width: 32px; height: 32px; } }
+/* In picture-in-picture only the call shows: nothing of the app behind it */
+:root[data-pip] .app > :not(.pipview) { visibility: hidden; }
+:root[data-pip] .titlebar { display: none; }
+/* Desktop: "your voice moved to another device" / "you were in a call" banner across the top */
+.call-banner { position: fixed; top: calc(var(--tb, 0px) + 8px); left: 50%; transform: translateX(-50%); z-index: 60; width: min(760px, calc(100% - 24px));
+  display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 14px; font-weight: 750; font-size: 13.5px;
+  background: var(--pri); color: var(--on-pri); box-shadow: 0 10px 28px -10px rgba(0,0,0,.6); animation: pop-in .16s ease-out; }
+.call-banner.moved { background: var(--busy); color: #fff; }
+.call-banner .btn { background: rgba(255,255,255,.92); color: #111; box-shadow: none; }
+.call-banner .icon-btn { color: inherit; }
+
+/* Phones in a call: the controls and top bar step aside after a few seconds (tap to bring them back), and a
+   stream you tap fills the screen */
+@media (max-width: 700px) {
+  .cstage .call-sheet, .cstage .sheet-chat { transition: transform .26s cubic-bezier(.2,.8,.2,1), opacity .2s; }
+  .cstage.chrome-off .call-sheet:not(.open) { transform: translateY(110%) !important; }
+  .cstage.chrome-off .sheet-chat { opacity: 0; pointer-events: none; }
+  .cstage.chrome-off .cstage-main { padding-bottom: calc(8px + var(--sa-bottom)); }
+  :root.call-immersive .app[data-view="chat"] .main-bar { display: none; }
+  .cstage .cfocus .ctile.stream { border-radius: 14px; }
+  .cstage.chrome-off .cfocus { flex: 1; }
+  .cstage.chrome-off .cstrip { display: none; }
+  .cgrid { grid-auto-rows: minmax(150px, 1fr); gap: 8px; }
+  .cgrid .ctile { border-radius: 16px; }
+}
+/* Updating at start-up */
+.update-splash { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: color-mix(in srgb, var(--world) 88%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.us-card { width: min(340px, calc(100% - 32px)); display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 26px 22px; border-radius: 20px; background: var(--s1); box-shadow: inset 0 0 0 1px var(--edge), var(--drop); }
+.us-card strong { font-size: 18px; }
+.us-card p { margin: 0; }
+.us-ic { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: var(--pri); color: var(--on-pri); }
+.us-card .up-progress { width: 100%; }
+/* Immersive call on a phone (either way up): names and LIVE badges step aside with the controls, and a
+   stream you're watching covers the whole screen, sideways too */
+:root.call-immersive .cstage.chrome-off .ctile-name,
+:root.call-immersive .cstage.chrome-off .ctile-muted,
+:root.call-immersive .cstage.chrome-off .vid-paused { opacity: 0; transition: opacity .2s; }
+/* Only a stream you're focused on takes the whole screen (the phone's bars hide too); everything else stays
+   clear of the status bar and nav buttons. */
+:root.call-immersive .cstage.chrome-off:has(.cfocus .ctile.stream) { position: fixed; inset: 0; z-index: 80; border-radius: 0; }
+:root.call-immersive .cstage.chrome-off .cfocus:has(.ctile.stream) { position: absolute; inset: 0; padding: 0; }
+:root.call-immersive .cstage.chrome-off .cfocus .ctile.stream { border-radius: 0; height: 100%; box-shadow: none; background: #000; }
+@media (pointer: coarse) and (max-height: 500px) {
+  /* A phone on its side in a call: the call gets the screen */
+  .cstage .call-sheet { max-width: 520px; left: 50%; right: auto; width: 100%; margin-left: -260px; }
+}
+:root.call-immersive .cstage.chrome-off :is(.cstrip, .cbar, .sheet-chat) { display: none !important; }
+/* Videos and players in link previews */
+.em-video { display: block; width: 100%; max-width: 420px; max-height: 480px; margin-top: 8px; border-radius: 10px; background: #000; }
+.em-frame { display: block; width: min(480px, 100%); aspect-ratio: 16 / 9; margin-top: 8px; border: 0; border-radius: 10px; background: #000; }
+button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
+.social-embed .em-img { max-height: 420px; }
+/* "You're viewing older messages": a card floating just above the message box, toward the right (desktop) */
+@media (min-width: 701px) {
+  .older-bar { left: auto; right: 22px; transform: none; bottom: calc(var(--composer-h, 70px) - 6px); padding: 6px 6px 6px 14px; font-size: 13px; z-index: 6;
+    box-shadow: inset 0 0 0 1px var(--edge), 0 10px 26px -12px rgba(0,0,0,.65); }
+}
+
+/* Phones in a call: a clean screen like other call apps. A simple bar on top (minimise, the channel,
+   sound, chat), big rounded tiles with the name centred at the bottom, and the controls underneath. */
+.call-top { display: none; }
+@media (max-width: 700px) {
+  :root.call-top-on .app[data-view="chat"] .main-bar { display: none; }
+  .call-top { display: flex; order: -1; align-items: center; gap: 8px; padding: 8px 10px 4px; flex: none; color: #fff; }
+  .ct-btn { width: 44px; height: 44px; border-radius: 14px; border: 0; display: grid; place-items: center; background: rgba(255,255,255,.08); color: #fff; }
+  .ct-btn.on { background: #fff; color: #111; }
+  .ct-name { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 55%; height: 44px; padding: 0 12px; border-radius: 14px; border: 0; background: rgba(255,255,255,.08); color: #fff; font-size: 17px; font-weight: 850; }
+  .ct-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cstage .sheet-chat { display: none; }
+  .cstage.chrome-off .call-top { visibility: hidden; }
+  .cgrid[data-n="1"], .cgrid[data-n="2"] { grid-template-columns: 1fr; grid-auto-rows: 1fr; height: 100%; }
+  .cgrid .ctile { border-radius: 20px; }
+  .cgrid .ctile .ctile-name { left: 50%; right: auto; transform: translateX(-50%); bottom: 12px; padding: 5px 12px; border-radius: 12px; font-size: 16px; background: rgba(0,0,0,.55); max-width: calc(100% - 24px); }
+  .cgrid .ctile:not(.video) .av { transform: scale(1.35); }
+  .sheet-main .cbtn.leave { border-radius: 16px; width: 64px; }
+  .call-sheet { border-radius: 22px 22px 0 0; margin: 0 6px; left: 0; right: 0; }
+  .cstage.chrome-off .call-top { display: none; }
+}
+/* Touch screens: the formatting bar sits under the message box (between it and the keyboard), so the phone's
+   own copy / paste menu, which pops up above the selection, never covers it. */
+@media (pointer: coarse) {
+  .composer-wrap.fmt-open { padding-bottom: calc(60px + var(--sa-bottom)); }
+  .composer-wrap .fmt-bar { left: 10px !important; right: 10px; top: auto !important; bottom: calc(8px + var(--sa-bottom)); transform: none; justify-content: space-between; overflow-x: auto; scrollbar-width: none; }
+  .composer-wrap .fmt-bar .icon-btn { width: 40px; height: 40px; flex: none; }
+}
+.ctx-radio { margin-left: auto; width: 22px; height: 22px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fg) 40%, transparent); }
+.ctx-radio.on { box-shadow: inset 0 0 0 7px var(--pri); background: #fff; }
+.out-title { margin: 2px 0 10px; text-align: center; font-size: 19px; font-weight: 900; }

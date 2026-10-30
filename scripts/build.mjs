@@ -242,6 +242,11 @@ function icons() {
     if (npx(["tauri", "icon", mac, "-o", tmp]).ok && existsSync(join(tmp, "icon.icns"))) { copyFileSync(join(tmp, "icon.icns"), join(TAURI, "icons", "icon.icns")); ok("macOS icon from icons/app-icon-macos.png"); }
     rmSync(tmp, { recursive: true, force: true });
   }
+  // Tray icons for light and dark mode (and while in a call): icons/tray/*.png, picked by the system's theme.
+  for (const f of ["tray-light.png", "tray-dark.png", "tray-call-light.png", "tray-call-dark.png"]) {
+    const p = join(ROOT, "icons", "tray", f);
+    if (existsSync(p)) copyFileSync(p, join(TAURI, "icons", f));
+  }
   // Optional hand-made overrides for platforms that need special shapes.
   const overrides = [
     ["icon.ico", "icon.ico"], ["icon.icns", "icon.icns"], ["32x32.png", "32x32.png"], ["128x128.png", "128x128.png"], ["128x128@2x.png", "128x128@2x.png"],
@@ -368,6 +373,14 @@ async function buildAndroid() {
     writeFileSync(marker, ANDROID_PACKAGE + "\n");
   }
   ensureJitpack(gen); // LiveKit's audioswitch lives on JitPack; declared in the project, no ~/.gradle init script needed
+  // The small icon in Android's status bar and notifications: a white shape on transparent (icons/notification.png).
+  const note = join(ROOT, "icons", "notification.png");
+  if (existsSync(note)) {
+    const res = join(gen, "app", "src", "main", "res", "drawable");
+    mkdirSync(res, { recursive: true });
+    copyFileSync(note, join(res, "ic_notification.png"));
+    ok("Notification icon from icons/notification.png");
+  }
   icons(); // after init, so the launcher icons land in the Android project too
   step(`Building Mustela for Android${DEBUG ? " (debug)" : ""}`);
   const a = ["tauri", "android", "build", "--apk", "--aab"];

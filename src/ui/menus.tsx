@@ -1,4 +1,6 @@
 import { ulid } from "../lib/ulid";
+import { openReactions } from "./chat/Reactions";
+import { isFav, toggleFav } from "./chat/overlays";
 import { composer } from "./chat/Composer";
 import { For } from "solid-js";
 import type { ChannelInfo, Msg, NotifyLevel, Person, Space } from "../lib/backend/types";
@@ -275,6 +277,14 @@ export function messageMenu(e: MouseEvent, m: Msg, act: MsgMenuActions, serverId
   if (canManage) items.push({ label: m.pinned ? "Unpin message" : "Pin message", icon: "pin", onSelect: () => attempt(() => b().pin(m.channelId, m.id, !m.pinned), m.pinned ? "Unpinned" : "Pinned") });
   items.push({ sep: true });
   if (sel.trim()) items.push({ label: "Copy selection", icon: "copy", onSelect: () => copy(sel) });
+  if (m.reactions?.length) items.push({ label: "View reactions", icon: "smile-plus", onSelect: () => openReactions(m) });
+  // A GIF in the message: star it from here (on phones the star on the GIF itself is hidden).
+  const gif = m.embeds?.find((x) => x.gif);
+  if (gif) {
+    const src = gif.video?.url ?? gif.image?.url ?? "";
+    const g = { url: gif.url ?? src, preview: src, w: gif.video?.width ?? gif.image?.width, h: gif.video?.height ?? gif.image?.height };
+    items.push({ label: isFav(g.url) ? "Remove GIF from favorites" : "Add GIF to favorites", icon: "star", onSelect: () => toggleFav(g) });
+  }
   if (m.text) items.push({ label: "Copy text", icon: "copy", onSelect: () => copy(m.text) });
   if (a && /^https?:/i.test(a.href)) items.push({ label: "Copy link address", icon: "link", onSelect: () => copy(a.href, "Link copied") });
   if (img?.src && /^https?:/i.test(img.src)) items.push({ label: "Copy image address", icon: "image", onSelect: () => copy(img.src, "Link copied") });

@@ -3,6 +3,7 @@ import { InviteCard } from "./chat/Message";
 import { Icon } from "./icons";
 import { toast } from "./menu";
 import { backend } from "./store";
+import { inTauri } from "../lib/platform";
 
 const ORIGIN = "https://stt.gg";
 
@@ -11,37 +12,33 @@ const ORIGIN = "https://stt.gg";
  * embeds. Joining and adding bots open here instead of in a browser.
  */
 export function Discover(props: { onBack(): void; onJoined(serverId: string): void }) {
-  let frame!: HTMLIFrameElement;
   const [invite, setInvite] = createSignal<string | null>(null);
   const [bot, setBot] = createSignal<string | null>(null);
-  // Shown once the page has loaded (or says hello). Stoat's client shows it straight away; we wait for the
-  // load so a blank frame never appears, but never for the hello alone, which some versions don't send.
-  const [loaded, setLoaded] = createSignal(false);
-  const [failed, setFailed] = createSignal(false);
-  const [n, setN] = createSignal(0);
-  let timer = 0;
-  const arm = () => { clearTimeout(timer); setFailed(false); timer = window.setTimeout(() => !loaded() && setFailed(true), 12000); };
-  arm();
-  onCleanup(() => clearTimeout(timer));
-
-  function onMessage(m: MessageEvent) {
-    if (m.origin !== ORIGIN || m.source !== frame?.contentWindow) return;
-    let data: any;
-    try { data = typeof m.data === "string" ? JSON.parse(m.data) : m.data; } catch { return; }
-    if (data?.source !== "discover") return;
-    if (data.type === "init") setLoaded(true);
-    if (data.type === "init") frame.contentWindow?.postMessage(JSON.stringify({ source: "revolt", type: "theme", theme: {} }), ORIGIN);
-    if (data.type === "path" && typeof data.path === "string") { /* the embedded page moved between tabs; nothing to do */ }
-    if (data.type === "navigate" && typeof data.url === "string") {
-      let u: URL;
-      try { u = new URL(data.url); } catch { return; }
-      const inv = u.pathname.match(/^\/(?:invite\/)?([A-Za-z0-9]{4,32})$/), b = u.pathname.match(/^\/bot\/([A-Z0-9]{26})$/i);
-      if (b) setBot(b[1]!);
-      else if (inv) setInvite(inv[1]!);
-    }
+  // stt.gg only lets Stoat's own site show Discover in a frame ("blocked by response" anywhere else), so the
+  // desktop app opens it in a window of its own and gets invite and bot links back; phones use the browser.
+  const desktop = inTauri() && !/Android|iPhone|iPad/i.test(navigator.userAgent);
+  const handle = (url: string) => {
+    let u: URL;
+    try { u = new URL(url); } catch { return; }
+    const inv = u.pathname.match(/^\/(?:invite\/)?([A-Za-z0-9]{4,32})\/?$/), b = u.pathname.match(/^\/bot\/([A-Z0-9]{26})\/?$/i);
+    if (b) setBot(b[1]!);
+    else if (inv) setInvite(inv[1]!);
+  };
+  const openWindow = async () => {
+    try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("open_discover"); }
+    catch (e) { toast((e as Error)?.message || "Couldn't open Discover.", true); }
+  };
+  const openBrowser = async () => {
+    const url = `${ORIGIN}/discover/servers`;
+    try { if (inTauri()) { const { openUrl } = await import("@tauri-apps/plugin-opener"); await openUrl(url); } else window.open(url, "_blank", "noopener"); }
+    catch { toast("Couldn't open the browser.", true); }
+  };
+  if (desktop) {
+    void openWindow();
+    let off: (() => void) | undefined;
+    void import("@tauri-apps/api/event").then(({ listen }) => listen<string>("mustela:discover-link", (e) => handle(e.payload))).then((f) => { off = f; });
+    onCleanup(() => off?.());
   }
-  addEventListener("message", onMessage);
-  onCleanup(() => removeEventListener("message", onMessage));
 
   return (
     <section class="discover">
@@ -50,21 +47,18 @@ export function Discover(props: { onBack(): void; onJoined(serverId: string): vo
         <Icon name="compass" size={20} class="muted" /><h2>Discover</h2>
       </header>
       <div class="discover-body">
-        <Show when={!loaded()}>
-          <div class="empty center">
-            <Show when={failed()} fallback={<p>Loading Discover…</p>}>
-              <div class="discover-fail">
-                <Icon name="compass" size={36} />
-                <p>Discover didn't load. Check your connection and try again.</p>
-                <button class="btn primary" onClick={() => { setN(n() + 1); arm(); }}>Try again</button>
-              </div>
+        <div class="empty center">
+          <div class="discover-fail">
+            <Icon name="compass" size={40} />
+            <Show when={desktop} fallback={<>
+              <p>Discover opens in your browser. When you find a server, copy its invite link and paste it into <b>Join a server</b> (the + on the server list).</p>
+              <button class="btn primary" onClick={() => void openBrowser()}>Open Discover</button>
+            </>}>
+              <p>Discover opens in its own window. Joining a server or adding a bot there brings you back here to finish.</p>
+              <button class="btn primary" onClick={() => void openWindow()}>Open Discover</button>
             </Show>
           </div>
-        </Show>
-        <Show keyed when={n() + 1}>
-          <iframe ref={frame} src={`${ORIGIN}/discover/servers?embedded=true`} title="Discover servers and bots" classList={{ ready: loaded() }}
-            referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" onLoad={() => { setLoaded(true); clearTimeout(timer); }} />
-        </Show>
+        </div>
       </div>
       <Show when={invite()}>{(code) => (
         <div class="scrim" onClick={() => setInvite(null)}>

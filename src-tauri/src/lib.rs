@@ -1,4 +1,5 @@
 mod fetch;
+mod preview;
 mod updater;
 #[cfg(desktop)]
 mod activity;
@@ -146,6 +147,21 @@ async fn check_update() -> Result<Option<updater::UpdateInfo>, String> {
     Ok(updater::check().await?.map(|(info, _)| info))
 }
 
+/// The running Mustela.app (…/Mustela.app/Contents/MacOS/mustela → …/Mustela.app).
+#[cfg(target_os = "macos")]
+fn mac_bundle() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let app = exe.parent()?.parent()?.parent()?.to_path_buf();
+    app.extension().is_some_and(|x| x == "app").then_some(app)
+}
+#[cfg(target_os = "macos")]
+fn writable(dir: &std::path::Path) -> bool {
+    let probe = dir.join(format!(".mustela-write-test-{}", std::process::id()));
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
 /// Downloads the new version (checked against GitHub's SHA-256) and puts it in place:
 /// Windows runs the installer and restarts, an AppImage swaps itself and restarts, a Mac
 /// .dmg or Linux .deb is saved to Downloads and opened. Phones open the release page instead.
@@ -182,6 +198,30 @@ async fn install_update(app: tauri::AppHandle) -> Result<String, String> {
             app.exit(0);
             Ok("Restarting…".into())
         }
+        // macOS: replace the app in place (no "drag to Applications" window): mount the update, and once
+        // Mustela has quit, swap the app bundle, unmount and open the new one. If the app's folder can't be
+        // written to, fall back to opening the disk image like before.
+        #[cfg(target_os = "macos")]
+        updater::Kind::MacosDmg if mac_bundle().is_some_and(|b| writable(b.parent().unwrap_or(&b))) => {
+            let bundle = mac_bundle().ok_or("Couldn't find Mustela.app.")?;
+            let dmg = std::env::temp_dir().join(format!("Mustela-{}.dmg", info.version));
+            updater::download(&asset, &dmg, progress).await?;
+            let mnt = std::env::temp_dir().join(format!("mustela-update-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&mnt);
+            let ok = std::process::Command::new("hdiutil").args(["attach", "-nobrowse", "-noautoopen", "-quiet", "-mountpoint"]).arg(&mnt).arg(&dmg)
+                .status().map(|s| s.success()).unwrap_or(false);
+            if !ok { return Err("Couldn't open the update.".into()); }
+            let new_app = std::fs::read_dir(&mnt).map_err(|e| e.to_string())?.flatten().map(|e| e.path())
+                .find(|p| p.extension().is_some_and(|x| x == "app")).ok_or("The update has no app in it.")?;
+            let q = |p: &std::path::Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
+            let script = format!(
+                "while kill -0 {pid} 2>/dev/null; do sleep 0.3; done; rm -rf {dest}.old; mv {dest} {dest}.old && ditto {src} {dest} && rm -rf {dest}.old || mv {dest}.old {dest}; hdiutil detach {mnt} -quiet; xattr -dr com.apple.quarantine {dest} 2>/dev/null; rm -f {dmg}; open {dest}",
+                pid = std::process::id(), dest = q(&bundle), src = q(&new_app), mnt = q(&mnt), dmg = q(&dmg),
+            );
+            std::process::Command::new("/bin/sh").args(["-c", &script]).spawn().map_err(|e| format!("Couldn't start the update: {e}"))?;
+            app.exit(0);
+            Ok("Restarting…".into())
+        }
         #[cfg(desktop)]
         _ => {
             let dir = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(|h| std::path::PathBuf::from(h).join("Downloads"))
@@ -195,6 +235,62 @@ async fn install_update(app: tauri::AppHandle) -> Result<String, String> {
         #[cfg(not(desktop))]
         _ => { let _ = (info, progress); Err("Open the release page to update.".into()) }
     }
+}
+
+/// A Stoat invite or bot link inside Discover: handled by Mustela's own dialogs instead of opening there.
+#[cfg(desktop)]
+fn discover_link(url: &tauri::Url) -> bool {
+    let host = url.host_str().unwrap_or("");
+    let path = url.path().trim_end_matches('/');
+    let known = matches!(host, "stt.gg" | "rvlt.gg" | "stoat.chat" | "app.stoat.chat" | "revolt.chat" | "app.revolt.chat");
+    if !known { return false; }
+    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    match parts.as_slice() {
+        ["invite", code] | ["bot", code] => !code.is_empty(),
+        [code] => matches!(host, "stt.gg" | "rvlt.gg") && *code != "discover" && code.len() >= 4 && code.len() <= 32 && code.chars().all(|c| c.is_ascii_alphanumeric()),
+        _ => false,
+    }
+}
+
+/// Discover (stt.gg) in its own window. Stoat's site only lets stoat.chat show it in a frame, so it can't
+/// sit inside Mustela's window; a window of its own works. Invite and bot links come back to Mustela.
+#[cfg(desktop)]
+#[tauri::command]
+async fn open_discover(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("discover") { let _ = w.unminimize(); let _ = w.set_focus(); return Ok(()); }
+    let url: tauri::Url = "https://stt.gg/discover/servers".parse().map_err(|e: url::ParseError| e.to_string())?;
+    let nav = app.clone();
+    let popup = app.clone();
+    let send = |app: &tauri::AppHandle, u: &tauri::Url| {
+        let _ = app.emit("mustela:discover-link", u.to_string());
+        if let Some(m) = app.get_webview_window("main") { let _ = m.unminimize(); let _ = m.show(); let _ = m.set_focus(); }
+    };
+    tauri::WebviewWindowBuilder::new(&app, "discover", tauri::WebviewUrl::External(url))
+        .title("Discover · Mustela")
+        .inner_size(1100.0, 780.0)
+        .min_inner_size(420.0, 500.0)
+        .on_navigation(move |u| { if discover_link(u) { send(&nav, u); false } else { true } })
+        .on_new_window(move |u, _| { if discover_link(&u) { send(&popup, &u); } else { use tauri_plugin_opener::OpenerExt; let _ = popup.opener().open_url(u.as_str(), None::<&str>); } tauri::webview::NewWindowResponse::Deny })
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Starting with the computer: open the window (true) or stay in the tray (false). Kept as a file so it's
+/// known before the interface loads.
+#[cfg(desktop)]
+#[tauri::command]
+fn set_start_open(app: tauri::AppHandle, open: bool) -> Result<bool, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let file = dir.join("start-open");
+    if open { std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?; std::fs::write(&file, b"1").map_err(|e| e.to_string())?; }
+    else if file.exists() { std::fs::remove_file(&file).map_err(|e| e.to_string())?; }
+    Ok(file.exists())
+}
+#[cfg(desktop)]
+#[tauri::command]
+fn start_open(app: tauri::AppHandle) -> bool {
+    app.path().app_config_dir().map(|d| d.join("start-open")).is_ok_and(|p| p.exists())
 }
 
 /// Screens and windows that can be shared, with small previews (desktop).
@@ -298,8 +394,9 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 std::thread::spawn(desktop::appimage_on_start);
                 desktop::setup(app)?;
-                // Started with the computer: stay in the tray until opened.
-                if std::env::args().any(|a| a == "--minimized") {
+                // Started with the computer: stay in the tray until opened, unless you chose to have the window open.
+                let open_window = app.path().app_config_dir().map(|d| d.join("start-open")).is_ok_and(|p| p.exists());
+                if std::env::args().any(|a| a == "--minimized") && !open_window {
                     if let Some(w) = app.get_webview_window("main") { let _ = w.hide(); }
                 }
             }
@@ -332,6 +429,8 @@ pub fn run() {
                         let _ = window.hide();
                     }
                 }
+                // Light or dark mode changed: the tray icon follows.
+                if let tauri::WindowEvent::ThemeChanged(_) = event { desktop::refresh_tray(window.app_handle()); }
             }
             // Tell the main window when the pop-out is closed by its own X button.
             if window.label() == "call" {
@@ -340,12 +439,12 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![material_support, set_material, fetch_image, close_popout, activity_config, fetch_audio, update_config, check_update, install_update,
+        .invoke_handler(tauri::generate_handler![material_support, set_material, fetch_image, preview::link_preview, close_popout, activity_config, fetch_audio, update_config, check_update, install_update,
             #[cfg(desktop)] screen_sources, #[cfg(desktop)] screen_permission, #[cfg(desktop)] screen_permission_request, #[cfg(desktop)] relaunch, #[cfg(desktop)] screen_start, #[cfg(desktop)] screen_ack, #[cfg(desktop)] screen_stop, #[cfg(desktop)] screen_audio,
             #[cfg(target_os = "linux")] call_linux::voice_start_call, #[cfg(target_os = "linux")] call_linux::voice_set_mic,
             #[cfg(target_os = "linux")] call_linux::voice_set_deaf, #[cfg(target_os = "linux")] call_linux::voice_end_call,
             #[cfg(target_os = "linux")] call_linux::voice_call_state,
-            #[cfg(desktop)] notify::notify_rich,
+            #[cfg(desktop)] notify::notify_rich, #[cfg(desktop)] set_start_open, #[cfg(desktop)] open_discover, #[cfg(desktop)] start_open,
             #[cfg(desktop)] desktop::tray_state, #[cfg(desktop)] desktop::set_close_to_tray,
             #[cfg(desktop)] desktop::appimage_status, #[cfg(desktop)] desktop::appimage_install, #[cfg(desktop)] desktop::relaunch_installed])
         .run(tauri::generate_context!())

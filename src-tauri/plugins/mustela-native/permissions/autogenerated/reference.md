@@ -18,6 +18,10 @@ Accent color and native voice call commands
 - `allow-screen-start`
 - `allow-screen-ack`
 - `allow-screen-stop`
+- `allow-landscape`
+- `allow-system-bars`
+- `allow-audio-outputs`
+- `allow-set-audio-output`
 
 ## Permission Table
 
@@ -50,6 +54,32 @@ Enables the accent command without any pre-configured scope.
 <td>
 
 Denies the accent command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-audio-outputs`
+
+</td>
+<td>
+
+Enables the audio_outputs command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-audio-outputs`
+
+</td>
+<td>
+
+Denies the audio_outputs command without any pre-configured scope.
 
 </td>
 </tr>
@@ -154,6 +184,32 @@ Enables the end_call command without any pre-configured scope.
 <td>
 
 Denies the end_call command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-landscape`
+
+</td>
+<td>
+
+Enables the landscape command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-landscape`
+
+</td>
+<td>
+
+Denies the landscape command without any pre-configured scope.
 
 </td>
 </tr>
@@ -317,6 +373,32 @@ Denies the screen_stop command without any pre-configured scope.
 <tr>
 <td>
 
+`mustela-native:allow-set-audio-output`
+
+</td>
+<td>
+
+Enables the set_audio_output command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-set-audio-output`
+
+</td>
+<td>
+
+Denies the set_audio_output command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `mustela-native:allow-set-call-overlay`
 
 </td>
@@ -388,6 +470,32 @@ Enables the start_call command without any pre-configured scope.
 <td>
 
 Denies the start_call command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-system-bars`
+
+</td>
+<td>
+
+Enables the system_bars command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-system-bars`
+
+</td>
+<td>
+
+Denies the system_bars command without any pre-configured scope.
 
 </td>
 </tr>
