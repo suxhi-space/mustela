@@ -12,7 +12,7 @@ const PERSONAS: Person[] = [
 
 const people: Person[] = [
   { id: "u1", name: "Mika", username: "mika", online: true, status: "pressing flowers", badges: ["Supporter"] },
-  { id: "u2", name: "Otto", username: "otto", online: true, status: "compiling…", badges: ["Developer"] },
+  { id: "u2", name: "Otto", username: "otto", online: true, status: "compiling…", badges: ["Developer"], pronouns: "he/they" },
   { id: "u3", name: "Sol", username: "sol", online: false, badges: [] },
   { id: "u4", name: "Wren", username: "wren", online: true, status: "writing a song", badges: ["Translator", "Founder"] },
   { id: "u5", name: "Juniper", username: "juniper", online: true, badges: [] },
@@ -262,6 +262,7 @@ export class DemoBackend implements ChatBackend {
     this.emit({ t: "update", m: { ...m } });
   }
   typing() {}
+  markUnread(channelId: string) { if (this.read.delete(channelId)) this.emit({ t: "activity" }); }
   ack(channelId: string) { if (!this.read.has(channelId)) { this.read.add(channelId); this.emit({ t: "activity" }); } }
   onEvent(cb: (e: ChatEvent) => void) { this.listeners.add(cb); return () => void this.listeners.delete(cb); }
   async updateMe(p: MeUpdate) {
@@ -271,6 +272,7 @@ export class DemoBackend implements ChatBackend {
     if (p.status !== undefined) me.status = p.status.trim() || undefined;
     if (p.presence) { me.presence = p.presence; me.online = p.presence !== "invisible"; }
     if (p.bio !== undefined) bios[me.id] = p.bio;
+    if (p.pronouns !== undefined) me.pronouns = p.pronouns.trim() || undefined;
     if (p.banner === null) delete banners[me.id]; else if (p.banner) banners[me.id] = URL.createObjectURL(p.banner);
     this.emit({ t: "activity" });
   }

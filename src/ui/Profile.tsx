@@ -81,7 +81,10 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
         </Show>
       </div>
       <div class="pc-body">
-        <h2 class="pc-name"><NameText person={props.person} profile={profile()} /></h2>
+        <div class="pc-name-row">
+          <h2 class="pc-name"><NameText person={props.person} profile={profile()} /></h2>
+          <Show when={props.person.pronouns}><span class="pc-pronouns">{props.person.pronouns}</span></Show>
+        </div>
         <div class="pc-meta">
           <Show when={props.person.username}><span>{props.person.username}{props.person.discriminator ? `#${props.person.discriminator}` : ""}</span></Show>
           <Show when={props.person.bot}><span class="tag">Bot</span></Show>
@@ -169,14 +172,35 @@ export function ActivityCard(props: { a: Activity; compact?: boolean }) {
     <section class="pc-section pc-activity" classList={{ compact: !!props.compact }}>
       <h3 class="label">{verb(props.a.kind)}</h3>
       <div class="pa-row">
-        <Show when={props.a.image} fallback={<span class="pa-img blank"><Icon name="gamepad" size={22} /></span>}><img class="pa-img" src={props.a.image} alt="" /></Show>
+        <span class="pa-art">
+          <Show when={props.a.image} fallback={<span class="pa-img blank"><Icon name={props.a.kind === "listening" ? "headphones" : "gamepad"} size={22} /></span>}><img class="pa-img" src={props.a.image} alt="" title={props.a.largeText} /></Show>
+          <Show when={props.a.smallImage}><img class="pa-small" src={props.a.smallImage} alt="" title={props.a.smallText} /></Show>
+        </span>
         <span class="pa-text">
           <strong>{props.a.name}</strong>
           <Show when={props.a.details}><span>{props.a.details}</span></Show>
-          <Show when={props.a.state}><span>{props.a.state}</span></Show>
-          <Show when={props.a.startedAt}><span class="pa-time">{elapsed(props.a.startedAt, now())} elapsed</span></Show>
+          <Show when={props.a.state}><span>{props.a.kind === "listening" ? `by ${props.a.state}` : props.a.state}</span></Show>
+          <Show when={props.a.startedAt && !props.a.endsAt}><span class="pa-time">{elapsed(props.a.startedAt, now())} elapsed</span></Show>
         </span>
       </div>
+      <Show when={props.a.endsAt && props.a.startedAt}>
+        {(() => {
+          const total = () => Math.max(1, props.a.endsAt! - props.a.startedAt!);
+          const done = () => Math.min(total(), Math.max(0, now() - props.a.startedAt!));
+          return (
+            <div class="pa-progress" role="progressbar" aria-valuemin={0} aria-valuemax={total()} aria-valuenow={done()}>
+              <span>{elapsed(props.a.startedAt, props.a.startedAt! + done())}</span>
+              <i><b style={{ width: `${(done() / total()) * 100}%` }} /></i>
+              <span>{elapsed(props.a.startedAt, props.a.endsAt)}</span>
+            </div>
+          );
+        })()}
+      </Show>
+      <Show when={props.a.buttons?.length}>
+        <div class="pa-buttons">
+          <For each={props.a.buttons}>{(b) => <a class="btn small" href={b.url} target="_blank" rel="noopener noreferrer">{b.label}</a>}</For>
+        </div>
+      </Show>
     </section>
   );
 }
@@ -192,7 +216,6 @@ function FriendButton(props: { person: Person; compact?: boolean }) {
   };
   return (
     <Switch>
-      <Match when={rel() === "friend"}><button class="icon-btn pc-act" title="Friends" aria-label="Friends" onClick={(e) => openMenu(e.currentTarget, [{ label: "Remove friend", icon: "user-x", danger: true, onSelect: () => act("remove", "none") }])}><Icon name="friends" size={18} /></button></Match>
       <Match when={rel() === "incoming"}><button class="btn small primary" disabled={busy()} onClick={() => void act("accept", "friend")}>Accept request</button></Match>
       <Match when={rel() === "outgoing"}><button class="btn small" disabled={busy()} title="Cancel request" onClick={() => void act("remove", "none")}>Request sent</button></Match>
       <Match when={rel() === "blocked"}><button class="btn small" disabled={busy()} onClick={() => void act("unblock", "none")}>Unblock</button></Match>
@@ -253,9 +276,12 @@ function ProfilePopout(props: { person: Person; x: number; y: number; onClose():
       <div ref={el} class="profile-pop" role="dialog" aria-label={`${props.person.name}'s profile`} style={{ left: `${pos().left}px`, top: `${pos().top}px` }}
         onClick={(e) => {
           e.stopPropagation();
+          // Phones: the empty space above the card closes it.
+          if (e.target === e.currentTarget) return props.onClose();
           // Clicking their picture or name opens the full profile, like Discord.
           if ((e.target as HTMLElement).closest(".pc-avatar, .pc-name")) setProfileView({ person: props.person, full: true, x: 0, y: 0 });
         }}>
+        <div class="pp-sheet">
         <ProfileCard person={props.person} compact>
           <Show when={!self()} fallback={
             <div class="pc-actions"><button class="btn small primary" onClick={() => { props.onClose(); openProfileEditor(); }}><Icon name="pencil" size={15} />Edit profile</button></div>
@@ -271,6 +297,7 @@ function ProfilePopout(props: { person: Person; x: number; y: number; onClose():
             <button class="icon-btn pc-act" title="More" aria-label="More" onClick={(e) => userMenu(e as unknown as MouseEvent, props.person)}><Icon name="dots" size={18} /></button>
           </div>
         </Show>
+        </div>
       </div>
     </div>
   );
@@ -299,6 +326,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
             <div class="pc-actions">
               <Show when={!self()} fallback={<button class="btn small primary" onClick={() => { props.onClose(); openProfileEditor(); }}><Icon name="pencil" size={15} />Edit profile</button>}>
                 <Show when={!props.person.bot}><button class="btn small primary" onClick={() => void message()}><Icon name="chat" size={15} />Message</button><FriendButton person={props.person} /></Show>
+                <button class="btn small pf-more" title="More" aria-label="More" onClick={(e) => userMenu(e as unknown as MouseEvent, props.person)}><Icon name="dots" size={16} /></button>
               </Show>
             </div>
           </ProfileCard>

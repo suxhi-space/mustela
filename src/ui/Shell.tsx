@@ -3,6 +3,7 @@ import { createStore, reconcile } from "solid-js/store";
 import type { CategoryInfo, ChannelInfo, Space } from "../lib/backend/types";
 import { plain } from "../lib/markdown";
 import { notify } from "../lib/notify";
+import { NotifyPrompt } from "./NotifyPrompt";
 import { playSfx } from "../lib/sfx";
 import { inTauri } from "../lib/platform";
 import { MeCardHost, UserPanel } from "./UserPanel";
@@ -14,7 +15,8 @@ import { setScreenBack, startBackButton } from "./back";
 import { Avatar } from "./Avatar";
 import { CallPanel } from "./call/CallPanel";
 import { CallPreview } from "./call/CallPreview";
-import { MiniCall } from "./call/MiniCall";
+import { MiniCall, PipView } from "./call/MiniCall";
+import { createProfileInfo } from "./hooks";
 import { phoneVoiceChat, setPhoneVoiceChat } from "./Voice";
 import { ScreenPickerHost } from "./call/ScreenPicker";
 import { call, joinCall, toggleCall } from "./call/state";
@@ -28,22 +30,22 @@ import { Discover } from "./Discover";
 import { GroupInvite } from "./GroupInvite";
 import { Inbox } from "./Inbox";
 import { CallStage } from "./call/CallStage";
-import { groupItems, movePin, newPinGroup, reorderPinned, setChannelPinned, setPin } from "./pins";
+import { favGroupItems, groupItems, movePin, newFavGroup, newPinGroup, reorderPinned, setChannelPinned, setFavGroup, setPin } from "./pins";
 import { moveCategory, moveChannel } from "../lib/channelOrder";
 import { hasTitleBar } from "./TitleBar";
 import { attempt, openMenu } from "./menu";
 import { Settings } from "./Settings";
-import { backend, book, bumpMe, device, ext, meNow, platform, settings, updateDevice } from "./store";
+import { backend, book, bumpMe, device, ext, meNow, platform, settings, updateDevice, updateExt } from "./store";
 import { activeAccount } from "../lib/session/book";
 import { Voice, VoiceMembers } from "./Voice";
 import { Soundboard } from "./call/Soundboard";
-import { categoryMenu, channelListMenu, channelMenu, inviteTo, serverMenu } from "./menus";
+import { categoryMenu, channelListMenu, channelMenu, favoriteMenu, inviteTo, serverMenu } from "./menus";
 import { startActivity } from "./activity";
 import { startDesktop } from "./desktop";
 import { ProfileEditorHost } from "./ProfileEditor";
 import { EmojiInfo } from "./chat/EmojiInfo";
 import { MessagePanel, type Panel } from "./chat/MessagePanel";
-import { channelSettings, setChannelSettings, setCurrentServer, inboxBadge, inboxOpen, setInboxOpen, setInboxBadge, setLocation, profileOpen, registerNav, serverSettings, setProfileOpen, setServerSettings, setSettingsOpen, settingsOpen } from "./nav";
+import { channelSettings, setChannelSettings, setCurrentServer, setProfileView, inboxBadge, inboxOpen, setInboxOpen, setInboxBadge, setLocation, profileOpen, registerNav, serverSettings, setProfileOpen, setServerSettings, setSettingsOpen, settingsOpen } from "./nav";
 import { ServerSettings } from "./ServerSettings";
 import { ChannelSettings } from "./ChannelSettings";
 
@@ -98,14 +100,30 @@ export function Shell() {
   const [discover, setDiscover] = createSignal(false);
   const [groupInvite, setGroupInvite] = createSignal<ChannelInfo | null>(null);
 
-  const space = createMemo<Space | undefined>(() => spaces()?.find((s) => s.id === spaceId()) ?? spaces()?.[0]);
+  /** Favorite channels from every server (for Home, or the Favorites button under it). */
+  const favourites = createMemo(() => {
+    const all = spaces() ?? [];
+    return ext().favourites.flatMap((id) => { for (const sp of all) { const c = sp.channels.find((x) => x.id === id); if (c && !sp.home) return [{ c, s: sp }]; } return []; });
+  });
+  /** Favorites as a server of their own, when that button is on. */
+  const favSpace = createMemo<Space>(() => ({ id: "favs", name: "Favorites", channels: favourites().map((f) => f.c) }));
+  const space = createMemo<Space | undefined>(() => (spaceId() === "favs" && ext().favRail ? favSpace() : spaces()?.find((s) => s.id === spaceId()) ?? spaces()?.[0]));
+  const isFavs = () => space()?.id === "favs";
   /** Home with nothing picked shows Friends, like Stoat. Servers fall back to their first text channel. */
   const channel = createMemo<ChannelInfo | undefined>(() => {
     const s = space();
     if (!s) return undefined;
     const picked = s.channels.find((c) => c.id === channelId());
-    if (picked || s.home) return picked;
+    // A favorite opens right where it's listed (Home or Favorites), without going to its server.
+    if (s.home && !picked) return favourites().find((f) => f.c.id === channelId())?.c;
+    if (picked || s.home || s.id === "favs") return picked;
     return s.channels.find((c) => c.kind !== "voice") ?? s.channels[0];
+  });
+  /** The server the open channel really belongs to (differs from space() for a favorite opened in place). */
+  const chanSpace = createMemo<Space | undefined>(() => {
+    const c = channel(), s = space();
+    if (!c || !s || (!s.home && s.id !== "favs")) return s;
+    return spaces()?.find((x) => !x.home && x.channels.some((y) => y.id === c.id)) ?? s;
   });
   const me = () => meNow()!;
   /** The call preview (from the mockup): in a call, looking at a different chat, not on a phone, not popped out. */
@@ -113,11 +131,17 @@ export function Shell() {
   const [wide, setWide] = createSignal(matchMedia("(min-width: 901px)").matches);
   { const mq = matchMedia("(min-width: 901px)"); const f = () => setWide(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); }
   const showPreview = () => wide() && call.active() && !call.popped() && !!channel() && call.channel()?.id !== channel()?.id && !panel();
+  // The DM partner's banner, blurred behind the call preview so it blends into their profile.
+  const peerInfo = createProfileInfo(() => channel()?.peer?.id ?? "", () => !!channel()?.peer && showPreview());
+  const peerBanner = () => (channel()?.peer ? peerInfo()?.bannerUrl : undefined);
+  // Picture-in-picture (Android shrinks the whole app into a small floating window).
+  const [pip, setPip] = createSignal(false);
+  { const mq = matchMedia("(max-width: 520px) and (max-height: 520px)"); const f = () => setPip(mq.matches); f(); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); }
   /** Phones and tablets: the small call tile, whenever the call itself isn't what's on screen. */
   const showMini = () => !wide() && call.active() && !call.popped()
     && !(view() === "chat" && channel()?.id === call.channel()?.id && !phoneVoiceChat());
   const sideWidth = () => (matchMedia("(max-width: 1100px)").matches ? 214 : 244);
-  const canMembers = () => !!space() && !space()!.home;
+  const canMembers = () => !!chanSpace() && !chanSpace()!.home && chanSpace()!.id !== "favs";
   const direct = (c: ChannelInfo) => c.kind === "dm" || c.kind === "group";
 
   const mentions = (s: Space) => s.channels.reduce((n, c) => n + (c.mentions ?? 0), 0);
@@ -143,6 +167,10 @@ export function Shell() {
     if (s) open(s.id, cid);
   };
   registerNav({ channel: (id) => { void refetch(); setTimeout(() => openChannelById(id), 150); } });
+  // Clicking a desktop notification (Windows) opens its chat.
+  let offNotify: (() => void) | undefined;
+  onCleanup(() => offNotify?.());
+  if (inTauri()) void import("@tauri-apps/api/event").then(({ listen }) => listen<string>("mustela:notify-open", (e) => { if (typeof e.payload === "string") openChannelById(e.payload); })).then((off) => { offNotify = off; }).catch(() => {});
   const pick = (c: ChannelInfo) => { setChannelId(c.id); setView("chat"); setPanel(null); };
   const collapsed = (title?: string) => !!title && device().collapsed.includes(`${space()?.id}/${title}`);
   const toggleCat = (title: string) => {
@@ -167,9 +195,12 @@ export function Shell() {
     if (level === "none" || (level === "mention" && !e.m.mentionsMe)) return;
     // Focus: only direct messages and mentions get through.
     if (presence === "focus" && !direct && !e.m.mentionsMe) return;
-    const title = direct ? e.m.author.name : `${e.m.author.name} in #${where?.c.name ?? "channel"}`;
+    // "Mika", "Mika (Weekend plans)" for a group, "Mika (#general, Glass Garden)" in a server.
+    const title = where?.c.kind === "dm" ? e.m.author.name
+      : where?.c.kind === "group" ? `${e.m.author.name} (${where.c.name})`
+      : `${e.m.author.name} (#${where?.c.name ?? "channel"}${where && !where.s.home ? `, ${where.s.name}` : ""})`;
     const body = plain(e.m.text, { user: (id) => backend()!.person(id).name, channel: (id) => backend()!.channelName(id) }) || "Sent an attachment";
-    void notify(title, device().notifyPreview ? body.slice(0, 180) : direct ? "Sent you a message" : "Mentioned you");
+    void notify(title, device().notifyPreview ? body.slice(0, 180) : direct ? "Sent you a message" : "Mentioned you", { icon: e.m.author.avatarUrl, channel: e.m.channelId });
     if (device().sounds.message) playSfx("message");
   });
   onCleanup(off);
@@ -187,18 +218,19 @@ export function Shell() {
   });
   onCleanup(() => setScreenBack(null));
 
-  createEffect(() => setCurrentServer(space() && !space()!.home ? space()!.id : null));
+  createEffect(() => { const cs = chanSpace(); setCurrentServer(cs && !cs.home && cs.id !== "favs" ? cs.id : null); });
   createEffect(() => {
     const s = space(), c = channel();
     if (!s || !c) return;
     if (s.home) { if (c.kind === "dm" || c.kind === "group") lastDm = c.id; }
-    else rememberChannel(s.id, c.id);
+    else if (s.id !== "favs") rememberChannel(s.id, c.id);
   });
 
   // The title bar says where you are, like Discord's.
   createEffect(() => {
     const s = space(), c = channel();
     if (!s) return;
+    if (s.id === "favs") return setLocation({ text: c ? c.name : "Favorites" });
     setLocation(s.home ? { text: c ? (c.kind === "dm" || c.kind === "group" ? c.name : c.name) : "Friends" } : { text: s.name, icon: s.iconUrl });
   });
 
@@ -213,7 +245,7 @@ export function Shell() {
 
   const serverPerms = createMemo(() => { const s = space(); return s && !s.home ? backend()!.serverInfo(s.id)?.perms : undefined; });
 
-  /* ---- drag to rearrange: channels and categories (if you can manage them), pinned channels, favourites, pinned DMs ---- */
+  /* ---- drag to rearrange: channels and categories (if you can manage them), pinned channels, favorites, pinned DMs ---- */
   type Drag = { kind: "chan" | "cat" | "spin" | "fav" | "dm"; id: string };
   const [drag, setDrag] = createSignal<Drag | null>(null);
   const [dropAt, setDropAt] = createSignal<string | null>(null);
@@ -244,19 +276,14 @@ export function Shell() {
     if (!s || s.home) return [];
     return ext().channelPins.map((id) => s.channels.find((c) => c.id === id)).filter((c): c is ChannelInfo => !!c);
   });
-  /** Favourite channels from every server, for Home. */
-  const favourites = createMemo(() => {
-    const all = spaces() ?? [];
-    return ext().favourites.flatMap((id) => { for (const sp of all) { const c = sp.channels.find((x) => x.id === id); if (c && !sp.home) return [{ c, s: sp }]; } return []; });
-  });
 
-  type RowOpts = { saved?: boolean; drag?: Drag; drop?: ReturnType<typeof dropTo>; key?: string; sub?: string; onOpen?: () => void; server?: string };
+  type RowOpts = { fav?: () => void; saved?: boolean; drag?: Drag; drop?: ReturnType<typeof dropTo>; key?: string; sub?: string; onOpen?: () => void; server?: string };
   const row = (c: ChannelInfo, o: RowOpts = {}) => (
     <>
       <div class="chan-wrap" classList={{ "drop-line": !!o.key && dropAt() === o.key, dragging: !!o.drag && drag()?.id === o.drag.id }} {...(o.drop ?? {})}>
       <button class="chan" classList={{ on: channel()?.id === c.id, big: o.saved, unread: !!c.unread, muted: !!c.muted, dm: c.kind === "dm" || c.kind === "group" }} onClick={() => { setDiscover(false); if (o.onOpen) o.onOpen(); else pick(c); }}
         {...(o.drag ? dragFrom(o.drag) : {})}
-        onContextMenu={(e) => channelMenu(e, c, o.server ?? (space()?.home ? undefined : space()?.id))}>
+        onContextMenu={(e) => (o.fav ? favoriteMenu(e, c, o.fav) : channelMenu(e, c, o.server ?? (space()?.home ? undefined : space()?.id)))}>
         <Show when={c.kind === "dm" && c.peer} fallback={
           <Show when={c.iconUrl && c.kind === "group"} fallback={<Icon name={c.kind === "voice" ? "speaker" : c.kind === "group" ? "users" : o.saved ? "note" : "hash"} size={c.kind === "group" || o.saved ? 20 : 18} class="chan-ic" />}>
             <img class="chan-icon" src={c.iconUrl} alt="" />
@@ -278,6 +305,56 @@ export function Shell() {
       <Show when={c.voice?.length}><VoiceMembers members={c.voice!} channelId={c.id} /></Show>
     </>
   );
+  /** Your favorites: the plain list, then your own categories. Each opens where it is, without leaving. */
+  const favMenu = (e: MouseEvent) => openMenu(e, [
+    { label: "New category…", icon: "plus", onSelect: () => newFavGroup() },
+    { label: ext().favRail ? "Show on Home instead" : "Show as a button under Home", icon: "star", onSelect: () => updateExt((s) => ({ ...s, favRail: !s.favRail })) },
+  ]);
+  const favSection = () => {
+    const plain = () => favourites().filter((f) => !ext().favIn[f.c.id]);
+    const favRow = (f: { c: ChannelInfo; s: Space }, group: string | null) => row(f.c, {
+      sub: f.s.name, server: f.s.id, onOpen: () => pick(f.c), fav: () => open(f.s.id, f.c.id),
+      drag: { kind: "fav", id: f.c.id }, key: `fav:${f.c.id}`,
+      drop: dropTo(`fav:${f.c.id}`, (d) => d.kind === "fav", (d) => { setFavGroup(d.id, group); reorderPinned("favourites", d.id, f.c.id); }),
+    });
+    return (
+      <>
+        {/* In the Favorites view the top bar is already the heading: just the list, the + and ⋯ live up there. */}
+        <Show when={isFavs()}>
+          <Show when={!favourites().length}><p class="empty small">Right-click a channel in any server and pick "Add to Favorites".</p></Show>
+          <Show when={drag()?.kind === "fav" && ext().favGroups.length}><div class="chan-tail" classList={{ "drop-line": dropAt() === "fgrp:" }} {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))} /></Show>
+          <For each={plain()}>{(f) => favRow(f, null)}</For>
+        </Show>
+        <Show when={!isFavs() && (plain().length || !ext().favGroups.length || drag()?.kind === "fav")}>
+          <div class="cat pin-cat fav-cat" classList={{ "drop-into": dropAt() === "fgrp:" }} style={{ "--pin": "#f0b232" }} onContextMenu={favMenu}
+            {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))}>
+            <button class="fav-toggle" aria-expanded={!collapsed("\u2605favs")} onClick={() => toggleCat("\u2605favs")}>
+              <Icon name="down" size={12} class={collapsed("\u2605favs") ? "rot" : ""} /><Icon name="star" size={12} />Favorites
+            </button>
+            <span class="grow" />
+            <button class="cat-add" title="Favorites options" aria-label="Favorites options" onClick={(e) => favMenu(e)}><Icon name="dots" size={14} /></button>
+            <button class="cat-add" title="New category" aria-label="New favorites category" onClick={() => newFavGroup()}><Icon name="plus" size={14} /></button>
+          </div>
+          <Show when={!favourites().length}><p class="empty small">Right-click a channel in any server and pick "Add to Favorites".</p></Show>
+          <For each={plain().filter((f) => !collapsed("\u2605favs") || f.c.unread || f.c.id === channel()?.id)}>{(f) => favRow(f, null)}</For>
+        </Show>
+        <For each={ext().favGroups}>{(g) => {
+          const list = () => favourites().filter((f) => ext().favIn[f.c.id] === g.id);
+          const key = `\u2605fav:${g.id}`;
+          return (
+            <>
+              <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `fgrp:${g.id}` }} style={{ "--pin": g.color }} aria-expanded={!collapsed(key)} onClick={() => toggleCat(key)} onContextMenu={(e) => openMenu(e, favGroupItems(g))}
+                {...dropTo(`fgrp:${g.id}`, (d) => d.kind === "fav", (d) => setFavGroup(d.id, g.id))}>
+                <Icon name="down" size={12} class={collapsed(key) ? "rot" : ""} /><i class="pin-dot" />{g.name}
+              </button>
+              <Show when={!list().length && !collapsed(key)}><p class="empty small fav-empty">Drag favorites here.</p></Show>
+              <For each={list().filter((f) => !collapsed(key) || f.c.unread || f.c.id === channel()?.id)}>{(f) => favRow(f, g.id)}</For>
+            </>
+          );
+        }}</For>
+      </>
+    );
+  };
   /** Home, like Stoat: Saved Notes on top, then your pin groups, then everyone else. */
   const home = createMemo(() => {
     const all = space()?.home ? space()!.channels : [];
@@ -294,12 +371,19 @@ export function Shell() {
     <div class="app" data-view={view()} classList={{ "no-members": !device().showMembers, "in-call": call.active() }}>
       <nav class="rail" aria-label="Servers">
         <For each={spaces()?.filter((s) => s.home)}>{(s) => (
-          <button class="orb home" classList={{ on: space()?.id === s.id }} title="Home" aria-label="Home" aria-current={space()?.id === s.id ? "true" : undefined}
+          <button class="orb home" classList={{ on: space()?.id === s.id }} title="Home" aria-label="Home" aria-current={space()?.id === s.id ? "true" : undefined} onContextMenu={favMenu}
             onClick={() => open("home")}>
             <Icon name="home" size={24} />
             <Show when={mentions(s)}><span class="badge orb-badge">{mentions(s)}</span></Show>
           </button>
         )}</For>
+        <Show when={ext().favRail}>
+          <button class="orb home fav-orb" classList={{ on: isFavs() }} title="Favorites" aria-label="Favorites" aria-current={isFavs() ? "true" : undefined}
+            onClick={() => { setDiscover(false); open("favs"); }} onContextMenu={favMenu}>
+            <Icon name="star" size={24} />
+            <Show when={favourites().reduce((n, f) => n + (f.c.mentions ?? 0), 0)}>{(n) => <span class="badge orb-badge">{n()}</span>}</Show>
+          </button>
+        </Show>
         <For each={unreadDms()}>{(c) => (
           <button class="orb dm-orb unread" title={c.name} aria-label={`${c.name}, unread`} onClick={() => { setDiscover(false); open("home", c.id); }} onContextMenu={(e) => channelMenu(e, c)}>
             <Show when={c.kind === "dm" && c.peer} fallback={<Show when={c.iconUrl} fallback={<span><Icon name="users" size={22} /></span>}><img src={c.iconUrl} alt="" /></Show>}>
@@ -313,8 +397,13 @@ export function Shell() {
       </nav>
 
       <aside class="side panel">
-        <Show when={space() && !space()!.home} fallback={
-          <header class="bar side-bar"><h2>Home</h2></header>
+        <Show when={space() && !space()!.home && !isFavs()} fallback={
+          <header class="bar side-bar" onContextMenu={(e) => isFavs() && favMenu(e)}><h2>{isFavs() ? "Favorites" : "Home"}</h2>
+            <Show when={isFavs()}><span class="grow" />
+              <button class="icon-btn" aria-label="New favorites category" title="New category" onClick={() => newFavGroup()}><Icon name="plus" size={18} /></button>
+              <button class="icon-btn" aria-label="Favorites options" title="Favorites options" onClick={(e) => favMenu(e)}><Icon name="dots" size={18} /></button>
+            </Show>
+          </header>
         }>
           <Show when={space()!.bannerUrl} fallback={
             <header class="bar side-bar" onContextMenu={(e) => serverMenu(e, space()!)}><h2>{space()!.name}</h2><span class="grow" />
@@ -324,7 +413,8 @@ export function Shell() {
               <button class="icon-btn sb-gear" aria-label="Server settings" title="Server settings" onClick={() => setServerSettings({ id: space()!.id })}><Icon name="gear" size={18} /></button></header>
           </Show>
         </Show>
-        <div class="chans" onContextMenu={(e) => { if (space() && !space()!.home && e.target === e.currentTarget) channelListMenu(e, space()!.id); }}>
+        <div class="chans" onContextMenu={(e) => { if (space() && !space()!.home && !isFavs() && e.target === e.currentTarget) channelListMenu(e, space()!.id); }}>
+          <Show when={!isFavs()} fallback={favSection()}>
           <Show when={space()?.home} fallback={
             <>
               <Show when={space()?.channels.length === 0}><p class="empty small">No channels yet.</p></Show>
@@ -366,16 +456,7 @@ export function Shell() {
               <Icon name="compass" size={20} class="chan-ic" /><span class="chan-name">Discover</span>
             </button>
             <For each={home().saved}>{(c) => row(c, { saved: true })}</For>
-            <Show when={favourites().length}>
-              <button class="cat pin-cat" style={{ "--pin": "#f0b232" }} aria-expanded={!collapsed("\u2605favs")} onClick={() => toggleCat("\u2605favs")}>
-                <Icon name="down" size={12} class={collapsed("\u2605favs") ? "rot" : ""} /><Icon name="star" size={12} />Favourites
-              </button>
-              <For each={favourites().filter((f) => !collapsed("\u2605favs") || f.c.unread)}>{(f) => row(f.c, {
-                sub: f.s.name, server: f.s.id, onOpen: () => open(f.s.id, f.c.id),
-                drag: { kind: "fav", id: f.c.id }, key: `fav:${f.c.id}`,
-                drop: dropTo(`fav:${f.c.id}`, (d) => d.kind === "fav", (d) => reorderPinned("favourites", d.id, f.c.id)),
-              })}</For>
-            </Show>
+            <Show when={!ext().favRail && favourites().length}>{favSection()}</Show>
             <For each={home().groups}>{(g) => (
               <>
                 <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `grp:${g.group.id}` }} style={{ "--pin": g.group.color }} aria-expanded={!collapsed(`pin:${g.group.id}`)} onClick={() => toggleCat(`pin:${g.group.id}`)} onContextMenu={(e) => openMenu(e, groupItems(g.group))}
@@ -391,6 +472,7 @@ export function Shell() {
             <h3 class="cat static" classList={{ "drop-into": dropAt() === "dms" }} {...dropTo("dms", (d) => d.kind === "dm" && settings().pins.items.some((i) => i.channel === d.id), (d) => setPin(d.id, null))}>Direct messages<span class="grow" /><button class="cat-add" title="New pin group" aria-label="New pin group" onClick={() => newPinGroup()}><Icon name="plus" size={14} /></button></h3>
             <Show when={home().rest.length === 0 && home().groups.length === 0}><p class="empty small">No conversations yet.</p></Show>
             <For each={home().rest}>{(c) => row(c, { drag: { kind: "dm", id: c.id } })}</For>
+          </Show>
           </Show>
         </div>
       </aside>
@@ -424,18 +506,21 @@ export function Shell() {
                 </Show>
                   <button class="icon-btn" classList={{ on: panel()?.kind === "pins" }} aria-pressed={panel()?.kind === "pins"} aria-label="Pinned messages" title="Pinned messages"
                     onClick={() => setPanel(panel()?.kind === "pins" ? null : { kind: "pins" })}><Icon name="pin" size={20} /></button>
-                  <form class="search-box" role="search" onSubmit={(e) => { e.preventDefault(); const q = (e.currentTarget.elements.namedItem("q") as HTMLInputElement).value.trim(); if (q) setPanel({ kind: "search", q }); }}>
+                  <button class="icon-btn phone-only" classList={{ on: panel()?.kind === "search" }} aria-label="Search" title="Search"
+                    onClick={() => setPanel(panel()?.kind === "search" ? null : { kind: "search", q: "" })}><Icon name="search" size={20} /></button>
+                  <form class="search-box desk-only" role="search" onSubmit={(e) => { e.preventDefault(); const q = (e.currentTarget.elements.namedItem("q") as HTMLInputElement).value.trim(); if (q) setPanel({ kind: "search", q }); }}>
                     <Icon name="search" size={16} />
                     <input name="q" placeholder="Search messages…" aria-label={`Search in ${c().name}`} autocomplete="off" onKeyDown={(e) => e.key === "Escape" && (e.currentTarget.value = "", setPanel(null))} />
                   </form>
                 <Show when={direct(c())}>
-                  <button class="icon-btn" aria-label={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} title={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} onClick={() => setGroupInvite(c())}><Icon name="user-plus" size={20} /></button>
+                  <button class="icon-btn not-phone" aria-label={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} title={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} onClick={() => setGroupInvite(c())}><Icon name="user-plus" size={20} /></button>
                 </Show>
                 <Show when={c().kind === "dm" && c().peer}>
-                  <button class="icon-btn" classList={{ on: device().dmProfile }} aria-pressed={device().dmProfile} aria-label="User profile" title={device().dmProfile ? "Hide user profile" : "Show user profile"} onClick={() => updateDevice({ dmProfile: !device().dmProfile })}><Icon name="profile-side" size={20} /></button>
+                  <button class="icon-btn" classList={{ on: device().dmProfile }} aria-pressed={device().dmProfile} aria-label="User profile" title={device().dmProfile ? "Hide user profile" : "Show user profile"}
+                    onClick={() => (matchMedia("(max-width: 700px)").matches ? setProfileView({ person: c().peer!, full: false, x: 0, y: 0 }) : updateDevice({ dmProfile: !device().dmProfile }))}><Icon name="profile-side" size={20} /></button>
                 </Show>
                 <Show when={!hasTitleBar()}>
-                  <button class="icon-btn inbox-btn" classList={{ on: inboxOpen() }} aria-label="Inbox" title="Inbox" onClick={() => setInboxOpen(!inboxOpen())}><Icon name="inbox" size={20} /><Show when={inboxBadge()}><span class="tb-dot" /></Show></button>
+                  <button class="icon-btn inbox-btn not-phone" classList={{ on: inboxOpen() }} aria-label="Inbox" title="Inbox" onClick={() => setInboxOpen(!inboxOpen())}><Icon name="inbox" size={20} /><Show when={inboxBadge()}><span class="tb-dot" /></Show></button>
                 </Show>
                 <Show when={canMembers()}>
                   <button class="icon-btn" classList={{ on: device().showMembers }} aria-pressed={device().showMembers} aria-label="Members" title="Members"
@@ -449,8 +534,8 @@ export function Shell() {
                   <Show when={direct(c()) && call.active() && call.channel()?.id === c().id}>
                     <div class="dm-call"><CallStage channel={c()} compact /></div>
                   </Show>
-                  <Show when={c().kind === "voice"} fallback={<Chat channel={c()} spaceId={space()?.id} onProfile={setProfile} onOpenChannel={openChannelById} />}>
-                    <Voice channel={c()} spaceId={space()?.id} onProfile={setProfile} onOpenChannel={openChannelById} />
+                  <Show when={c().kind === "voice"} fallback={<Chat channel={c()} spaceId={chanSpace()?.id} onProfile={setProfile} onOpenChannel={openChannelById} />}>
+                    <Voice channel={c()} spaceId={chanSpace()?.id} onProfile={setProfile} onOpenChannel={openChannelById} />
                   </Show>
                 </div>
                 <Show when={showPreview()}>
@@ -458,8 +543,9 @@ export function Shell() {
                 </Show>
                 <Show when={panel()} fallback={
                   <Switch>
-                    <Match when={canMembers() && device().showMembers && c().kind !== "voice"}><div class="members-col" style={{ "padding-top": showPreview() ? `${previewH() + 8}px` : undefined }}><Members spaceId={space()!.id} onOpen={setProfile} /></div></Match>
-                    <Match when={c().kind === "dm" && c().peer && device().dmProfile}><div class="members-col dmp-col" style={{ "padding-top": showPreview() ? `${previewH() + 8}px` : undefined }}><DmProfile person={c().peer!} /></div></Match>
+                    <Match when={canMembers() && device().showMembers && c().kind !== "voice"}><div class="members-col" style={{ "padding-top": showPreview() ? `${previewH() + 16}px` : undefined }}><Members spaceId={chanSpace()!.id} onOpen={setProfile} /></div></Match>
+                    <Match when={c().kind === "dm" && c().peer && device().dmProfile}><div class="members-col dmp-col" classList={{ "has-cpv": showPreview() && !!peerBanner() }}
+                      style={{ "padding-top": showPreview() ? `${previewH() + 16}px` : undefined, "--cpv-h": `${previewH()}px`, ...(peerBanner() ? { "--cpv-banner": `url("${peerBanner()!.replace(/"/g, "%22")}")` } : {}) }}><DmProfile person={c().peer!} /></div></Match>
                   </Switch>
                 }>
                   {(pn) => <div class="members-col panel-col"><MessagePanel panel={pn()} channel={c()} onClose={() => setPanel(null)} /></div>}
@@ -470,10 +556,10 @@ export function Shell() {
         </Show>
       </main>
 
-      <Show when={sheetMembers() && space()}>
+      <Show when={sheetMembers() && chanSpace()}>
         <div class="scrim" onClick={() => setSheetMembers(false)}>
           <div class="modal sheet panel" onClick={(e) => e.stopPropagation()}>
-            <Members spaceId={space()!.id} onOpen={(p) => { setSheetMembers(false); setProfile(p); }} />
+            <Members spaceId={chanSpace()!.id} onOpen={(p) => { setSheetMembers(false); setProfile(p); }} />
           </div>
         </div>
       </Show>
@@ -497,6 +583,8 @@ export function Shell() {
       </Show>
       <AppImagePrompt />
       <UpdatePrompt />
+      <NotifyPrompt />
+      <Show when={pip() && call.active()}><PipView /></Show>
     </div>
   );
 }

@@ -46,7 +46,7 @@ export function MustelaSync() {
       const f = input.files?.[0]; if (!f) return;
       const parsed = parseRemote(await f.text());
       if (!parsed) { toast("That file isn't a Mustela settings backup.", true); return; }
-      if (await confirmDialog("Replace your settings?", "Your colors, profile, favourite GIFs and sync servers are replaced with the ones in the file.", "Import")) {
+      if (await confirmDialog("Replace your settings?", "Your colors, profile, favorite GIFs and sync servers are replaced with the ones in the file.", "Import")) {
         updateSettings(() => parsed); toast("Settings imported");
       }
     };
@@ -56,7 +56,7 @@ export function MustelaSync() {
   return (
     <div class="page">
       <PrivacyGroup />
-      <Group title="Settings sync" hint="Colors, your profile, favourite GIFs, time format and sync servers are saved to your Stoat account, so every Mustela you sign in to matches. Window and sound settings stay on each device.">
+      <Group title="Settings sync" hint="Colors, your profile, favorite GIFs, time format and sync servers are saved to your Stoat account, so every Mustela you sign in to matches. Window and sound settings stay on each device.">
         <Row icon="swap" label="Status" hint={SYNC_TEXT[syncState()]} />
       </Group>
 

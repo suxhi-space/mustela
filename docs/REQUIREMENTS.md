@@ -64,7 +64,7 @@ tested. ✅ done · ⬜ to do · 🧪 built, needs testing on a real device
 - 🧪 Notifications respect Busy/Focus and skip blocked people
 - 🧪 Server folders open and close again (30 Oct)
 - 🧪 Drag to rearrange channels and categories (if you can manage channels; saved to Stoat like its own client)
-- 🧪 Pin server channels to the top of their server, and Favourites (channels from any server) on Home; both sync,
+- 🧪 Pin server channels to the top of their server, and Favorites (channels from any server) on Home; both sync,
   drag to reorder
 - 🧪 Pinned DMs: drag to reorder, drag into another pin group, drag out to unpin
 - 🧪 Message hover actions match Stoat's (reply, react, edit, more; see the screenshot of the missing actions)
@@ -154,3 +154,78 @@ tested. ✅ done · ⬜ to do · 🧪 built, needs testing on a real device
 - 🧪 Mac: clicking your profile in the bottom-left opens its menu (it didn't)
 - 🧪 Blur behind pop-ups and menus when see-through is on (every desktop)
 - 🧪 Bottom-left card blends in better (the same glass as the panels, hairline edge, soft shadow)
+
+## 30 Oct: last round before beta (0.1.3-build5, build6)
+### Streaming and calls
+- 🧪 Your own stream preview pauses while Mustela is in the background ("Your stream is still running!")
+- 🧪 Windows: app windows stream again (the capture thread joins the Windows Runtime first; it fell back to black)
+- 🧪 Mac: the screen-recording permission is checked first; Mustela offers System Settings and a restart instead of
+  asking again and again, and lists apps once allowed
+- 🧪 Desktop keeps the old "Join voice" screen; phones get the people list and a big Join button
+- 🧪 Muted for you: a corner badge on the tile and "Unmute (muted for you)" in its menu, for people and streams
+- 🧪 "Hide people without video" hides you too
+- 🧪 DM call preview: bigger by default, more room above the profile, the banner blurred behind it, resize from the
+  left edge and the corner (no icon), bigger pictures
+- 🧪 Phones: the call's controls are a sheet you pull up (soundboard, mic, screen share, camera, hang up; pulled up:
+  deafen, video only, full screen, picture in picture, call settings, who's in the call); chat is a small button
+  top right
+- 🧪 Android picture-in-picture shows the stream, or who's talking, instead of the squashed app
+- 🧪 Phones and tablets: touch and hold someone in a call (tile or list) for a card with their options (volume,
+  mute for me, their stream, focus, profile), like right-click on desktop
+
+### Activity
+- 🧪 Mac no longer shows "Playing Minecraft" for any Java program (shared runtimes like java, python, node and
+  electron only count with the game's own folder)
+- 🧪 Rich Presence like Discord's: "Listening to" / "Watching", song progress bar, small picture, hover text, and up
+  to two buttons (https links only; the sync server 1.3.0 keeps them)
+
+### Android
+- 🧪 Updates install over the old version: the signing key now lives in your home folder (~/.mustela/android-signing),
+  shared by every copy of the source, and the version code counts the build number (0.1.3-build5 → 103005)
+- 🧪 The build asks for the Android package name (default app.mustela.client; a different one installs alongside)
+- 🧪 Calls use the Web engine (video) by default
+- 🧪 First open on a phone or tablet asks to turn on notifications
+- 🧪 Android's font size no longer blows up the layout (Mustela's own text size setting stays)
+
+### Phones and tablets
+- 🧪 Settings, the profile editor and pop-ups keep clear of the status bar and the gesture bar / nav buttons
+- 🧪 Touch sizes everywhere on touch screens (buttons, switches, rows, menus)
+- 🧪 Settings rows put the label above the controls on phones, so nothing overlaps
+- 🧪 Profile editor: one full window that scrolls like Settings (preview, then the options)
+- 🧪 Profile cards open a little way down; scrolling up pushes them to the top, full screen. Full profiles scroll
+  as one page with the tabs underneath
+- 🧪 Tablets: upright, closer to phones (full-screen settings, cards from the bottom); sideways, the desktop layout,
+  touch-sized
+
+### Look, profiles, chat
+- 🧪 New accounts start gray and dark, like Stoat (existing looks unchanged)
+- 🧪 Gradient themes (Sunset, Ocean, Aurora…) with a "Gradient on windows" strength slider
+- 🧪 Backgrounds: plain, stars, gradient, picture; the picture can be blurred; "Panel see-through" lets it show
+- 🧪 Custom folder colour
+- 🧪 Friends no longer show an add-friend icon; the full profile has the "More" menu
+- 🧪 Pronouns (Stoat's own field): a bubble next to the name, edited in the profile editor
+- 🧪 Message hover bar no longer cut off at the top of the chat
+- 🧪 Single-emoji messages a bit bigger (not sticker size)
+- 🧪 "Mark as unread" on messages (that message included), like Stoat's
+- 🧪 Profile animations play on Windows with "Animation effects" off (following the system's reduce motion is now a
+  choice in Performance)
+
+### Updates
+- 🧪 Updates read the version from the release's file names, not the tag, and pick the newest of all releases;
+  build10 counts as newer than build9; the Windows installer restarts Mustela when done
+
+### Added for build6
+- 🧪 Phones: the inbox button is gone from the top bar (it's on the bottom card); "Add friends to DM" hidden on
+  phones (tablets keep it); the user-profile button opens their card (the one that slides up) instead of a side panel
+- 🧪 Search works on phones (its own search box in the panel) and is quicker (authors come with the results)
+- 🧪 Search filters: From (anyone in the results), Has (media, a link, a file); tabs for Messages, Media (a gallery),
+  Links (link cards) and Files, from recent history (Stoat's search only matches words)
+- 🧪 Tapping a result shows it in context with a "Jump to message" button at the bottom
+- 🧪 Favorites open right where they're listed, without switching to their server
+- 🧪 Your own favorites categories (name, colour, order; drag channels between them), synced
+- 🧪 Option: Favorites as a button under Home that opens like a server with just your favorites
+- 🧪 Panel see-through actually works (it was stuck at 90%); "Blur behind panels" switch; up to 85% see-through
+- 🧪 Accent colour from your background picture (a picture swatch next to the system one)
+- 🧪 Favorites have their own right-click menu (no "Pin to top"; move to category, remove, mute, open in its server)
+- 🧪 Desktop notifications: "Name (#channel, Server)" with the sender's picture (round on Windows; click opens the
+  chat), picture on Linux and macOS

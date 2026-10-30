@@ -37,7 +37,7 @@ export interface MustelaSettings {
     /** -1 reduced, 0 normal, 0.5 more, 1 high */
     contrast: number;
     /** Accent gradient: primary fills blend into a second color */
-    gradient: { on: boolean; seed2: string; angle: number };
+    gradient: { on: boolean; seed2: string; angle: number; /** 0-100: how much of the gradient tints windows and panels */ windows: number };
   };
   /** Starred GIFs (Gifbox links), newest first */
   favGifs: FavGif[];
@@ -62,7 +62,7 @@ export interface MustelaSettings {
 
 export const DEFAULT_SETTINGS: MustelaSettings = {
   v: 3,
-  look: { theme: DEFAULT_THEME, seed: "#1a9bb0", mode: "auto", amoled: false, variant: "vibrant", contrast: 0, gradient: { on: false, seed2: "#a05cf0", angle: 135 } },
+  look: { theme: DEFAULT_THEME, seed: "#6b7480", mode: "dark", amoled: false, variant: "neutral", contrast: 0, gradient: { on: false, seed2: "#a05cf0", angle: 135, windows: 35 } },
   favGifs: [],
   sounds: [],
   locale: { time: "auto", date: "auto" },
@@ -103,9 +103,10 @@ export function sanitize(raw: unknown): MustelaSettings {
       seed,
       mode: l.mode === "light" || l.mode === "dark" || l.mode === "auto" ? l.mode : d.look.mode,
       amoled: l.amoled === true,
-      variant: (VARIANTS as readonly unknown[]).includes(l.variant) ? (l.variant as Variant) : d.look.variant,
+      // Saved looks from before the gray default keep the old fallback, so nobody's colours shift.
+      variant: (VARIANTS as readonly unknown[]).includes(l.variant) ? (l.variant as Variant) : Object.keys(l).length ? "vibrant" : d.look.variant,
       contrast: (CONTRASTS as readonly unknown[]).includes(l.contrast) ? (l.contrast as number) : d.look.contrast,
-      gradient: { on: g.on === true, seed2: hexOr(g.seed2, d.look.gradient.seed2), angle: int(g.angle, 0, 360, d.look.gradient.angle) },
+      gradient: { on: g.on === true, seed2: hexOr(g.seed2, d.look.gradient.seed2), angle: int(g.angle, 0, 360, d.look.gradient.angle), windows: int(g.windows, 0, 100, d.look.gradient.windows) },
     },
     favGifs: Array.isArray(r.favGifs) ? (r.favGifs as any[]).filter((f) => f && typeof f.url === "string" && /^https:\/\//.test(f.url) && typeof f.preview === "string" && /^(https:\/\/|data:image\/)/.test(f.preview))
       .slice(0, 100).map((f) => ({ url: f.url.slice(0, 500), preview: f.preview.slice(0, 4000), still: typeof f.still === "string" && /^https:\/\//.test(f.still) ? f.still.slice(0, 500) : undefined, w: int(f.w, 1, 4096, 0) || undefined, h: int(f.h, 1, 4096, 0) || undefined })) : [],

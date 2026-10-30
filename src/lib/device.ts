@@ -42,7 +42,7 @@ export interface DeviceSettings {
   /** classic = iOS 6 bevels and gloss on top of Material You; flat = plain Material You */
   style: Style;
   /** theme = the chosen/custom seed; system = OS accent / Android dynamic color */
-  colorSource: "theme" | "system";
+  colorSource: "theme" | "system" | "picture";
   material: Material;
   /** Surface opacity 40-100 when a material is active */
   opacity: number;
@@ -59,7 +59,13 @@ export interface DeviceSettings {
   /** Flash the taskbar / dock badge for unread mentions */
   badge: boolean;
   /** What's drawn behind the panels: a starfield, a plain color, or your own picture */
-  backdrop: "stars" | "plain" | "image";
+  backdrop: "stars" | "plain" | "gradient" | "image";
+  /** The picture behind the panels, blurred */
+  backdropBlur: boolean;
+  /** How solid the panels are over a picture or gradient (15-100): lower lets more of it through */
+  panelOpacity: number;
+  /** Frosted blur behind the panels over a picture or gradient */
+  panelBlur: boolean;
   /** Microphone, speakers, camera and processing (Settings > Voice & Video) */
   voice: VoicePrefs;
   /** Game detection and Discord Rich Presence (desktop) */
@@ -95,14 +101,16 @@ export interface PerfPrefs {
   gifs: boolean;
   /** Blur behind menus, settings and pop-ups */
   blur: boolean;
+  /** Hold everything still when the system asks for less motion (Windows' "Animation effects" off, and the like) */
+  systemMotion: boolean;
 }
 /** Linux's WebKitGTK is the slowest engine at blur and canvas, and some GPU drivers crash with it, so it starts lighter. */
 const isLinux = () => typeof navigator !== "undefined" && /Linux|X11/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
-export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "full", lighterInCalls: true, background: false, gifs: true, blur: !isLinux() });
+export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "full", lighterInCalls: true, background: false, gifs: true, blur: !isLinux(), systemMotion: false });
 
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
-  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "native", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "stars", voice: { ...DEFAULT_VOICE_PREFS },
+  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, voice: { ...DEFAULT_VOICE_PREFS },
 };
 
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
@@ -116,7 +124,7 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     density: oneOf(r.density, ["compact", "default", "comfy"], d.density),
     layout: oneOf(r.layout, ["cozy", "compact"], d.layout),
     style: oneOf(r.style, ["classic", "flat"], d.style),
-    colorSource: oneOf(r.colorSource, ["theme", "system"], d.colorSource),
+    colorSource: oneOf(r.colorSource, ["theme", "system", "picture"], d.colorSource),
     material: oneOf(r.material, ["none", "mica", "acrylic", "blur", "vibrancy"], d.material),
     opacity: typeof r.opacity === "number" && Number.isFinite(r.opacity) ? Math.min(100, Math.max(40, Math.round(r.opacity))) : d.opacity,
     showMembers: r.showMembers !== false,
@@ -137,6 +145,7 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
         background: typeof p.background === "boolean" ? p.background : d0.background,
         gifs: typeof p.gifs === "boolean" ? p.gifs : d0.gifs,
         blur: typeof p.blur === "boolean" ? p.blur : d0.blur,
+        systemMotion: typeof p.systemMotion === "boolean" ? p.systemMotion : d0.systemMotion,
       };
     })(),
     titleBar: oneOf(r.titleBar, ["mustela", "system"], d.titleBar),
@@ -151,7 +160,10 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
       detect: (r.activity as any)?.detect !== false, rpc: (r.activity as any)?.rpc !== false, share: (r.activity as any)?.share !== false,
       hidden: Array.isArray((r.activity as any)?.hidden) ? ((r.activity as any).hidden as unknown[]).filter((x): x is string => typeof x === "string" && x.length < 200).slice(0, 200) : [],
     },
-    backdrop: oneOf(r.backdrop, ["stars", "plain", "image"], d.backdrop),
+    backdrop: oneOf(r.backdrop, ["stars", "plain", "gradient", "image"], d.backdrop),
+    backdropBlur: r.backdropBlur === true,
+    panelBlur: r.panelBlur !== false,
+    panelOpacity: typeof r.panelOpacity === "number" && Number.isFinite(r.panelOpacity) ? Math.round(Math.min(100, Math.max(15, r.panelOpacity))) : d.panelOpacity,
     voice: sanitizeVoice(r.voice),
     collapsed: Array.isArray(r.collapsed) ? r.collapsed.filter((x): x is string => typeof x === "string").slice(0, 200) : [],
   };

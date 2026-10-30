@@ -50,6 +50,14 @@ fn os_key() -> &'static str {
     if cfg!(target_os = "windows") { "win32" } else if cfg!(target_os = "macos") { "darwin" } else { "linux" }
 }
 
+/// Program names shared by many apps; they never identify a game on their own.
+const GENERIC: &[&str] = &[
+    "java", "javaw", "java.exe", "javaw.exe", "python", "python3", "python.exe", "pythonw.exe", "node", "node.exe",
+    "electron", "electron.exe", "wine", "wine64", "wine-preloader", "wine64-preloader", "mono", "dotnet", "dotnet.exe",
+    "ruby", "lua", "love", "love.exe", "bash", "sh", "cmd.exe", "conhost.exe", "launcher", "launcher.exe", "game", "game.exe",
+    "main", "main.exe", "start", "start.exe", "app", "app.exe", "run", "run.exe", "steam", "steam.exe", "chrome", "chrome.exe",
+];
+
 fn parse_list(v: &Value) -> Vec<Game> {
     let os = os_key();
     v.as_array().map(|a| a.iter().filter_map(|g| {
@@ -59,7 +67,15 @@ fn parse_list(v: &Value) -> Vec<Game> {
             if e.get("os").and_then(|o| o.as_str()) != Some(os) { return None; }
             if e.get("is_launcher").and_then(|b| b.as_bool()) == Some(true) { return None; }
             let n = e.get("name")?.as_str()?.trim_start_matches('>').to_lowercase().replace('\\', "/");
-            if n.len() < 3 { None } else { Some(n) }
+            if n.len() < 3 { return None; }
+            // A bare runtime ("java", "python", "node"…) is running for all sorts of reasons (build tools,
+            // background helpers), so it only counts with the game's own folder in front of it.
+            let file = n.rsplit('/').next().unwrap_or(&n);
+            if GENERIC.contains(&file) {
+                const PLAIN: &[&str] = &["", ".", "bin", "lib", "jre", "jdk", "home", "contents", "macos", "jre.bundle", "runtime", "x64", "x86", "win64", "win32"];
+                if n.split('/').rev().skip(1).all(|seg| PLAIN.contains(&seg)) { return None; }
+            }
+            Some(n)
         }).collect();
         if exes.is_empty() { return None; }
         let icon = g.get("icon").and_then(|i| i.as_str()).map(|h| format!("https://cdn.discordapp.com/app-icons/{id}/{h}.png?size=128"));
@@ -203,11 +219,26 @@ async fn to_activity<R: Runtime>(app: &AppHandle<R>, client_id: &str, a: &Value)
     let mut image = None;
     if let Some(k) = a.pointer("/assets/large_image").and_then(|k| k.as_str()) { image = asset_url(app, client_id, k).await; }
     if image.is_none() { image = game.and_then(|g| g.icon.clone()); }
+    let end = a.pointer("/timestamps/end").and_then(|t| t.as_u64()).map(|t| if t < 1_000_000_000_000 { t * 1000 } else { t });
+    let small = match a.pointer("/assets/small_image").and_then(|k| k.as_str()) { Some(k) => asset_url(app, client_id, k).await, None => None };
+    let text = |p: &str| a.pointer(p).and_then(|v| v.as_str()).map(|s| s.chars().take(128).collect::<String>());
+    // Buttons: games send [{label, url}]; through Discord they come back as labels plus metadata.button_urls.
+    let urls: Vec<&str> = a.pointer("/metadata/button_urls").and_then(|v| v.as_array()).map(|v| v.iter().filter_map(|u| u.as_str()).collect()).unwrap_or_default();
+    let buttons: Vec<Value> = a.get("buttons").and_then(|b| b.as_array()).map(|b| b.iter().enumerate().filter_map(|(i, x)| {
+        let (label, url) = match x {
+            Value::String(l) => (l.as_str(), *urls.get(i)?),
+            _ => (x.get("label")?.as_str()?, x.get("url")?.as_str()?),
+        };
+        if !url.starts_with("https://") || label.trim().is_empty() { return None; }
+        Some(json!({ "label": label.chars().take(32).collect::<String>(), "url": url.chars().take(512).collect::<String>() }))
+    }).take(2).collect()).unwrap_or_default();
     Some(json!({
         "kind": kind, "name": name,
-        "details": a.get("details").and_then(|v| v.as_str()),
-        "state": a.get("state").and_then(|v| v.as_str()),
-        "startedAt": start, "image": image, "appId": client_id,
+        "details": text("/details"),
+        "state": text("/state"),
+        "startedAt": start, "endsAt": end, "image": image, "appId": client_id,
+        "largeText": text("/assets/large_text"), "smallImage": small, "smallText": text("/assets/small_text"),
+        "buttons": if buttons.is_empty() { Value::Null } else { Value::Array(buttons) },
     }))
 }
 

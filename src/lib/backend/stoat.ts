@@ -1,3 +1,4 @@
+import { ulidBefore } from "../ulid";
 import type { ServerLooks } from "../profile/servers";
 import { Client } from "stoat.js";
 import type { VoicePresence, AccountApi, BotRow, MfaProof,
@@ -40,6 +41,7 @@ export function personOf(u: any, fallbackId = "?", member?: any): Person {
     status: u.status?.text ?? undefined,
     badges: badgeNames(u.badges ?? 0),
     bot: !!u.bot,
+    pronouns: (member?.pronouns || u.pronouns || undefined)?.slice(0, 32),
     colour: member?.roleColour ?? undefined,
     relation: ({ Friend: "friend", Incoming: "incoming", Outgoing: "outgoing", Blocked: "blocked", User: "self", BlockedOther: "none" } as const)[u.relationship as string] ?? "none",
   };
@@ -440,6 +442,12 @@ export class StoatBackend implements ChatBackend {
     return out;
   }
   ack(channelId: string) { const ch: any = this.client.channels.get(channelId); if (ch?.unread) void ch.ack().catch?.(() => {}); }
+  markUnread(channelId: string, messageId: string) {
+    const ch: any = this.client.channels.get(channelId);
+    // Read up to just before this message: the smallest id from one millisecond earlier. The last flag
+    // stops the open conversation from marking it read again straight away (Stoat's own client does the same).
+    if (ch) void Promise.resolve(ch.ack(ulidBefore(messageId), true, false, true)).catch(() => {});
+  }
 
   onEvent(cb: (e: ChatEvent) => void) {
     const c: any = this.client;
@@ -540,8 +548,9 @@ export class StoatBackend implements ChatBackend {
   createServer(name: string, description?: string) { return this.wrap(async () => ((await (this.client as any).servers.createServer({ name, ...(description ? { description } : {}) })) as any).id as string, "create the server"); }
   async search(cid: string, query: string) {
     const ch: any = this.client.channels.get(cid);
-    const r: any[] = await this.wrap(() => ch.search({ query, sort: "Relevance", limit: 50 }), "search");
-    return r.map((m) => this.toMsg(m));
+    // Authors come in the same answer, so results don't wait on a lookup per person; newest first, like Discord.
+    const r: any = await this.wrap(() => (ch.searchWithUsers ? ch.searchWithUsers({ query, sort: "Latest", limit: 50 }) : ch.search({ query, sort: "Latest", limit: 50 })), "search");
+    return ((Array.isArray(r) ? r : r.messages) as any[]).map((m) => this.toMsg(m));
   }
   async pinned(cid: string) {
     const ch: any = this.client.channels.get(cid);
@@ -825,6 +834,7 @@ export class StoatBackend implements ChatBackend {
     if (p.avatar === null) remove.push("Avatar");
     else if (p.avatar) body.avatar = await this.client.uploadFile("avatars", p.avatar);
     if (p.bio !== undefined) { if (p.bio.trim()) body.profile = { ...body.profile, content: p.bio }; else remove.push("ProfileContent"); }
+    if (p.pronouns !== undefined) { if (p.pronouns.trim()) body.pronouns = p.pronouns.trim().slice(0, 32); else remove.push("Pronouns"); }
     if (p.banner === null) remove.push("ProfileBackground");
     else if (p.banner) body.profile = { ...body.profile, background: await this.client.uploadFile("backgrounds", p.banner) };
     if (p.status !== undefined || p.presence !== undefined) {

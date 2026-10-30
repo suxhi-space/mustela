@@ -79,6 +79,16 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     onCleanup(() => { alive = false; });
   }));
 
+  // "Mark as unread" on a message here: the New line goes right above it.
+  const onMarkUnread = (e: Event) => {
+    const d = (e as CustomEvent<{ channelId: string; messageId: string }>).detail;
+    if (d?.channelId !== id()) return;
+    const list = msgs(), i = list.findIndex((m) => m.id === d.messageId);
+    if (i > 0) batch(() => { setSince(list[i - 1]!.id); setSinceBar(true); });
+  };
+  addEventListener("mustela:mark-unread", onMarkUnread);
+  onCleanup(() => removeEventListener("mustela:mark-unread", onMarkUnread));
+
   /** The first message after where you'd read, if it's loaded. */
   const firstNew = createMemo(() => {
     const mk = since();

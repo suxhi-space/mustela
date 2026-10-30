@@ -42,10 +42,12 @@ export interface Gates {
   background: boolean;
   /** Highest pixel density to draw at */
   maxDpr: number;
+  /** Follow the system's "reduce motion" (off by default: Windows turns it on with its own animation effects) */
+  systemMotion: boolean;
 }
 
 export const MAX_ACTIVE = 10;
-const gates: Gates = { mode: "full", fps: 30, background: false, maxDpr: 2 };
+const gates: Gates = { mode: "full", fps: 30, background: false, maxDpr: 2, systemMotion: false };
 
 interface Entry {
   draw(t: number): void;
@@ -60,9 +62,10 @@ const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: re
 
 /** May anything move right now? */
 function allowed() {
-  if (gates.mode === "off" || reducedMotion()) return false;
+  if (gates.mode === "off" || (gates.systemMotion && reducedMotion())) return false;
   if (typeof document !== "undefined" && document.hidden) return false;
-  return focused || gates.background;
+  // The page's own focus counts too, in case the window's focus report was missed.
+  return focused || gates.background || (typeof document !== "undefined" && document.hasFocus());
 }
 
 function tick(now: number) {
@@ -88,6 +91,8 @@ function wake() {
 if (typeof addEventListener === "function") {
   addEventListener("focus", () => { focused = true; wake(); });
   addEventListener("blur", () => { focused = false; });
+  // Touching the window means it's in front, whatever the last focus report said.
+  addEventListener("pointerdown", () => { if (!focused) { focused = true; wake(); } }, true);
   addEventListener("visibilitychange", () => wake());
 }
 

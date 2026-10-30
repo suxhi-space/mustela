@@ -85,6 +85,12 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
      */
     override fun load(webView: WebView) {
         super.load(webView)
+        // Mustela has its own text size setting and a layout made for 100%; Android's font scale on top of
+        // it made everything too big and cut off. Layout stays at 100%, the system scale just nudges the
+        // page's base size (--font-scale) a little.
+        val fontScale = activity.resources.configuration.fontScale
+        webView.settings.textZoom = 100
+        webView.post { webView.evaluateJavascript("document.documentElement.style.setProperty('--font-scale','${fontScale.coerceIn(0.85f, 1.3f)}')", null) }
         val density = activity.resources.displayMetrics.density
         ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())

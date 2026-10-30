@@ -95,7 +95,7 @@ export function EmojiPicker() {
   );
 }
 
-/* ---------- GIF picker (Gifbox), with starred favourites that sync through settings ---------- */
+/* ---------- GIF picker (Gifbox), with starred favorites that sync through settings ---------- */
 
 type GifReq = { x: number; y: number; onPick(url: string): void };
 const [gifReq, setGifReq] = createSignal<GifReq | null>(null);
@@ -122,7 +122,7 @@ function GifTile(props: { g: FavGif; onPick(): void }) {
           <video ref={play} src={props.g.preview} muted playsinline preload="metadata" onError={() => props.g.still && setFailed(true)} />
         </Show>
       </button>
-      <button class="gif-star" classList={{ on: isFav(props.g.url) }} aria-pressed={isFav(props.g.url)} aria-label={isFav(props.g.url) ? "Remove from favourites" : "Add to favourites"}
+      <button class="gif-star" classList={{ on: isFav(props.g.url) }} aria-pressed={isFav(props.g.url)} aria-label={isFav(props.g.url) ? "Remove from favorites" : "Add to favorites"}
         onClick={() => toggleFav(props.g)}><Icon name="star" size={16} /></button>
     </div>
   );
@@ -155,7 +155,7 @@ export function GifPicker() {
             </div>
             <Show when={!deb()}>
               <div class="seg gif-tabs" role="tablist">
-                <button role="tab" classList={{ on: tab() === "fav" }} aria-selected={tab() === "fav"} onClick={() => setTab("fav")}><Icon name="star" size={14} /> Favourites</button>
+                <button role="tab" classList={{ on: tab() === "fav" }} aria-selected={tab() === "fav"} onClick={() => setTab("fav")}><Icon name="star" size={14} /> Favorites</button>
                 <button role="tab" classList={{ on: tab() === "browse" }} aria-selected={tab() === "browse"} onClick={() => setTab("browse")}>Browse</button>
               </div>
             </Show>
@@ -168,7 +168,7 @@ export function GifPicker() {
                     <Show when={cats.state === "ready" && !cats()?.length}><p class="empty small">GIFs come from Gifbox, which is only available on stoat.chat accounts.</p></Show>
                   </div>
                 }>
-                  <Show when={settings().favGifs.length} fallback={<p class="empty small">Star a GIF to keep it here. Favourites follow your account to every device.</p>}>
+                  <Show when={settings().favGifs.length} fallback={<p class="empty small">Star a GIF to keep it here. Favorites follow your account to every device.</p>}>
                     <div class="gif-grid"><For each={settings().favGifs}>{(g) => <GifTile g={g} onPick={() => pick(g.url)} />}</For></div>
                   </Show>
                 </Show>

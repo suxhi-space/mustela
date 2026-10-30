@@ -12,20 +12,22 @@ export type MenuItem =
   | { custom: () => JSX.Element };
 
 /** `doc`: the window it was opened in (the call pop-out draws its own menus). */
-type Open = { x: number; y: number; items: MenuItem[]; doc: Document; width?: number };
+type Open = { x: number; y: number; items: MenuItem[]; doc: Document; width?: number; sheet?: boolean; head?: () => JSX.Element };
 const [menu, setMenu] = createSignal<Open | null>(null);
 
 /** Opens a menu at the pointer (or under an element). Returns false so it can end an event handler. */
 /** `width`: at least this wide (a dropdown's menu matches its button). */
-export function openMenu(at: MouseEvent | Element, items: MenuItem[], opts: { width?: number } = {}) {
+/** `sheet`: phones, a card that comes up from the bottom (with `head` drawn at its top) instead of a small menu. */
+export function openMenu(at: MouseEvent | Element, items: MenuItem[], opts: { width?: number; sheet?: boolean; head?: () => JSX.Element } = {}) {
   const clean = items.filter((it, i, a) => !("sep" in it) || (i > 0 && i < a.length - 1 && !("sep" in a[i - 1]!)));
-  if ("getBoundingClientRect" in at) { const r = at.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: clean, doc: at.ownerDocument, width: opts.width }); }
-  else { at.preventDefault(); at.stopPropagation(); setMenu({ x: at.clientX, y: at.clientY, items: clean, doc: (at.target as Node | null)?.ownerDocument ?? document }); }
+  const extra = { sheet: opts.sheet, head: opts.head };
+  if ("getBoundingClientRect" in at) { const r = at.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: clean, doc: at.ownerDocument, width: opts.width, ...extra }); }
+  else { at.preventDefault(); at.stopPropagation(); setMenu({ x: at.clientX, y: at.clientY, items: clean, doc: (at.target as Node | null)?.ownerDocument ?? document, ...extra }); }
   return false;
 }
 export const closeMenu = () => setMenu(null);
 
-function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolean; width?: number }) {
+function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolean; width?: number; sheet?: boolean; head?: () => JSX.Element }) {
   let el!: HTMLDivElement;
   const [pos, setPos] = createSignal({ left: props.x, top: props.y });
   const [openSub, setOpenSub] = createSignal<{ i: number; x: number; y: number } | null>(null);
@@ -47,8 +49,10 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
   };
   return (
     <>
-    <div ref={el} class="ctx panel" role="menu" style={{ left: `${pos().left}px`, top: `${pos().top}px`, ...(props.width ? { "min-width": `${props.width}px`, "max-width": `${Math.max(280, props.width)}px` } : {}) }} onKeyDown={keys} onClick={(e) => e.stopPropagation()}
+    <div ref={el} class="ctx panel" classList={{ "ctx-sheet": !!props.sheet }} role="menu" style={props.sheet ? {} : { left: `${pos().left}px`, top: `${pos().top}px`, ...(props.width ? { "min-width": `${props.width}px`, "max-width": `${Math.max(280, props.width)}px` } : {}) }} onKeyDown={keys} onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}>
+      <Show when={props.sheet}><span class="ctx-grab" aria-hidden="true" /></Show>
+      <Show when={props.head}>{(h) => h()()}</Show>
       <For each={props.items}>{(it, i) => {
         if ("sep" in it) return <div class="ctx-sep" role="separator" />;
         if ("header" in it) return <div class="ctx-head">{it.header}</div>;
@@ -89,7 +93,7 @@ export function ContextMenu(props: { win?: Window }) {
   return (
     <Show when={menu()?.doc === w().document ? menu() : null}>{(m) => { useBack(closeMenu); return (
       <div class="ctx-scrim" onClick={closeMenu} onContextMenu={(e) => { e.preventDefault(); closeMenu(); }} onWheel={closeMenu}>
-        <MenuList items={m().items} x={m().x} y={m().y} width={m().width} />
+        <MenuList items={m().items} x={m().x} y={m().y} width={m().width} sheet={m().sheet} head={m().head} />
       </div>
     ); }}</Show>
   );

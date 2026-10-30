@@ -20,11 +20,12 @@ export function startPerf() {
       const streaming = inCall && (call.on().screen || call.streams().some((s) => s.watching));
       let fps = p.anim === "reduced" ? 15 : 30;
       if (p.lighterInCalls && inCall) fps = Math.min(fps, streaming ? 10 : 20);
-      setGates({ mode: p.anim, fps, background: p.background, maxDpr: p.anim === "reduced" || streaming ? 1 : 2 });
+      setGates({ mode: p.anim, fps, background: p.background, maxDpr: p.anim === "reduced" || streaming ? 1 : 2, systemMotion: p.systemMotion });
       const root = document.documentElement;
       root.toggleAttribute("data-noblur", !p.blur);
       root.toggleAttribute("data-still-gifs", !p.gifs);
       root.dataset.anim = p.anim;
+      root.toggleAttribute("data-reduce-motion", p.systemMotion && matchMedia("(prefers-reduced-motion: reduce)").matches);
     });
   });
   // The desktop shell knows reliably when the window loses focus (a game in front), even in a pop-out.

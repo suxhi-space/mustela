@@ -9,6 +9,7 @@
  * Options:
  *   --version 1.2.3    the version to stamp on this build (asked if not given)
  *   --repo owner/repo  the GitHub repository the app checks for updates (a github.com link works too; "none" turns it off)
+ *   --package a.b.c    Android only: the app's package name (asked if not given; default app.mustela.client)
  *   --debug            debug build (faster to compile, slower to run)
  *   --bundles a,b      desktop installer types (default per platform, see below)
  *   --skip-install     don't run npm install
@@ -126,7 +127,8 @@ async function askRelease() {
   let version = opt("version") ?? process.env.MUSTELA_VERSION;
   let repo = opt("repo") ?? process.env.MUSTELA_UPDATE_REPO;
   const interactive = !YES && process.stdin.isTTY;
-  if (interactive && (version === undefined || repo === undefined)) {
+  let androidId = platform === "android" ? (opt("package") ?? process.env.MUSTELA_ANDROID_ID) : undefined;
+  if (interactive && (version === undefined || repo === undefined || (platform === "android" && androidId === undefined))) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     if (version === undefined) version = (await rl.question(`\nVersion for this build [${VERSION}]: `)).trim() || VERSION;
     if (repo === undefined) {
@@ -134,7 +136,17 @@ async function askRelease() {
       console.log(dim("  The app checks this repository's GitHub releases for updates. Type none to turn update checks off."));
       repo = (await rl.question(`GitHub repository or link${def ? ` [${def}]` : ""}: `)).trim() || def;
     }
+    if (platform === "android" && androidId === undefined) {
+      const def = prefs.androidId ?? DEFAULT_ANDROID_ID;
+      console.log(dim("  The app's id on Android. Keep it the same to update an installed Mustela; a different one installs alongside it."));
+      androidId = (await rl.question(`Android package name [${def}]: `)).trim() || def;
+    }
     rl.close();
+  }
+  if (platform === "android") {
+    androidId = (androidId || prefs.androidId || DEFAULT_ANDROID_ID).toLowerCase();
+    if (!ANDROID_ID.test(androidId)) fail(`"${androidId}" isn't a package name.`, "Use two or more lowercase parts with dots, like app.mustela.client or com.yourname.mustela (letters, numbers and _ only, each part starting with a letter).");
+    ANDROID_PACKAGE = androidId;
   }
   version = version || VERSION;
   if (!SEMVER.test(version)) fail(`"${version}" isn't a version number.`, "Use three numbers like 0.2.0, optionally with a suffix like 0.2.0-beta.1 or 0.2.0-build.2 (four numbers like 0.1.3.7 aren't allowed).");
@@ -144,9 +156,29 @@ async function askRelease() {
   VERSION = version;
   UPDATE_REPO = parsed;
   stampVersion(version);
-  try { writeFileSync(BUILD_PREFS, JSON.stringify({ repo: parsed }, null, 2) + "\n"); } catch {}
+  try { writeFileSync(BUILD_PREFS, JSON.stringify({ ...prefs, repo: parsed, ...(ANDROID_PACKAGE ? { androidId: ANDROID_PACKAGE } : {}) }, null, 2) + "\n"); } catch {}
   ok(`Version ${version}`);
   ok(UPDATE_REPO ? `Updates from github.com/${UPDATE_REPO}/releases` : "Update checks off");
+  if (ANDROID_PACKAGE) ok(`Android package ${ANDROID_PACKAGE} (version code ${androidVersionCode(version)})`);
+}
+
+const DEFAULT_ANDROID_ID = "app.mustela.client";
+const ANDROID_ID = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
+let ANDROID_PACKAGE = "";
+
+/** Android only updates an app to a higher version code, and Tauri's own ignores the suffix (build3 and
+ * build4 would both be 0.1.3), so the suffix's number counts too: 0.1.3-build5 → 103005. */
+function androidVersionCode(v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)(?:-(.*))?$/.exec(v);
+  const build = m[4] ? Math.min(999, +(/(\d+)(?!.*\d)/.exec(m[4])?.[1] ?? 0)) : 999; // a plain release sorts after its betas
+  return +m[1] * 10_000_000 + Math.min(99, +m[2]) * 100_000 + Math.min(99, +m[3]) * 1000 + build;
+}
+
+/** Android-only settings Tauri merges over tauri.conf.json: the package name and the version code. */
+function writeAndroidConf() {
+  const p = join(TAURI, "tauri.android.conf.json");
+  const j = { identifier: ANDROID_PACKAGE, bundle: { android: { versionCode: androidVersionCode(VERSION) } } };
+  writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
 }
 
 /** Writes the version everywhere it lives, so the installer, the app and Android's versionCode agree. */
@@ -264,7 +296,17 @@ function buildDesktop(platform) {
 
 /** A personal signing key, created once, so release APKs install and can be updated. */
 function androidKeystore() {
-  const dir = join(ROOT, ".signing");
+  // Kept in your home folder, not in this copy of the source: every new download or unzip of Mustela
+  // signs with the same key, so the phone accepts it as an update (a new key = "package conflicts").
+  const home = process.env.MUSTELA_SIGNING_DIR || join(os.homedir(), ".mustela", "android-signing");
+  const local = join(ROOT, ".signing");
+  const hasKey = (d) => existsSync(join(d, "keystore.properties"));
+  if (!hasKey(home) && hasKey(local)) {
+    mkdirSync(home, { recursive: true });
+    cpSync(local, home, { recursive: true });
+    ok(`Moved your signing key to ${home} so every copy of Mustela uses it`);
+  }
+  const dir = home;
   const props = join(dir, "keystore.properties");
   if (process.env.ANDROID_KEYSTORE_PATH) {
     return { path: process.env.ANDROID_KEYSTORE_PATH, pass: process.env.ANDROID_KEYSTORE_PASSWORD ?? "", alias: process.env.ANDROID_KEY_ALIAS ?? "mustela", keyPass: process.env.ANDROID_KEY_PASSWORD ?? process.env.ANDROID_KEYSTORE_PASSWORD ?? "" };
@@ -280,7 +322,8 @@ function androidKeystore() {
   must(run("keytool", ["-genkeypair", "-v", "-keystore", path, "-storepass", pass, "-keypass", pass, "-alias", "mustela", "-keyalg", "RSA", "-keysize", "4096", "-validity", "10000", "-dname", "CN=Mustela, O=Mustela"], { quiet: true }),
     "Creating the signing key", "keytool comes with Java. Make sure Java 17+ is installed and on your PATH.");
   writeFileSync(props, `storeFile=release.keystore\nstorePassword=${pass}\nkeyAlias=mustela\nkeyPassword=${pass}\n`);
-  warn(`Saved to ${relative(ROOT, dir)}/. Back this folder up and never commit it: updates must be signed with the same key.`);
+  warn(`Saved to ${dir}. Back this folder up and never share or commit it: updates must be signed with the same key.`);
+  warn("Already have Mustela on your phone from an older build? Copy that build's .signing folder's files into the folder above and build again, or uninstall Mustela on the phone once.");
   return { path, pass, alias: "mustela", keyPass: pass };
 }
 
@@ -311,10 +354,18 @@ async function buildAndroid() {
   await tc.ensureJava();
   const sdk = await tc.ensureAndroidSdk();
   tc.ensureRustTargets(["aarch64-linux-android", "armv7-linux-androideabi", "i686-linux-android", "x86_64-linux-android"]);
+  writeAndroidConf();
   const gen = join(TAURI, "gen", "android");
+  const marker = join(gen, ".mustela-package");
+  const madeFor = existsSync(marker) ? readFileSync(marker, "utf8").trim() : existsSync(gen) ? DEFAULT_ANDROID_ID : "";
+  if (existsSync(gen) && madeFor !== ANDROID_PACKAGE) {
+    step(`Recreating the Android project for ${ANDROID_PACKAGE}`);
+    rmSync(gen, { recursive: true, force: true });
+  }
   if (!existsSync(gen)) {
     step("Creating the Android project (first build only)");
     must(npx(["tauri", "android", "init", "--ci"]), "Android project setup");
+    writeFileSync(marker, ANDROID_PACKAGE + "\n");
   }
   ensureJitpack(gen); // LiveKit's audioswitch lives on JitPack; declared in the project, no ~/.gradle init script needed
   icons(); // after init, so the launcher icons land in the Android project too

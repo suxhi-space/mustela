@@ -29,6 +29,9 @@ export function PerformancePage() {
         <Row label="Keep animating in the background" hint="Off: everything holds still while another window, like a game, is in front.">
           <Switch label="Keep animating in the background" on={p().background} onChange={(background) => set({ background })} />
         </Row>
+        <Row label="Follow the system's reduce motion" hint="On: when your system asks for less motion (like Windows with animation effects off), decorations and effects hold still.">
+          <Switch label="Follow the system's reduce motion" on={p().systemMotion} onChange={(systemMotion) => set({ systemMotion })} />
+        </Row>
       </Group>
       <Group title="Media">
         <Row label="Play GIFs and animated emoji" hint="Off: they show their first frame and play while you point at them. GIFs never play while scrolled out of view.">

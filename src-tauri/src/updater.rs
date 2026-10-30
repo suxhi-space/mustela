@@ -77,7 +77,40 @@ pub fn parse_version(v: &str) -> Option<(u64, u64, u64, Option<String>)> {
 pub fn is_newer(candidate: &str, current: &str) -> bool {
     let (Some(n), Some(o)) = (parse_version(candidate), parse_version(current)) else { return false };
     if (n.0, n.1, n.2) != (o.0, o.1, o.2) { return (n.0, n.1, n.2) > (o.0, o.1, o.2); }
-    match (&n.3, &o.3) { (None, Some(_)) => true, (Some(a), Some(b)) => a > b, _ => false }
+    match (&n.3, &o.3) { (None, Some(_)) => true, (Some(a), Some(b)) => natural_cmp(a, b).is_gt(), _ => false }
+}
+
+/// Compares suffixes with their numbers as numbers: build10 comes after build9, beta.2 after beta.1.
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    fn parts(s: &str) -> Vec<Result<u64, String>> {
+        let mut out = vec![];
+        let mut cur = String::new();
+        for c in s.chars() {
+            if !cur.is_empty() && c.is_ascii_digit() != cur.chars().next().unwrap().is_ascii_digit() { out.push(std::mem::take(&mut cur)); }
+            cur.push(c);
+        }
+        if !cur.is_empty() { out.push(cur); }
+        out.into_iter().map(|p| p.parse::<u64>().map_err(|_| p.to_ascii_lowercase())).collect()
+    }
+    let (pa, pb) = (parts(a), parts(b));
+    for (x, y) in pa.iter().zip(pb.iter()) {
+        let o = match (x, y) {
+            (Ok(x), Ok(y)) => x.cmp(y),
+            (Err(x), Err(y)) => x.cmp(y),
+            (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+            (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+        };
+        if o.is_ne() { return o; }
+    }
+    pa.len().cmp(&pb.len())
+}
+
+/// The version a release really holds, read from its files' names (`Mustela_<version>_<platform>…`),
+/// not from its tag: a tag is just a label someone typed and can say anything.
+pub fn asset_version(name: &str) -> Option<String> {
+    let rest = name.strip_prefix("Mustela_").or_else(|| name.strip_prefix("mustela_"))?;
+    let v = rest.split('_').next()?;
+    parse_version(v).map(|_| v.to_string())
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -91,7 +124,7 @@ pub struct Asset {
 }
 
 #[derive(Deserialize, Debug)]
-struct Release { tag_name: String, html_url: String, #[serde(default)] body: Option<String>, #[serde(default)] draft: bool, #[serde(default)] prerelease: bool, #[serde(default)] assets: Vec<Asset> }
+struct Release { #[serde(default)] tag_name: String, html_url: String, #[serde(default)] body: Option<String>, #[serde(default)] draft: bool, #[serde(default)] prerelease: bool, #[serde(default)] assets: Vec<Asset> }
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -125,28 +158,51 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
-async fn latest(repo: &str) -> Result<Release, String> {
+/// The repository's recent releases, newest first.
+async fn releases(repo: &str) -> Result<Vec<Release>, String> {
     let r = client()?
-        .get(format!("https://api.github.com/repos/{repo}/releases/latest"))
+        .get(format!("https://api.github.com/repos/{repo}/releases?per_page=30"))
         .header("accept", "application/vnd.github+json")
         .timeout(Duration::from_secs(20))
         .send().await.map_err(|_| "Couldn't reach GitHub.".to_string())?;
-    if r.status() == reqwest::StatusCode::NOT_FOUND { return Err(format!("github.com/{repo} has no releases yet.")); }
+    if r.status() == reqwest::StatusCode::NOT_FOUND { return Err(format!("github.com/{repo} can't be found.")); }
     if !r.status().is_success() { return Err(format!("GitHub answered {}.", r.status().as_u16())); }
-    r.json::<Release>().await.map_err(|_| "GitHub's answer didn't make sense.".to_string())
+    r.json::<Vec<Release>>().await.map_err(|_| "GitHub's answer didn't make sense.".to_string())
+}
+
+/// Out of a list of releases, the newest version for this platform: (release, its version, its file).
+/// Each release's version comes from this platform's file name; only when a release has no file named
+/// that way does its tag count. Drafts and pre-releases are skipped.
+fn best<'a>(list: &'a [Release], kind: Kind, arch: &str) -> Option<(&'a Release, String, Option<&'a Asset>)> {
+    let mut found: Option<(&Release, String, Option<&Asset>)> = None;
+    for rel in list.iter().filter(|r| !r.draft && !r.prerelease) {
+        let asset = pick_asset(kind, arch, &rel.assets);
+        let version = asset.and_then(|a| asset_version(&a.name))
+            .or_else(|| rel.assets.iter().find_map(|a| asset_version(&a.name)))
+            .or_else(|| parse_version(&rel.tag_name).map(|_| rel.tag_name.trim().trim_start_matches(['v', 'V']).to_string()));
+        let Some(version) = version else { continue };
+        // A release without a file for this system only counts if nothing better turns up.
+        let better = match &found {
+            None => true,
+            Some((_, v, a)) => is_newer(&version, v) || (version == *v && a.is_none() && asset.is_some()),
+        };
+        if better { found = Some((rel, version, asset)); }
+    }
+    found
 }
 
 /// The newer release for this platform, or None when this copy is up to date.
 pub async fn check() -> Result<Option<(UpdateInfo, Option<Asset>)>, String> {
     let Some(repo) = repo() else { return Err("This build has no update repository.".into()) };
-    let rel = latest(repo).await?;
-    if rel.draft || rel.prerelease || !is_newer(&rel.tag_name, VERSION) { return Ok(None); }
+    let list = releases(repo).await?;
     let kind = Kind::current();
-    let asset = pick_asset(kind, std::env::consts::ARCH, &rel.assets).cloned();
+    let Some((rel, version, asset)) = best(&list, kind, std::env::consts::ARCH) else { return Ok(None) };
+    if !is_newer(&version, VERSION) { return Ok(None); }
+    let asset = asset.cloned();
     let info = UpdateInfo {
-        version: rel.tag_name.trim_start_matches(['v', 'V']).to_string(),
-        notes: rel.body.unwrap_or_default().chars().take(4000).collect(),
-        page: if rel.html_url.starts_with(&format!("https://github.com/{repo}/")) { rel.html_url } else { format!("https://github.com/{repo}/releases/latest") },
+        version,
+        notes: rel.body.clone().unwrap_or_default().chars().take(4000).collect(),
+        page: if rel.html_url.starts_with(&format!("https://github.com/{repo}/")) { rel.html_url.clone() } else { format!("https://github.com/{repo}/releases/latest") },
         file: asset.as_ref().map(|a| a.name.clone()),
         size: asset.as_ref().map_or(0, |a| a.size),
         self_installs: kind.self_installs() && asset.as_ref().is_some_and(|a| a.digest.is_some()),
@@ -194,6 +250,32 @@ mod tests {
         assert!(is_newer("0.2.0", "0.2.0-beta.1"));
         assert!(!is_newer("0.2.0-beta.1", "0.2.0"));
         assert!(!is_newer("nightly", "0.1.0"));
+        assert!(is_newer("0.1.3-build10", "0.1.3-build9"));
+        assert!(is_newer("0.1.3-build5", "0.1.3-build4"));
+        assert!(!is_newer("0.1.3-build4", "0.1.3-build4"));
+    }
+
+    fn rel(tag: &str, files: &[&str]) -> Release {
+        Release { tag_name: tag.into(), html_url: String::new(), body: None, draft: false, prerelease: false, assets: files.iter().map(|n| a(n)).collect() }
+    }
+
+    #[test]
+    fn version_comes_from_the_files_not_the_tag() {
+        // The tag was mistyped as 1.2.3-build4; the files say what it really is.
+        let list = vec![rel("1.2.3-build4", &["Mustela_0.1.3-build4_windows_x64.exe", "Mustela_0.1.3-build4_android_universal.apk"])];
+        let (_, v, f) = best(&list, Kind::WindowsNsis, "x86_64").unwrap();
+        assert_eq!(v, "0.1.3-build4");
+        assert_eq!(f.unwrap().name, "Mustela_0.1.3-build4_windows_x64.exe");
+        assert!(!is_newer(&v, "0.1.3-build4"));
+        // Several releases: the newest version wins whatever order or tags they have.
+        let list = vec![
+            rel("latest", &["Mustela_0.1.3-build5_linux_amd64.AppImage"]),
+            rel("x", &["Mustela_0.1.3-build10_linux_amd64.AppImage"]),
+            rel("v9.9.9", &["Mustela_0.1.2_linux_amd64.AppImage"]),
+        ];
+        assert_eq!(best(&list, Kind::LinuxAppimage, "x86_64").unwrap().1, "0.1.3-build10");
+        assert_eq!(asset_version("Mustela_0.1.3-build4_android_universal.apk").as_deref(), Some("0.1.3-build4"));
+        assert_eq!(asset_version("notes.txt"), None);
     }
 
     #[test]

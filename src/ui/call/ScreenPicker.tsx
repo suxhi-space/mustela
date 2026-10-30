@@ -30,7 +30,14 @@ export function ScreenPickerHost(props: { hidden?: boolean }) {
 function ScreenPicker(props: { done(c: ScreenChoice | null): void }) {
   useBack(() => props.done(null));
   const [tab, setTab] = createSignal<"apps" | "screens">("apps");
-  const [sources, { refetch }] = createResource(async () => (await import("../../lib/voice/capture")).listSources(true).catch(() => [] as ScreenSource[]));
+  // macOS: without Screen Recording permission, asking for pictures only pops macOS's permission window.
+  const [permitted, { refetch: recheck }] = createResource(async () => {
+    if (platform !== "mac") return true;
+    try { const { invoke } = await import("@tauri-apps/api/core"); return await invoke<boolean>("screen_permission"); } catch { return true; }
+  });
+  const ask = async () => { const { invoke } = await import("@tauri-apps/api/core"); await invoke("screen_permission_request").catch(() => {}); void recheck(); };
+  const restart = async () => { const { invoke } = await import("@tauri-apps/api/core"); await invoke("relaunch").catch(() => {}); };
+  const [sources, { refetch }] = createResource(permitted, async (ok) => (ok ? (await import("../../lib/voice/capture")).listSources(true).catch(() => [] as ScreenSource[]) : [] as ScreenSource[]));
   // Previews stay current while the picker is open, without hammering slow machines.
   const t = setInterval(() => void refetch(), 4000);
   onCleanup(() => clearInterval(t));
@@ -67,7 +74,14 @@ function ScreenPicker(props: { done(c: ScreenChoice | null): void }) {
           <button role="tab" aria-selected={tab() === "apps"} classList={{ on: tab() === "apps" }} onClick={() => setTab("apps")}>Applications</button>
           <button role="tab" aria-selected={tab() === "screens"} classList={{ on: tab() === "screens" }} onClick={() => setTab("screens")}>Screens</button>
         </nav>
-        <div class="sp-grid">
+        <Show when={permitted() === false}>
+          <div class="sp-perm">
+            <Icon name="screen" size={28} />
+            <p><strong>Mustela needs permission to record your screen.</strong><br />Turn on Mustela in System Settings, Privacy & Security, Screen & System Audio Recording. macOS only applies it after Mustela restarts.</p>
+            <div class="dialog-actions start"><button class="btn primary" onClick={() => void ask()}>Open System Settings</button><button class="btn" onClick={() => void restart()}>Restart Mustela</button></div>
+          </div>
+        </Show>
+        <div class="sp-grid" classList={{ hidden: permitted() === false }}>
           <Show when={sources()} fallback={<div class="loading-row"><div class="spinner small" /></div>}>
             <For each={list()} fallback={<p class="muted sp-empty">{tab() === "apps" ? "No app windows to share. Open the app (not minimised) and it appears here." : "No screens found."}</p>}>{(s) => (
               <button class="sp-tile" classList={{ on: pick() === s.id }} aria-pressed={pick() === s.id} onClick={() => setPick(s.id)} onDblClick={() => { setPick(s.id); go(); }}>

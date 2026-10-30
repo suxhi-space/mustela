@@ -13,7 +13,7 @@ describe("newer settings (their own sync key)", () => {
     expect(parseExt('{"v":1,"privacy":{"mode":"friends"}}')?.privacy.mode).toBe("friends");
     expect(parseExt('{"v":3}')).toBeNull();
   });
-  it("keeps channel pins and favourites as clean id lists", () => {
+  it("keeps channel pins and favorites as clean id lists", () => {
     const s = sanitizeExt({ channelPins: ["a", "a", 5, "b", "x".repeat(99)], favourites: "nope" });
     expect(s.channelPins).toEqual(["a", "b"]);
     expect(s.favourites).toEqual([]);
@@ -23,5 +23,24 @@ describe("newer settings (their own sync key)", () => {
     expect(compareVersions("1.1.0", "1.1.0")).toBe(0);
     expect(compareVersions("1.10.0", "1.9.9")).toBe(1);
     expect(compareVersions("1.0.0", "1.1.0")).toBe(-1);
+  });
+});
+describe("favorite categories", () => {
+  it("keeps valid categories and drops links to missing ones", () => {
+    const e = sanitizeExt({
+      favourites: ["c1", "c2", "c3"],
+      favGroups: [{ id: "g1", name: "  Gaming ", color: "#ABCDEF" }, { id: "g1", name: "dup" }, { id: "", name: "x" }, { id: "g2", color: "red" }],
+      favIn: { c1: "g1", c2: "nope", c9: "g1", c3: 5 },
+      favRail: "yes",
+    });
+    expect(e.favGroups).toEqual([{ id: "g1", name: "Gaming", color: "#abcdef" }, { id: "g2", name: "Category", color: "#f0b232" }]);
+    expect(e.favIn).toEqual({ c1: "g1" });
+    expect(e.favRail).toBe(false);
+  });
+  it("defaults for old settings", () => {
+    const e = sanitizeExt({ favourites: ["c1"] });
+    expect(e.favGroups).toEqual([]);
+    expect(e.favIn).toEqual({});
+    expect(e.favRail).toBe(false);
   });
 });

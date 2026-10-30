@@ -33,7 +33,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 const MAX_ALLOW = 5000;
 const PROTOCOL = "v1";
 const PORT = Number(process.env.PORT ?? 8787);
@@ -96,6 +96,16 @@ setInterval(() => { const cut = Date.now() - 120_000; for (const [k, v] of bucke
 /* ---------------------------------------------------------------- validation */
 const isObj = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 const str = (x, n) => (typeof x === "string" && x.trim() ? x.trim().slice(0, n) : undefined);
+const https = (u) => (u && u.startsWith("https://") ? u : undefined);
+function cleanButtons(b) {
+  if (!Array.isArray(b)) return undefined;
+  const out = b.flatMap((x) => {
+    const label = isObj(x) ? str(x.label, 32) : undefined;
+    const url = isObj(x) ? https(str(x.url, 512)) : undefined;
+    return label && url ? [{ label, url }] : [];
+  }).slice(0, 2);
+  return out.length ? out : undefined;
+}
 function cleanActivity(a) {
   if (!isObj(a)) return null;
   const name = str(a.name, 128);
@@ -107,6 +117,11 @@ function cleanActivity(a) {
     startedAt: Number.isFinite(a.startedAt) ? a.startedAt : undefined,
     image: image && image.startsWith("https://") ? image : undefined,
     appId: str(a.appId, 32),
+    endsAt: Number.isFinite(a.endsAt) ? a.endsAt : undefined,
+    largeText: str(a.largeText, 128),
+    smallImage: https(str(a.smallImage, 512)),
+    smallText: str(a.smallText, 128),
+    buttons: cleanButtons(a.buttons),
   };
 }
 

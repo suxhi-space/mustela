@@ -45,6 +45,7 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
   // Drafts: undefined = unchanged.
   const [name, setName] = createSignal<string>();
   const [bio, setBio] = createSignal<string>();
+  const [pronouns, setPronouns] = createSignal<string>();
   const [avatar, setAvatar] = createSignal<File | null>();
   const [banner, setBanner] = createSignal<File | null>();
   const [slot, setSlot] = createSignal<SlotKind | null>(null);
@@ -92,7 +93,7 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
   // In a server, removing its banner means "use my main banner".
   const bannerNow = () => (banner() === undefined ? baseBanner() : banner() === null && inServer() ? info()?.bannerUrl : bannerUrl());
   const cfgDirty = () => JSON.stringify(cfg()) !== JSON.stringify(baseCfg());
-  const dirty = () => name() !== undefined || bio() !== undefined || avatar() !== undefined || banner() !== undefined || cfgDirty() || serverDirty();
+  const dirty = () => name() !== undefined || pronouns() !== undefined || bio() !== undefined || avatar() !== undefined || banner() !== undefined || cfgDirty() || serverDirty();
   const rating = createMemo(() => ratingOf(cfg()));
   const nameStyle = (): NameStyle => cfg().name ?? { font: 0, effect: 0, c1: 0xcfe3ff, c2: 0xffffff };
   const setNameStyle = (n: NameStyle) => setCfg({ ...cfg(), name: n.font === 0 && n.effect === 0 ? null : n });
@@ -112,7 +113,7 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
     i.click();
   }
 
-  function reset() { setName(undefined); setBio(undefined); setAvatar(undefined); setBanner(undefined); setNick(undefined); setSAvatar(undefined); setCfg(structuredClone(baseCfg())); setErr(""); }
+  function reset() { setName(undefined); setPronouns(undefined); setBio(undefined); setAvatar(undefined); setBanner(undefined); setNick(undefined); setSAvatar(undefined); setCfg(structuredClone(baseCfg())); setErr(""); }
 
   /** Saves this server's look (decorations, colours, about me, banner) with your sync servers. */
   async function saveLook(next: { config?: ProfileConfig; bio?: string }, newBanner: Blob | null | undefined) {
@@ -159,6 +160,7 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
       await b.updateMe({
         displayName: name() !== undefined && name() !== me().name ? name() : undefined,
         bio: bio(),
+        pronouns: pronouns(),
         avatar: avatar(),
         banner: banner() === null || (banner() && !(useBannerCopy && !isDemo())) ? banner() : undefined,
       });
@@ -245,6 +247,10 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
                   <section class="pe-sec">
                     <label class="pe-label" for="pe-name">Display name</label>
                     <input id="pe-name" class="text-input wide" value={name() ?? me().name} maxLength={32} onInput={(e) => setName(e.currentTarget.value)} />
+                  </section>
+                  <section class="pe-sec">
+                    <label class="pe-label" for="pe-pronouns">Pronouns</label>
+                    <input id="pe-pronouns" class="text-input wide" value={pronouns() ?? me().pronouns ?? ""} placeholder="she/her, they/them…" maxLength={32} onInput={(e) => setPronouns(e.currentTarget.value)} />
                   </section>
                   <section class="pe-sec two">
                     <div>

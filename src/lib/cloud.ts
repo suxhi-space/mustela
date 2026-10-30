@@ -25,6 +25,15 @@ export interface Activity {
   image?: string;
   /** Discord application id, when it came from Rich Presence */
   appId?: string;
+  /** ms since epoch: when the song or video ends (Rich Presence progress bar) */
+  endsAt?: number;
+  /** Hover text for the big picture */
+  largeText?: string;
+  /** The little badge on the corner of the picture, and its hover text */
+  smallImage?: string;
+  smallText?: string;
+  /** Up to two links the game offers ("Join game", "Listen along"), https only */
+  buttons?: { label: string; url: string }[];
 }
 
 /**
@@ -199,6 +208,18 @@ export class Cloud {
   }
 }
 
+const https = (u: string | undefined) => (u && /^https:\/\//.test(u) ? u : undefined);
+function cleanButtons(b: unknown): Activity["buttons"] {
+  if (!Array.isArray(b)) return undefined;
+  const out = b.flatMap((x) => {
+    const r = (x ?? {}) as Record<string, unknown>;
+    const label = typeof r.label === "string" ? r.label.trim().slice(0, 32) : "";
+    const url = typeof r.url === "string" ? https(r.url.trim().slice(0, 512)) : undefined;
+    return label && url ? [{ label, url }] : [];
+  }).slice(0, 2);
+  return out.length ? out : undefined;
+}
+
 export function sanitizeActivity(a: unknown): Activity | null {
   if (!a || typeof a !== "object") return null;
   const r = a as Record<string, unknown>;
@@ -212,6 +233,11 @@ export function sanitizeActivity(a: unknown): Activity | null {
     startedAt: typeof r.startedAt === "number" && Number.isFinite(r.startedAt) ? r.startedAt : undefined,
     image: image && /^https:\/\//.test(image) ? image : undefined,
     appId: str(r.appId, 32),
+    endsAt: typeof r.endsAt === "number" && Number.isFinite(r.endsAt) ? r.endsAt : undefined,
+    largeText: str(r.largeText, 128),
+    smallImage: https(str(r.smallImage, 512)),
+    smallText: str(r.smallText, 128),
+    buttons: cleanButtons(r.buttons),
   };
 }
 

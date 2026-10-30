@@ -68,7 +68,7 @@ function AttachmentView(props: { a: Attachment }) {
   );
 }
 
-/** A GIF plays like a GIF: looping, silent, no controls. Star it to keep it in your favourites. */
+/** A GIF plays like a GIF: looping, silent, no controls. Star it to keep it in your favorites. */
 function GifEmbed(props: { e: Embed }) {
   const src = () => props.e.video?.url ?? props.e.image?.url ?? "";
   const w = () => props.e.video?.width ?? props.e.image?.width ?? 300, h = () => props.e.video?.height ?? props.e.image?.height ?? 200;
@@ -80,8 +80,8 @@ function GifEmbed(props: { e: Embed }) {
       <Show when={props.e.video} fallback={<img src={src()} alt="GIF" loading="lazy" />}>
         <video ref={play} src={src()} muted playsinline preload="metadata" aria-label="GIF" />
       </Show>
-      <button class="gif-star" classList={{ on: isFav(fav().url) }} aria-pressed={isFav(fav().url)} aria-label={isFav(fav().url) ? "Remove from favourite GIFs" : "Add to favourite GIFs"}
-        title={isFav(fav().url) ? "Remove from favourites" : "Add to favourites"} onClick={() => toggleFav(fav())}><Icon name="star" size={16} /></button>
+      <button class="gif-star" classList={{ on: isFav(fav().url) }} aria-pressed={isFav(fav().url)} aria-label={isFav(fav().url) ? "Remove from favorite GIFs" : "Add to favorite GIFs"}
+        title={isFav(fav().url) ? "Remove from favorites" : "Add to favorites"} onClick={() => toggleFav(fav())}><Icon name="star" size={16} /></button>
     </div>
   );
 }
@@ -214,7 +214,13 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
       <div class="msg system" id={`msg-${m().id}`}><Icon name="arrow-in" size={16} /><span>{m().system}</span><time>{time(m().at)}</time></div>
     }>
       <article class="msg" id={`msg-${m().id}`} classList={{ head: head(), tight: compact(), mentioned: !!m().mentionsMe, pending: !!m().pending, hl: !!props.highlight }}
-        data-own={mine() || undefined} onContextMenu={(e) => { if (props.editing || m().pending) return; menu(e); }}>
+        data-own={mine() || undefined} onContextMenu={(e) => { if (props.editing || m().pending) return; menu(e); }}
+        onPointerEnter={(e) => {
+          // The toolbar sits over the message's top edge; at the very top of the chat that's cut off, so it drops inside.
+          const el = e.currentTarget, list = el.closest(".messages") ?? el.parentElement;
+          const top = el.getBoundingClientRect().top - (list?.getBoundingClientRect().top ?? 0);
+          el.classList.toggle("tools-in", top < 22);
+        }}>
         <Show when={m().replyIds?.length}>
           <div class="msg-replies"><For each={m().replyIds}>{(id) => <ReplyPreview channelId={m().channelId} id={id} local={props.act.local} onJump={props.act.onJump} />}</For></div>
         </Show>

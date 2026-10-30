@@ -239,6 +239,30 @@ export function loadLocalAppearance() {
 
 export async function refreshSystemSeed() { setSystemSeed(await getSystemSeed()); }
 
+/** The accent picked out of your background picture (like Windows and Android do from the wallpaper). */
+export const [pictureSeed, setPictureSeed] = createSignal<string | null>(null);
+let pictureFor: string | null = null;
+async function refreshPictureSeed(src: string | null) {
+  if (src === pictureFor) return;
+  pictureFor = src;
+  if (!src) return setPictureSeed(null);
+  try {
+    const { sourceColorFromImage, hexFromArgb } = await import("@material/material-color-utilities");
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    // A small copy is plenty to find the main colour, and much quicker.
+    const scale = Math.min(1, 128 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.naturalWidth * scale)); c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+    const small = new Image();
+    small.src = c.toDataURL();
+    await small.decode();
+    if (pictureFor === src) setPictureSeed(hexFromArgb(await sourceColorFromImage(small)));
+  } catch { if (pictureFor === src) setPictureSeed(null); }
+}
+
 /* ---------- appearance: roles -> CSS variables, density, material ---------- */
 export function startAppearance() {
   createRoot(() => {
@@ -254,7 +278,7 @@ export function startAppearance() {
 
     createEffect(() => {
       const l = settings().look, d = device();
-      const sys = d.colorSource === "system" ? systemSeed() : null;
+      const sys = d.colorSource === "system" ? systemSeed() : d.colorSource === "picture" ? pictureSeed() : null;
       const def = getTheme(l.theme);
       const seed = sys ?? (l.theme === "custom" ? l.seed : def.seed);
       const neutral = !sys && l.theme !== "custom" && !!def.neutral;
@@ -268,7 +292,15 @@ export function startAppearance() {
         root.style.setProperty("--pri-2", end);
         root.style.setProperty("--pri-grad", `linear-gradient(${l.gradient.angle}deg, ${roles.primary}, ${end})`);
         root.dataset.gradient = "";
-      } else { root.style.removeProperty("--pri-grad"); root.style.removeProperty("--pri-2"); delete root.dataset.gradient; }
+        // Gradient themes: the same two colours wash over the windows too, as strongly as you like.
+        const w = l.gradient.windows;
+        if (w > 0) {
+          const a = Math.round(w * (dark ? 0.45 : 0.32)), world = Math.round(w * (dark ? 0.6 : 0.45));
+          root.style.setProperty("--win-tint", `linear-gradient(${l.gradient.angle}deg, color-mix(in srgb, ${roles.primary} ${a}%, transparent), color-mix(in srgb, ${end} ${a}%, transparent))`);
+          root.style.setProperty("--world-grad", `linear-gradient(${l.gradient.angle}deg, color-mix(in srgb, ${roles.primary} ${world}%, var(--world)), color-mix(in srgb, ${end} ${world}%, var(--world)))`);
+          root.dataset.wingrad = "";
+        } else { root.style.removeProperty("--win-tint"); root.style.removeProperty("--world-grad"); delete root.dataset.wingrad; }
+      } else { root.style.removeProperty("--pri-grad"); root.style.removeProperty("--pri-2"); root.style.removeProperty("--win-tint"); root.style.removeProperty("--world-grad"); delete root.dataset.gradient; delete root.dataset.wingrad; }
       root.dataset.mode = dark ? "dark" : "light";
       setSurfaceInt(parseHex(roles.surfaceContainerLow!) ?? 0x1b1b1f);
     });
@@ -277,8 +309,12 @@ export function startAppearance() {
       const d = device();
       root.dataset.style = d.style;
       const img = backdropImage();
+      if (d.colorSource === "picture") void refreshPictureSeed(img);
       root.dataset.backdrop = d.backdrop === "image" && !img ? "stars" : d.backdrop;
       if (d.backdrop === "image" && img) root.style.setProperty("--backdrop-img", `url("${img}")`); else root.style.removeProperty("--backdrop-img");
+      root.toggleAttribute("data-backdrop-blur", d.backdrop === "image" && d.backdropBlur);
+      root.style.setProperty("--panel-op", String(d.panelOpacity));
+      root.toggleAttribute("data-panel-blur", d.panelBlur);
       root.dataset.layout = d.layout;
       for (const [k, v] of Object.entries(DENSITY_VARS[d.density])) root.style.setProperty(k, v);
       // Stoat's "Display & Text": message size and the gap between message groups.

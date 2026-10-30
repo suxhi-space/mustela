@@ -7,7 +7,7 @@ import { Group, Row, Seg, Select, Slider, Switch } from "../controls";
 import { backend, device, platform, updateDevice } from "../store";
 import { QUALITIES, qualityHint } from "../call/ScreenPicker";
 
-async function devices() {
+export async function devices() {
   try {
     const all = await navigator.mediaDevices.enumerateDevices();
     const pick = (k: MediaDeviceKind) => all.filter((d) => d.kind === k && d.deviceId !== "default" && d.deviceId !== "communications");

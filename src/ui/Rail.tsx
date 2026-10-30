@@ -13,6 +13,17 @@ const COLOURS: { name: string; v?: string }[] = [
   { name: "Default" }, { name: "Blue", v: "#5865f2" }, { name: "Teal", v: "#1abc9c" }, { name: "Green", v: "#3ba55c" },
   { name: "Yellow", v: "#f0b232" }, { name: "Orange", v: "#f57731" }, { name: "Red", v: "#ed4245" }, { name: "Pink", v: "#eb459e" }, { name: "Purple", v: "#9b59b6" },
 ];
+/** Opens the system colour picker; the folder takes the colour you settle on. */
+function pickColour(current: string | undefined, done: (hex: string) => void) {
+  const input = document.createElement("input");
+  input.type = "color";
+  input.value = current && /^#[0-9a-f]{6}$/i.test(current) ? current : "#5865f2";
+  input.style.cssText = "position:fixed;left:50%;top:50%;width:1px;height:1px;opacity:0;pointer-events:none";
+  document.body.append(input);
+  input.addEventListener("change", () => { done(input.value.toLowerCase()); input.remove(); }, { once: true });
+  input.addEventListener("blur", () => setTimeout(() => input.remove(), 500), { once: true });
+  input.click();
+}
 const initials = (n: string) => n.split(/\s+/).map((w) => w[0]).join("").slice(0, 3);
 const newId = () => `folder-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
@@ -115,7 +126,11 @@ export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: stri
       { label: "Mark folder as read", icon: "check-all", disabled: !unread, onSelect: () => servers.forEach((s) => backend()!.markRead({ server: s.id })) },
       { sep: true },
       { label: "Rename folder", icon: "pencil", onSelect: () => rename(f) },
-      { label: "Colour", icon: "palette", sub: COLOURS.map((c): MenuItem => ({ label: c.name, checked: (f.colour ?? undefined) === c.v, onSelect: () => editFolder(f.id, { colour: c.v }) })) },
+      { label: "Colour", icon: "palette", sub: [
+        ...COLOURS.map((c): MenuItem => ({ label: c.name, checked: (f.colour ?? undefined) === c.v, onSelect: () => editFolder(f.id, { colour: c.v }) })),
+        { sep: true },
+        { label: "Custom colour…", icon: "plus", checked: !!f.colour && !COLOURS.some((c) => c.v === f.colour), onSelect: () => pickColour(f.colour, (colour) => void editFolder(f.id, { colour })) },
+      ] },
       { label: f.collapsed ? "Open folder" : "Close folder", icon: "folder", onSelect: () => editFolder(f.id, { collapsed: !f.collapsed }) },
       { sep: true },
       { label: "Remove folder", icon: "close", danger: true, onSelect: () => {

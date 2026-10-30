@@ -5,8 +5,8 @@ import type { ChannelInfo, Msg, NotifyLevel, Person, Space } from "../lib/backen
 import { attempt, closeMenu, confirmDialog, copy, openMenu, promptDialog, toast, type MenuItem } from "./menu";
 import { openChannel, setChannelSettings, setProfileOpen, setServerSettings } from "./nav";
 import { openEmojiPicker } from "./chat/overlays";
-import { backend } from "./store";
-import { channelPinItems, pinItems } from "./pins";
+import { backend, ext } from "./store";
+import { channelPinItems, favGroupOf, newFavGroup, pinItems, setFavGroup, setFavourite } from "./pins";
 import { UEmoji } from "./chat/UEmoji";
 
 /**
@@ -169,6 +169,30 @@ export function channelMenu(e: MouseEvent, c: ChannelInfo, serverId?: string) {
   openMenu(e, items);
 }
 
+/**
+ * Right-click a favorite (on Home or in Favorites): about the favorite itself, plus reading and notifications.
+ * Server things like pinning it to the top or editing the channel stay in the server's own list.
+ */
+export function favoriteMenu(e: MouseEvent, c: ChannelInfo, openInServer: () => void) {
+  const cur = favGroupOf(c.id), groups = ext().favGroups;
+  const items: MenuItem[] = [];
+  if (c.unread || c.mentions) items.push({ label: "Mark as read", icon: "check-all", onSelect: () => b().markRead({ channel: c.id }) });
+  items.push(
+    { label: "Move to category", icon: "folder", sub: [
+      { label: "No category", checked: !cur, onSelect: () => setFavGroup(c.id, null) },
+      ...groups.map((g): MenuItem => ({ label: g.name, checked: cur === g.id, onSelect: () => setFavGroup(c.id, g.id) })),
+      { sep: true },
+      { label: "New category…", icon: "plus", onSelect: () => newFavGroup(c.id) },
+    ] },
+    { label: "Remove from Favorites", icon: "star", onSelect: () => setFavourite(c.id, false) },
+    { sep: true }, muteItems("channel", c.id), notifyItems("channel", c.id),
+    { sep: true },
+    { label: "Open in its server", icon: "arrow-in", onSelect: openInServer },
+    { label: "Copy link", icon: "link", onSelect: () => copy(b().linkFor(c.id), "Link copied") },
+  );
+  openMenu(e, items);
+}
+
 async function deleteChannel(c: ChannelInfo) {
   if (await confirmDialog(`Delete #${c.name}?`, "Every message in it is deleted too. This can't be undone.", "Delete channel", true)) await attempt(() => b().deleteChannel(c.id), "Channel deleted");
 }
@@ -254,6 +278,7 @@ export function messageMenu(e: MouseEvent, m: Msg, act: MsgMenuActions, serverId
   if (m.text) items.push({ label: "Copy text", icon: "copy", onSelect: () => copy(m.text) });
   if (a && /^https?:/i.test(a.href)) items.push({ label: "Copy link address", icon: "link", onSelect: () => copy(a.href, "Link copied") });
   if (img?.src && /^https?:/i.test(img.src)) items.push({ label: "Copy image address", icon: "image", onSelect: () => copy(img.src, "Link copied") });
+  items.push({ label: "Mark as unread", icon: "eye-off", onSelect: () => { b().markUnread(m.channelId, m.id); dispatchEvent(new CustomEvent("mustela:mark-unread", { detail: { channelId: m.channelId, messageId: m.id } })); toast("Marked as unread from here"); } });
   items.push({ label: "Copy message link", icon: "link", onSelect: () => copy(b().linkFor(m.channelId, m.id), "Link copied") });
   items.push({ label: "Copy message ID", icon: "id", onSelect: () => copy(m.id, "ID copied") });
   if (canManage) items.push({ sep: true }, { label: "Delete message", icon: "trash", danger: true, onSelect: () => act.askDelete(m) });

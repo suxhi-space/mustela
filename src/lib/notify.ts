@@ -5,14 +5,23 @@ import { inTauri } from "./platform";
  * (works on Windows, macOS, Linux and Android) and the Web Notification API in
  * a browser. Asks for permission the first time; never throws.
  */
-export async function notify(title: string, body: string): Promise<boolean> {
+export async function notify(title: string, body: string, extra: { icon?: string; channel?: string } = {}): Promise<boolean> {
   try {
     if (inTauri()) {
       const n = await import("@tauri-apps/plugin-notification");
       let ok = await n.isPermissionGranted();
       if (!ok) ok = (await n.requestPermission()) === "granted";
-      if (ok) n.sendNotification({ title, body });
-      return ok;
+      if (!ok) return false;
+      // Desktop: Mustela's own, with the sender's picture (and on Windows, a click opens the chat).
+      if (!/Android|iPhone|iPad/i.test(navigator.userAgent)) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("notify_rich", { title, body, icon: extra.icon ?? null, channel: extra.channel ?? null });
+          return true;
+        } catch { /* fall back to the plain one */ }
+      }
+      n.sendNotification({ title, body });
+      return true;
     }
     if (typeof Notification === "undefined") return false;
     if (Notification.permission === "default") await Notification.requestPermission();

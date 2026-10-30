@@ -43,12 +43,13 @@ test("link, publish, read, activity", async () => {
 
     assert.equal((await fetch(`${base}/profile`, { method: "PUT", body: JSON.stringify({ profile: { v: 1 } }) })).status, 401);
     assert.equal((await fetch(`${base}/profile`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ profile: { v: 1, decor: { preset: 2 } } }) })).status, 204);
-    await fetch(`${base}/activity`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ activity: { kind: "playing", name: "Celeste", image: "http://not-https/x.png" } }) });
+    await fetch(`${base}/activity`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ activity: { kind: "playing", name: "Celeste", image: "http://not-https/x.png", buttons: [{ label: "Join", url: "https://example.com/j" }, { label: "Bad", url: "javascript:alert(1)" }, { label: "Three", url: "https://x.y" }] } }) });
 
     const got = await (await fetch(`${base}/profile/${UID}`)).json();
     assert.deepEqual(got.profile, { v: 1, decor: { preset: 2 } });
     assert.equal(got.activity.name, "Celeste");
     assert.equal(got.activity.image, undefined); // only https images
+    assert.deepEqual(got.activity.buttons, [{ label: "Join", url: "https://example.com/j" }, { label: "Three", url: "https://x.y" }]);
 
     assert.equal((await fetch(`${base}/link`, { method: "DELETE", headers: { authorization: `Bearer ${key}` } })).status, 204);
     assert.equal((await fetch(`${base}/profile`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: "{}" })).status, 401);

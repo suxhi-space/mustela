@@ -9,7 +9,7 @@ describe("sanitize", () => {
       profile: { decor: { preset: 77, hue: NaN, speed: 99 }, effect: { preset: 3, hue: -50, intensity: 500 }, theme: { primary: "red" } },
       maxRating: "lol", updatedAt: -1,
     });
-    expect(s.look).toEqual(DEFAULT_SETTINGS.look);
+    expect(s.look).toEqual({ ...DEFAULT_SETTINGS.look, variant: "vibrant" }); // a saved look keeps the old style fallback
     expect(s.profile.decor.preset).toBe(0); // unknown preset -> none
     expect(s.profile.effect).toEqual({ preset: 3, hue: 309, speed: 8, intensity: 15 });
     expect(s.profile.theme).toBeNull();
@@ -84,7 +84,7 @@ describe("v3 migration", () => {
       favGifs: [{ url: "javascript:x", preview: "https://a" }, { url: "https://gifbox.me/view/a", preview: "https://p" }], cloud: { servers: ["ftp://x", "https://sync.example"] } });
     expect(s.look.variant).toBe("vibrant");
     expect(s.look.contrast).toBe(0);
-    expect(s.look.gradient).toEqual({ on: true, seed2: "#a05cf0", angle: 360 });
+    expect(s.look.gradient).toEqual({ on: true, seed2: "#a05cf0", angle: 360, windows: 35 });
     expect(s.favGifs.map((g) => g.url)).toEqual(["https://gifbox.me/view/a"]);
     expect(s.cloud.servers).toEqual(["https://sync.example"]);
   });

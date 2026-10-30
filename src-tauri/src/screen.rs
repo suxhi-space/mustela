@@ -76,8 +76,32 @@ fn b64(bytes: &[u8]) -> String {
 }
 
 /// Everything that can be shared: screens first, then app windows (not Mustela's own).
+/// macOS: whether Mustela may record the screen. Asking macOS for pictures without it pops its permission
+/// window every time, and a permission granted while Mustela is open only counts after a restart.
+#[cfg(target_os = "macos")]
+pub fn permitted() -> bool {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" { fn CGPreflightScreenCaptureAccess() -> bool; }
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+#[cfg(not(target_os = "macos"))]
+pub fn permitted() -> bool { true }
+
+/// macOS: asks once (macOS's own prompt, which adds Mustela to the list in System Settings).
+pub fn request_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" { fn CGRequestScreenCaptureAccess() -> bool; }
+        unsafe { CGRequestScreenCaptureAccess() }
+    }
+    #[cfg(not(target_os = "macos"))]
+    { true }
+}
+
 pub fn sources(thumbs: bool) -> Vec<Source> {
     let mut out = vec![];
+    if !permitted() { return out; } // the picker explains what to do instead
     if let Ok(monitors) = xcap::Monitor::all() {
         for (i, m) in monitors.iter().enumerate() {
             let (w, h) = (m.width().unwrap_or(0), m.height().unwrap_or(0));

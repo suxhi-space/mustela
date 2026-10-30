@@ -1,6 +1,6 @@
 [package]
 name = "mustela"
-version = "0.1.3-build4"
+version = "0.1.4-build2"
 description = "A compact chat client for Stoat"
 edition = "2021"
 
@@ -33,6 +33,8 @@ tokio = { version = "1", features = ["net", "io-util", "sync", "time", "macros",
 xcap = "0.9"
 fast_image_resize = "6"
 jpeg-encoder = { version = "0.7", features = ["simd"] }
+# Notification pictures: avatars arrive as PNG, JPEG, WebP or GIF and are saved as a small PNG for the system.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Only to switch on WebRTC / getUserMedia in the Linux webview (off by default in WebKitGTK).
@@ -63,6 +65,12 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 window-vibrancy = "0.6"
+
+# Notifications with the sender's picture. The same versions the notification plugin already uses.
+[target.'cfg(target_os = "windows")'.dependencies.tauri-winrt-notification]
+version = "0.8"
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies.notify-rust]
+version = "4.18"
 
 # Small, fast binaries. panic=abort + LTO + strip are the big wins.
 [profile.release]

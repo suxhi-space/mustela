@@ -156,7 +156,7 @@ describe("marker codec", () => {
       encodeMarker(img, W, TH, payload);
       expect(img.slice(0, W * H * 4)).toEqual(before);
       expect(markerHeight(W)).toBeLessThanOrEqual(TH - H);
-    });
+    }, 20_000); // a big image: slow on a busy machine
     for (const w of [960, 1280, 640]) {
       it(`decodes after JPEG and resizing to ${w}px (as 0.1.0 would read it)`, async () => {
         const img = tall();

@@ -31,7 +31,8 @@ export const THEMES: ThemeDef[] = [
   { id: "graphite", name: "Graphite", seed: "#6B7480", neutral: true },
 ];
 
-export const DEFAULT_THEME = "lagoon";
+/** New accounts start gray, like Stoat; colour is one tap away in Appearance. */
+export const DEFAULT_THEME = "graphite";
 export type Mode = "light" | "dark";
 export type Roles = Record<string, string>;
 

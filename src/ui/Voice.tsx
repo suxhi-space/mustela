@@ -1,4 +1,5 @@
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
+import { createPhone } from "./hooks";
 import type { ChannelInfo, Person, VoiceMember } from "../lib/backend/types";
 import { Avatar, NameText } from "./Avatar";
 import { CallStage, callMemberMenu } from "./call/CallStage";
@@ -37,14 +38,6 @@ export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string
 
 /** Phones show the call or the voice channel's chat, one at a time (the chat button switches). */
 export const [phoneVoiceChat, setPhoneVoiceChat] = createSignal(false);
-/** Phone-sized window (the same breakpoint as the rest of the phone layout). */
-export function createPhone() {
-  const mq = matchMedia("(max-width: 700px)");
-  const [phone, setPhone] = createSignal(mq.matches);
-  const f = () => setPhone(mq.matches);
-  mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f));
-  return phone;
-}
 
 /** A voice channel: the call fills the view, with the channel's text chat beside it (or, on a phone, instead of it). */
 export function Voice(props: { channel: ChannelInfo; spaceId?: string; onProfile(p: Person): void; onOpenChannel(id: string): void }) {

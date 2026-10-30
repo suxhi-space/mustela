@@ -23,6 +23,8 @@ export interface Person {
   colour?: string;
   /** In a call: their microphone is off */
   muted?: boolean;
+  /** Pronouns from Stoat (a server's own ones win, like Stoat's app) */
+  pronouns?: string;
   /** My relationship with them */
   relation?: "friend" | "incoming" | "outgoing" | "blocked" | "none" | "self";
 }
@@ -211,6 +213,8 @@ export interface MeUpdate {
   /** Profile banner ("background" in Stoat's API) */
   banner?: File | null;
   bio?: string;
+  /** Stoat's pronouns field; empty removes them */
+  pronouns?: string;
   status?: string;
   presence?: Presence;
 }
@@ -361,6 +365,8 @@ export interface ChatBackend {
   typing(channelId: string, on: boolean): void;
   /** Mark a channel read up to its newest message. */
   ack(channelId: string): void;
+  /** Mark a channel unread from this message on (the message itself included), like Stoat's "Mark as unread". */
+  markUnread(channelId: string, messageId: string): void;
   /** The last message I've read in a channel (ids sort by time), for "new messages since" and jumping to unread. */
   lastRead(channelId: string): string | undefined;
   /** Unread messages that mention me (or my roles, @everyone, @online), by channel. */

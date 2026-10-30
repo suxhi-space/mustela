@@ -18,7 +18,7 @@
         <!-- Merged into the app's own activity: calls can continue in a floating
              picture-in-picture window (like Discord) with camera and screen share. -->
         <activity
-            android:name="app.mustela.client.MainActivity"
+            android:name="${applicationId}.MainActivity"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             tools:node="merge" />

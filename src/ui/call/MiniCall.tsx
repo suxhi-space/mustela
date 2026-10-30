@@ -10,8 +10,9 @@ import { call, toggleCall } from "./state";
  * small tile you can drag anywhere. It shows the stream you're watching, or whoever is talking (or spoke
  * last), with their ring. Tap it to go back to the call; the button mutes you.
  */
-export function MiniCall(props: { onOpen(): void }) {
-  // Who spoke last (not you), so the tile has someone to show between sentences.
+/** What a small view of the call shows: the stream you're watching, or whoever is talking (or spoke last). */
+export function callFocus() {
+  // Who spoke last (not you), so there's someone to show between sentences.
   const [lastSpoke, setLastSpoke] = createSignal<string | null>(null);
   createEffect(() => {
     const me = backend()?.me.id;
@@ -29,6 +30,11 @@ export function MiniCall(props: { onOpen(): void }) {
     return people.find((p) => p.id === pick) ?? people[0];
   });
   const talking = () => !!person() && call.speaking().includes(person()!.id);
+  return { stream, person, talking };
+}
+
+export function MiniCall(props: { onOpen(): void }) {
+  const { stream, person, talking } = callFocus();
 
   /* drag anywhere; a touch that doesn't move is a tap */
   const [pos, setPos] = createSignal({ right: 12, top: 124 });
@@ -69,6 +75,24 @@ export function MiniCall(props: { onOpen(): void }) {
       <button class="mc-mic" classList={{ off: !call.on().mic }} aria-label={call.on().mic ? "Mute" : "Unmute"} onClick={() => void toggleCall("mic")}>
         <Icon name={call.on().mic ? "mic" : "mic-off"} size={14} />
       </button>
+    </div>
+  );
+}
+
+/**
+ * Android picture-in-picture: the whole app shrinks to a little window, far too small for the interface.
+ * While it's that small, show just the call: the stream, or whoever is talking, big and centred.
+ */
+export function PipView() {
+  const { stream, person, talking } = callFocus();
+  return (
+    <div class="pipview" classList={{ talking: talking() && !stream() }} aria-label="Call">
+      <Show when={stream()} fallback={
+        <Show when={person()}>{(p) => (
+          <span class="pip-person"><Avatar person={p()} size={72} presence={false} still={!talking()} /><small>{p().name}</small></span>
+        )}</Show>
+      }>{(id) => <VideoFill id={id()} source="screen" fit="contain" />}</Show>
+      <Show when={!call.on().mic}><span class="pip-muted"><Icon name="mic-off" size={14} /></span></Show>
     </div>
   );
 }

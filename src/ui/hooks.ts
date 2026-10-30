@@ -110,3 +110,12 @@ export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolea
     return { ...b, config: l.config ?? b.config, bio: l.bio ?? b.bio, bannerUrl: (l.bannerAt && banner()) || b.bannerUrl };
   };
 }
+
+/** Phone-sized window (the same breakpoint as the rest of the phone layout), live. */
+export function createPhone(): Accessor<boolean> {
+  const mq = matchMedia("(max-width: 700px)");
+  const [phone, setPhone] = createSignal(mq.matches);
+  const f = () => setPhone(mq.matches);
+  mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f));
+  return phone;
+}

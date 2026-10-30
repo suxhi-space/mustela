@@ -6,7 +6,6 @@ import { Shell } from "./Shell";
 import { ContextMenu, Dialogs, Toast } from "./menu";
 import { CropperHost } from "./Cropper";
 import { applyWindowFrame, hasTitleBar, TitleBar } from "./TitleBar";
-import { PipView } from "./call/PipView";
 import { activeAccount } from "../lib/session/book";
 import { addingAccount, book, boot, error, openAccount, phase, removeAccountById, setAddingAccount, startAppearance } from "./store";
 
@@ -44,7 +43,6 @@ export function App() {
       </Match>
     </Switch>
     <Show when={hasTitleBar()}><TitleBar /></Show>
-    <PipView />
     <ContextMenu />
     <Dialogs />
     <CropperHost />

@@ -6,6 +6,8 @@ mod activity;
 mod desktop;
 #[cfg(desktop)]
 mod screen;
+#[cfg(desktop)]
+mod notify;
 #[cfg(target_os = "windows")]
 mod wgc_capture;
 #[cfg(target_os = "linux")]
@@ -161,8 +163,8 @@ async fn install_update(app: tauri::AppHandle) -> Result<String, String> {
             updater::download(&asset, &path, progress).await?;
             use std::os::windows::process::CommandExt;
             // `start` goes through ShellExecute, so Windows can ask for admin rights (Mustela installs to Program Files).
-            // /P: passive (progress bar only). /UPDATE: Tauri's installer relaunches the app when done.
-            std::process::Command::new("cmd").args(["/C", "start", ""]).arg(&path).args(["/P", "/UPDATE"])
+            // /P: passive (progress bar only). /UPDATE: update in place, keeping settings. /R: start Mustela again when done.
+            std::process::Command::new("cmd").args(["/C", "start", ""]).arg(&path).args(["/P", "/UPDATE", "/R"])
                 .creation_flags(0x0800_0000).spawn().map_err(|e| format!("Couldn't start the installer: {e}"))?;
             app.exit(0);
             Ok("Installing…".into())
@@ -201,6 +203,30 @@ async fn install_update(app: tauri::AppHandle) -> Result<String, String> {
 async fn screen_sources(thumbs: bool) -> Vec<screen::Source> {
     tauri::async_runtime::spawn_blocking(move || screen::sources(thumbs)).await.unwrap_or_default()
 }
+
+/// macOS: may Mustela record the screen? (Always yes elsewhere.)
+#[cfg(desktop)]
+#[tauri::command]
+fn screen_permission() -> bool { screen::permitted() }
+
+/// macOS: ask for screen recording (macOS's prompt), then open the matching page in System Settings.
+#[cfg(desktop)]
+#[tauri::command]
+fn screen_permission_request(app: tauri::AppHandle) -> bool {
+    let ok = screen::request_permission();
+    #[cfg(target_os = "macos")]
+    if !ok {
+        use tauri_plugin_opener::OpenerExt;
+        let _ = app.opener().open_url("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture", None::<&str>);
+    }
+    let _ = &app;
+    ok
+}
+
+/// Restarts Mustela (macOS only applies a new screen recording permission to a fresh start).
+#[cfg(desktop)]
+#[tauri::command]
+fn relaunch(app: tauri::AppHandle) { app.restart() }
 
 /// Starts sending frames of a screen or window to the page (see screen.rs).
 #[cfg(desktop)]
@@ -315,10 +341,11 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![material_support, set_material, fetch_image, close_popout, activity_config, fetch_audio, update_config, check_update, install_update,
-            #[cfg(desktop)] screen_sources, #[cfg(desktop)] screen_start, #[cfg(desktop)] screen_ack, #[cfg(desktop)] screen_stop, #[cfg(desktop)] screen_audio,
+            #[cfg(desktop)] screen_sources, #[cfg(desktop)] screen_permission, #[cfg(desktop)] screen_permission_request, #[cfg(desktop)] relaunch, #[cfg(desktop)] screen_start, #[cfg(desktop)] screen_ack, #[cfg(desktop)] screen_stop, #[cfg(desktop)] screen_audio,
             #[cfg(target_os = "linux")] call_linux::voice_start_call, #[cfg(target_os = "linux")] call_linux::voice_set_mic,
             #[cfg(target_os = "linux")] call_linux::voice_set_deaf, #[cfg(target_os = "linux")] call_linux::voice_end_call,
             #[cfg(target_os = "linux")] call_linux::voice_call_state,
+            #[cfg(desktop)] notify::notify_rich,
             #[cfg(desktop)] desktop::tray_state, #[cfg(desktop)] desktop::set_close_to_tray,
             #[cfg(desktop)] desktop::appimage_status, #[cfg(desktop)] desktop::appimage_install, #[cfg(desktop)] desktop::relaunch_installed])
         .run(tauri::generate_context!())

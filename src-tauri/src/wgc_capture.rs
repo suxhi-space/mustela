@@ -87,6 +87,11 @@ fn read_texture(d3d: &ID3D11Device, ctx: &ID3D11DeviceContext, tex: &ID3D11Textu
 /// Starts capturing a screen or a window. Frames arrive on the receiver as Windows draws them; if the
 /// last one hasn't been taken yet, the new one is dropped (never a backlog).
 pub fn start(target: Target) -> windows::core::Result<(Capture, Receiver<Frame>)> {
+    // This runs on Mustela's own capture thread, which has to join the Windows Runtime first; without it
+    // the capture can't start and the share fell back to the old way (black for most app windows).
+    unsafe {
+        let _ = windows::Win32::System::WinRT::RoInitialize(windows::Win32::System::WinRT::RO_INIT_MULTITHREADED);
+    }
     let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
     // The picker's ids are the handles' low 32 bits, which is all a handle uses; sign-extend them back.
     let item: GraphicsCaptureItem = unsafe {
