@@ -114,7 +114,7 @@ export function sanitize(raw: unknown): MustelaSettings {
       .slice(0, 60).map((x) => {
         const start = typeof x.start === "number" && Number.isFinite(x.start) ? Math.max(0, x.start) : 0;
         const end = typeof x.end === "number" && Number.isFinite(x.end) ? Math.min(start + 10, Math.max(start + 0.1, x.end)) : start + 10;
-        return { id: x.id, url: x.url, name: typeof x.name === "string" ? x.name.slice(0, 32) : "Sound", emoji: typeof x.emoji === "string" ? x.emoji.slice(0, 8) : "🔊", start, end, volume: typeof x.volume === "number" ? Math.max(0, Math.min(1, x.volume)) : 0.8 };
+        return { id: x.id, url: x.url, name: typeof x.name === "string" ? x.name.slice(0, 32) : "Sound", emoji: typeof x.emoji === "string" && x.emoji.length <= 40 ? x.emoji : "🔊", start, end, volume: typeof x.volume === "number" ? Math.max(0, Math.min(1, x.volume)) : 0.8 };
       }) : [],
     locale: {
       time: loc.time === "12" || loc.time === "24" ? loc.time : "auto",

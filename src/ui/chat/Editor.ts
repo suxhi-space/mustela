@@ -44,6 +44,7 @@ class ChipWidget extends WidgetType {
 
 function chipDecorations(view: EditorView, look: ChipLookup): DecorationSet {
   const b = new RangeSetBuilder<Decoration>();
+  const out: [number, number, Decoration][] = [];
   for (const { from, to } of view.visibleRanges) {
     const text = view.state.doc.sliceString(from, to);
     // Nothing is a chip inside `code` or ```code blocks```, like in sent messages.
@@ -58,9 +59,12 @@ function chipDecorations(view: EditorView, look: ChipLookup): DecorationSet {
       else if (m[3]) { const r = look.role(m[3]); w = new ChipWidget("role", `@${r?.name ?? "role"}`, r?.colour); }
       else if (m[4]) { const e = look.emoji(m[4]); if (e) w = new ChipWidget("emoji", `:${e.name}:`, undefined, e.url); }
       else if (m[5]) { const l = look.messageLink(m[5]); if (l) w = new ChipWidget("link", l); }
-      if (w) b.add(start, end, Decoration.replace({ widget: w }));
+      if (w) out.push([start, end, Decoration.replace({ widget: w })]);
     }
+    // Stoat's emoji style marker (the hidden character before an emoji picked in another style) would draw as a box.
+    for (const m of text.matchAll(/[\uE0E0-\uE0E6]/g)) out.push([from + m.index!, from + m.index! + 1, Decoration.replace({})]);
   }
+  for (const [f, t, d] of out.sort((x, y) => x[0] - y[0])) b.add(f, t, d);
   return b.finish();
 }
 

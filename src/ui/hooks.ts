@@ -2,6 +2,7 @@ import { createResource, createSignal, onCleanup, type Accessor } from "solid-js
 import type { ProfileInfo } from "../lib/backend/types";
 import { backend, ext, settings } from "./store";
 import { currentServer } from "./nav";
+import { MOBILE_UI } from "./target";
 
 /** True once the element has been on screen. Used to avoid fetching profiles for rows nobody sees. */
 /** One observer for every name and avatar on screen, instead of one each (chat can show hundreds). */
@@ -111,9 +112,15 @@ export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolea
   };
 }
 
-/** Phone-sized window (the same breakpoint as the rest of the phone layout), live. */
+/** The touch layout: a phone, a tablet held upright (mobile build), or a phone-narrow window. */
+export const PHONE_QUERY = MOBILE_UI ? "(max-width: 700px), (orientation: portrait)" : "(max-width: 700px)";
+export const phoneLayout = () => matchMedia(PHONE_QUERY).matches;
+/** No room for the members column (it opens as a sheet instead). */
+export const narrowLayout = () => matchMedia(MOBILE_UI ? "(max-width: 900px), (orientation: portrait)" : "(max-width: 900px)").matches;
+
+/** Phone layout (the same breakpoint as the rest of the phone layout), live: turning a tablet switches it. */
 export function createPhone(): Accessor<boolean> {
-  const mq = matchMedia("(max-width: 700px)");
+  const mq = matchMedia(PHONE_QUERY);
   const [phone, setPhone] = createSignal(mq.matches);
   const f = () => setPhone(mq.matches);
   mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f));

@@ -1,4 +1,6 @@
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { MOBILE_UI } from "./target";
+import { dragToClose } from "./sheetDrag";
 import { useBack } from "./back";
 import type { Presence } from "../lib/backend/types";
 import { activeAccount } from "../lib/session/book";
@@ -106,17 +108,22 @@ function MeCard(props: { onClose(): void }) {
   const presence = () => (me().online ? me().presence ?? "online" : "invisible");
   // Your published card (banner and bio); decorations come straight from settings so edits show at once.
   const info = createProfileInfo(() => me().id);
-  // Your picture or name opens the editor, on this server's profile when you're in one.
+  // Your picture or name opens the editor: on desktop on this server's profile when you're in one, on phones and
+  // tablets your main profile (pick a server inside the editor).
+  const editTarget = () => (MOBILE_UI ? undefined : currentServer() ?? undefined);
   const edit = (e: MouseEvent) => {
     if (!(e.target as HTMLElement).closest(".pc-avatar, .pc-name")) return;
-    props.onClose(); openProfileEditor(currentServer() ?? undefined);
+    props.onClose(); openProfileEditor(editTarget());
   };
+  // Phones and tablets: a sheet from the bottom; pull it down to close.
+  let card!: HTMLDivElement;
+  onMount(() => { if (MOBILE_UI) dragToClose(card, props.onClose); });
   return (
     <div class="pop-scrim clear" onClick={props.onClose}>
-      <div class="mecard" role="dialog" aria-label="Your profile" onClick={(e) => { e.stopPropagation(); edit(e); }}>
+      <div ref={card} class="mecard" role="dialog" aria-label="Your profile" onClick={(e) => { e.stopPropagation(); edit(e); }}>
         <ProfileCard person={me()} profile={info()?.config ?? settings().profile} bio={info()?.bio} banner={info()?.bannerUrl} marked={!!info()?.bannerUrl} compact>
           <div class="me-list">
-            <button class="me-row" onClick={() => { props.onClose(); openProfileEditor(currentServer() ?? undefined); }}><Icon name="pencil" size={17} /><span>Edit profile</span></button>
+            <button class="me-row" onClick={() => { props.onClose(); openProfileEditor(editTarget()); }}><Icon name="pencil" size={17} /><span>Edit profile</span></button>
             <button class="me-row" onClick={(e) => openMenu(e.currentTarget, PRESENCE.map((p) => ({ label: p.label, hint: p.hint, checked: presence() === p.v, onSelect: () => setPresence(p.v) })))}>
               <span class={`pdot p-${presence()}`} /><span>{LABEL[presence()]}</span><Icon name="right" size={14} class="muted" />
             </button>

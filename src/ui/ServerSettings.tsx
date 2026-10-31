@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch as Pick, type JSX } from "solid-js";
+import { dragSort, moved } from "./dragSort";
 import { useBack } from "./back";
 import type { ServerInfo } from "../lib/backend/types";
 import { Avatar } from "./Avatar";
@@ -192,6 +193,11 @@ function Roles(props: { info: ServerInfo }) {
   const [open, setOpen] = createSignal<string | null>(null);
   const toggle = (id: string) => setOpen(open() === id ? null : id);
   const later = () => { bump(); setTimeout(bump, 600); };
+  async function reorder(from: number, to: number) {
+    const ids = roles().map((r) => r.id);
+    if (to < 0 || to >= ids.length || to === from) return;
+    await attempt(() => b().setRoleOrder(props.info.id, moved(ids, from, to))).then(later);
+  }
   return (
     <div class="page">
       <Group title="Everyone" hint="What everyone in the server can do. Roles add to this.">
@@ -207,9 +213,23 @@ function Roles(props: { info: ServerInfo }) {
           const n = await promptDialog("Create role", "Role name", "Create role", "", { max: 32, placeholder: "Moderators" });
           if (n?.trim()) await attempt(() => b().createRole(props.info.id, n.trim()), "Role created").then(bump);
         }}><Icon name="plus" size={14} />New role</button>
-      } hint="Higher roles are listed first. A role's permissions add to what everyone can do, ✕ takes one away.">
-        <For each={roles()} fallback={<Row label={<span class="muted">No roles yet. Everyone has the default permissions.</span>} />}>{(r) => (<>
-          <Row label={<span class="ss-role"><i style={{ background: r.colour && !/gradient/.test(r.colour) ? r.colour : "var(--fg2)" }} />{r.name}</span>}>
+      } hint="Higher roles are listed first: drag one by its handle to move it (only below your own highest role). A role's permissions add to what everyone can do, ✕ takes one away.">
+        <For each={roles()} fallback={<Row label={<span class="muted">No roles yet. Everyone has the default permissions.</span>} />}>{(r, i) => (<div class="sort-item" data-sort>
+          <Row label={<span class="ss-role">
+            {/* Drag to a new place (Stoat only lets you move roles below your own highest role); arrow keys work too. */}
+            <span class="drag-grip" role="button" tabIndex={0} aria-label={`Move ${r.name} (drag, or use the arrow keys)`} title="Drag to move"
+              onPointerDown={(e) => dragSort(e, (from, to) => void reorder(from, to))}
+              onKeyDown={(e) => { const by = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0; if (by) { e.preventDefault(); void reorder(i(), i() + by); } }}><Icon name="grip" size={16} /></span>
+            <Show when={r.iconUrl} fallback={<i style={{ background: r.colour && !/gradient/.test(r.colour) ? r.colour : "var(--fg2)" }} />}><img class="ss-role-icon" src={r.iconUrl} alt="" /></Show>
+            {r.name}</span>}>
+            <label class="icon-btn" title={r.iconUrl ? "Change role icon" : "Add a role icon"} aria-label={`Icon for ${r.name}`}>
+              <Icon name="image" size={16} />
+              <input type="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden onChange={(e) => {
+                const f = e.currentTarget.files?.[0]; e.currentTarget.value = "";
+                if (f) void attempt(() => b().editRole(props.info.id, r.id, { icon: f }), "Icon saved").then(later);
+              }} />
+            </label>
+            <Show when={r.iconUrl}><button class="icon-btn" aria-label={`Remove ${r.name}'s icon`} title="Remove icon" onClick={() => void attempt(() => b().editRole(props.info.id, r.id, { icon: null }), "Icon removed").then(later)}><Icon name="close" size={14} /></button></Show>
             <span class="small muted">Show separately</span>
             <Switch label={`Show ${r.name} separately in the member list`} on={r.hoist} onChange={(v) => void attempt(() => b().editRole(props.info.id, r.id, { hoist: v })).then(bump)} />
             <ColorInput label={`${r.name} colour`} value={r.colour && /^#[0-9a-f]{6}$/i.test(r.colour) ? r.colour : "#999999"} onChange={(hex) => void attempt(() => b().editRole(props.info.id, r.id, { colour: hex }), "Colour saved").then(later)} />
@@ -225,7 +245,7 @@ function Roles(props: { info: ServerInfo }) {
           <Show when={open() === r.id}>
             <div class="role-perms"><OverrideEditor value={rolePerms(r.id)} channel={false} onChange={(o) => void attempt(() => b().setServerPermissions(props.info.id, r.id, o), "Saved").then(later)} /></div>
           </Show>
-        </>)}</For>
+        </div>)}</For>
       </Group>
     </div>
   );

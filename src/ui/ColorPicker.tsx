@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { phoneLayout } from "./hooks";
 import { Portal } from "solid-js/web";
 import { Icon } from "./icons";
 
@@ -45,7 +46,7 @@ function Picker(props: { o: Open }) {
   const apply = () => { props.o.apply(hex()); close(); };
   let el!: HTMLDivElement;
   const [pos, setPos] = createSignal({ left: props.o.x, top: props.o.y });
-  const sheet = matchMedia("(max-width: 700px)").matches;
+  const sheet = phoneLayout();
   onMount(() => {
     if (sheet) return;
     const r = el.getBoundingClientRect();

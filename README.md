@@ -27,8 +27,8 @@ things most Stoat clients don't have yet, like calls.
 - Per-person volume up to 200%, "mute for me" for a person or just their stream, with a badge so you know it was you
 - Input sensitivity (automatic or a manual threshold with a live meter), echo cancellation, noise suppression,
   device choice
-- A soundboard: add clips from a file or a link, trim them, play them into the call (even while you're muted), and
-  set a sound for when you join
+- A soundboard: add clips from a file or a link, trim them, search, favorite and rename them, preview them just for
+  you, play them into the call (even while you're muted), and set a sound for when you join
 - Pop the call out into its own window and back without dropping it
 - While you're in a call and reading another chat, the call sits in a small preview above the member list
 - A call that drops tries to reconnect once by itself
@@ -62,6 +62,8 @@ These are seen by other Mustela users. Stoat's apps just see your normal profile
 - An inbox for mentions, and new DMs shown above your server list
 - A friends page that shows who's in voice, who's streaming and what they're playing
 - Emoji in any of Stoat's packs, and single emoji messages shown bigger
+- Previews with the picture or a playable video for X, Instagram, TikTok, Reddit, Bluesky, Fur Affinity, pixiv,
+  DeviantArt, Tumblr and Threads, including the "fix the embed" links people paste (fxtwitter, kkinstagram, rxddit…)
 
 ### Look
 - A 3D style with floating panels and chunky buttons, or flat if you prefer
@@ -77,8 +79,9 @@ These are seen by other Mustela users. Stoat's apps just see your normal profile
 - Start with your computer, and closing the window keeps Mustela running in the tray
 - Updates itself from GitHub releases (Windows and the AppImage install them in place)
 - The Linux AppImage can install itself into your menu with an icon
-- Phones get a layout made for touch: full-screen settings and profiles, a pull-up sheet for call controls, and
-  hold on someone in a call for their options
+- Phones and tablets get their own screens made for touch: swipe between the channel list, chat and members,
+  profile cards and menus that come up from the bottom (pull down to close), a pull-up sheet for call controls,
+  and hold on someone in a call for their options
 - Tablets use the phone layout held upright and the desktop layout sideways
 - Several accounts with quick switching
 - A Performance page: pause animations in the background, lighter in calls, GIFs on or off, blur on or off
@@ -164,6 +167,7 @@ Replace `icons/app-icon.png` (1024×1024) and build. See [`icons/README.md`](ico
 ```sh
 npm install
 npm run dev          # in the browser at http://localhost:1420, "Explore the demo" needs no account
+npm run dev:mobile   # the same with the phone and tablet screens
 npm run tauri dev    # the desktop app with hot reload
 npm test
 npm run typecheck
@@ -171,7 +175,9 @@ npm run typecheck
 
 ```
 src/lib/        app logic: the Stoat connection, the demo, markdown, profiles, sync, themes
-src/ui/         the interface (Solid) and styles.css
+src/ui/         the interface (Solid) and styles.css, shared by both sets of screens
+src/desktop/    desktop start-up (Windows, macOS, Linux)
+src/mobile/     phones and tablets: start-up, swipes and touch styles (only in the Android build)
 src-tauri/      the desktop side in Rust: windows, screen capture, Linux voice, game detection, Rich Presence, updates
 src-tauri/plugins/mustela-native/   Android: calls, the call bubble, screen share, wallpaper colours (Kotlin)
 server/         the sync server you can host

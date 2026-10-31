@@ -6,6 +6,7 @@ import type { VoicePresence, AccountApi, BotRow, MfaProof,
   BanRow, CategoryInfo, ChannelDetails, ChannelRules, CustomEmoji, DiscoverState, Override, ServerDetails, WebhookRow, ServerFolder, GifCategory, InviteRow, NotifyLevel, Role, ServerInfo, GifResult, InviteInfo, MeUpdate, SendOptions, Space, StoredSession, VoiceEngine, VoiceHandle, VoicePrefs,
 } from "./types";
 import { sanitizeProfile, type ProfileConfig } from "../profile/model";
+import { cachedBanner, forgetBanners, rememberBanner } from "../profile/cache";
 import { packProfile, unpackProfile } from "../profile/pack";
 import { BANNER_HEIGHT, CANONICAL_HEIGHT, CANONICAL_WIDTH, decodeMarkerScaled, encodeMarker, markerHeight } from "../marker/codec";
 import { pullSettings, pushSettings, type MustelaSettings, type SyncApi } from "../sync/settings";
@@ -28,6 +29,14 @@ const BADGES: [number, string][] = [
 export const badgeNames = (bits: number) => BADGES.filter(([b]) => (bits & b) !== 0).map(([, n]) => n);
 
 /** A Stoat user (and, in a server, their member record) as the UI's Person. */
+/** The icon of a member's highest role that has one (orderedRoles runs lowest to highest, so from the end). */
+function roleIconOf(member: any): string | undefined {
+  try {
+    for (const r of [...((member?.orderedRoles ?? []) as any[])].reverse()) { const url = r?.icon?.createFileURL?.(); if (url) return url; }
+  } catch { /* no roles here */ }
+  return undefined;
+}
+
 export function personOf(u: any, fallbackId = "?", member?: any): Person {
   if (!u) return { id: fallbackId, name: member?.nickname ?? "Unknown" };
   return {
@@ -43,6 +52,7 @@ export function personOf(u: any, fallbackId = "?", member?: any): Person {
     bot: !!u.bot,
     pronouns: (member?.pronouns || u.pronouns || undefined)?.slice(0, 32),
     colour: member?.roleColour ?? undefined,
+    roleIcon: roleIconOf(member),
     relation: ({ Friend: "friend", Incoming: "incoming", Outgoing: "outgoing", Blocked: "blocked", User: "self", BlockedOther: "none" } as const)[u.relationship as string] ?? "none",
   };
 }
@@ -276,6 +286,8 @@ export class StoatBackend implements ChatBackend {
       name: dm ? c.recipient?.displayName ?? "Unknown" : c.type === "SavedMessages" ? "Saved Notes" : c.name,
       kind: dm ? "dm" : c.type === "Group" ? "group" : c.isVoice ? "voice" : "text",
       description: c.description,
+      // Stoat asks you to confirm your age before opening a mature channel, or any channel of a mature server.
+      mature: !!c.mature || !!c.server?.mature || undefined,
       category, categoryId,
       unread: !!c.unread && !this.isMuted("channel", c.id) && !(c.serverId && this.isMuted("server", c.serverId)),
       mentions: c.mentions?.size || undefined,
@@ -306,7 +318,17 @@ export class StoatBackend implements ChatBackend {
     return [{ id: "home", name: "Home", home: true, channels: saved ? [this.channelInfo(saved), ...dms] : dms }, ...servers];
   }
 
-  async members(spaceId: string): Promise<MemberGroup[]> {
+  /** Each server's member list for a minute, so switching back and forth doesn't download thousands again. */
+  private memberCache = new Map<string, { at: number; list: Promise<MemberGroup[]> }>();
+  members(spaceId: string): Promise<MemberGroup[]> {
+    const hit = this.memberCache.get(spaceId);
+    if (hit && Date.now() - hit.at < 60_000) return hit.list;
+    const list = this.loadMembers(spaceId);
+    this.memberCache.set(spaceId, { at: Date.now(), list });
+    list.catch(() => this.memberCache.delete(spaceId));
+    return list;
+  }
+  private async loadMembers(spaceId: string): Promise<MemberGroup[]> {
     if (spaceId === "home") return [];
     const s: any = this.client.servers.get(spaceId);
     if (!s) return [];
@@ -589,17 +611,23 @@ export class StoatBackend implements ChatBackend {
   }
   roles(id: string): Role[] {
     const s: any = this.client.servers.get(id);
-    return ((s?.orderedRoles ?? []) as any[]).map((r) => ({ id: r.id, name: r.name, colour: r.colour ?? undefined, hoist: !!r.hoist, rank: r.rank ?? 0 }));
+    return ((s?.orderedRoles ?? []) as any[]).map((r) => ({ id: r.id, name: r.name, colour: r.colour ?? undefined, hoist: !!r.hoist, rank: r.rank ?? 0, iconUrl: this.fileUrl(r.icon) }));
   }
   createRole(id: string, name: string) { return this.wrap(async () => void (await this.server(id).createRole(name)), "create the role"); }
-  editRole(id: string, rid: string, p: { name?: string; colour?: string | null; hoist?: boolean }) {
+  editRole(id: string, rid: string, p: { name?: string; colour?: string | null; hoist?: boolean; icon?: File | null }) {
     return this.wrap(async () => {
       const data: any = {};
+      const remove: string[] = [];
       if (p.name !== undefined) data.name = p.name;
       if (p.hoist !== undefined) data.hoist = p.hoist;
-      if (p.colour === null) data.remove = ["Colour"]; else if (p.colour) data.colour = p.colour;
+      if (p.colour === null) remove.push("Colour"); else if (p.colour) data.colour = p.colour;
+      if (p.icon === null) remove.push("Icon"); else if (p.icon) data.icon = await this.uploadTagged("icons", p.icon);
+      if (remove.length) data.remove = remove;
       await this.server(id).editRole(rid, data);
     }, "save the role");
+  }
+  setRoleOrder(id: string, roleIds: string[]) {
+    return this.wrap(async () => { await (this.client.api as any).patch(`/servers/${encodeURIComponent(id)}/roles/ranks`, { ranks: roleIds }); }, "change the role order");
   }
   deleteRole(id: string, rid: string) { return this.wrap(async () => void (await this.server(id).deleteRole(rid)), "delete the role"); }
   serverEmojis(id: string): CustomEmoji[] { return this.emojis().filter((e) => e.serverId === id); }
@@ -924,7 +952,7 @@ export class StoatBackend implements ChatBackend {
 
   private async readProfile(userId: string, fresh = false): Promise<ProfileInfo> {
     const fromCloud = this.cloud.fetchProfile(userId, fresh).catch(() => null);
-    const info = await this.readStoatProfile(userId);
+    const info = await this.readStoatProfile(userId, fresh);
     // A sync server's copy wins over the banner strip: it's newer-capable and carries activity.
     const c = await fromCloud;
     if (c?.profile) info.config = c.profile;
@@ -939,23 +967,31 @@ export class StoatBackend implements ChatBackend {
     return info;
   }
 
-  private async readStoatProfile(userId: string): Promise<ProfileInfo> {
+  private async readStoatProfile(userId: string, fresh = false): Promise<ProfileInfo> {
+    // Read within the last day: no requests at all (see profile/cache.ts). Opening a card passes fresh.
+    const hit = fresh ? undefined : cachedBanner(userId);
+    if (hit) return { config: hit.config, bannerUrl: hit.banner, bio: hit.bio };
     const user = this.client.users.get(userId);
     if (!user) return { config: null };
     const profile = await user.fetchProfile();
     const bannerUrl = profile.bannerURL;
     const info: ProfileInfo = { config: null, bannerUrl, bio: profile.content ?? undefined };
-    if (!bannerUrl) return info;
-    try {
-      // Only the bottom quarter is decoded, after a size check: the strip is data (≤ 24 bytes, CRC-checked)
-      // and is never run, and a giant picture can't exhaust memory.
-      const px = await decodeBottom(await fetchBytes(bannerUrl));
-      const payload = decodeMarkerScaled(px.data, px.width, px.height);
-      const cfg = payload ? unpackProfile(payload) : null;
-      info.config = cfg ? sanitizeProfile(cfg) : null;
-    } catch { /* unreadable banner just means "no Mustela profile" */ }
+    if (bannerUrl) {
+      try {
+        // Only the bottom quarter is decoded, after a size check: the strip is data (≤ 24 bytes, CRC-checked)
+        // and is never run, and a giant picture can't exhaust memory.
+        const px = await decodeBottom(await fetchBytes(bannerUrl));
+        const payload = decodeMarkerScaled(px.data, px.width, px.height);
+        const cfg = payload ? unpackProfile(payload) : null;
+        info.config = cfg ? sanitizeProfile(cfg) : null;
+      } catch { /* unreadable banner just means "no Mustela profile" */ }
+    }
+    rememberBanner(userId, { config: info.config, banner: bannerUrl, bio: info.bio });
     return info;
   }
+
+  /** "Forget cached profiles" in Advanced: everyone's read again, here and in the copy kept on this device. */
+  forgetProfiles() { this.profiles.clear(); this.profileAt.clear(); forgetBanners(); }
 
   /**
    * Re-uploads the banner at canonical size with the marker embedded.

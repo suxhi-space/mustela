@@ -191,7 +191,7 @@ export function Appearance() {
           <article class="msg head"><span class="msg-gutter" /><div class="msg-body"><div class="md">Sphinx of black quartz, judge my vow 🦦</div></div></article>
           <article class="msg head"><span class="msg-gutter" /><div class="msg-body"><div class="md"><code class="icode">The quick brown fox jumped over the lazy dog</code></div></div></article>
         </div>
-        <Row label="Message size"><Slider label="Message size" min={12} max={20} value={device().text.size} onChange={(size) => updateDevice({ text: { ...device().text, size } })} suffix="px" /></Row>
+        <Row label="Text size" hint="Messages, and a little of the rest of the app"><Slider label="Text size" min={12} max={20} value={device().text.size} onChange={(size) => updateDevice({ text: { ...device().text, size } })} suffix="px" /></Row>
         <Row label="Message group spacing"><Slider label="Message group spacing" min={0} max={24} value={device().text.spacing} onChange={(spacing) => updateDevice({ text: { ...device().text, spacing } })} suffix="px" /></Row>
         <Row label="Font">
           <Select label="Interface font" value={device().text.font || "default"} onChange={(f) => updateDevice({ text: { ...device().text, font: f === "default" ? "" : f } })}

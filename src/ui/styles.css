@@ -398,7 +398,8 @@ a.em-title:hover { text-decoration: underline; }
 .ed-emoji { width: 1.35em; height: 1.35em; vertical-align: -0.3em; object-fit: contain; }
 .char-count { align-self: center; font-size: 12px; font-weight: 800; color: var(--fg2); padding: 0 4px; }
 .char-count.over { color: var(--busy); }
-.composer.locked { opacity: .75; }
+/* Can't send here: dimmed contents on a solid box (fading the whole box let things behind it show through). */
+.composer.locked > * { opacity: .6; }
 .lock-ic { align-self: center; margin: 0 6px; }
 .slow-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 750; color: var(--fg2); padding: 2px 8px 4px; }
 .fmt-bar { position: absolute; z-index: 7; transform: translate(-50%, calc(-100% - 8px)); display: flex; gap: 1px; padding: 3px; border-radius: 12px; }
@@ -494,6 +495,7 @@ a.em-title:hover { text-decoration: underline; }
 .callpanel { position: absolute; left: 8px; bottom: calc(var(--gapx) + 58px + 6px); width: calc(var(--rail) + var(--chan) - 8px); z-index: 12; display: flex; align-items: center; gap: 2px; padding: 7px 6px 7px 12px; border-radius: 14px;
   background: color-mix(in srgb, var(--online) 14%, var(--md-surface-container-high, var(--s3))); box-shadow: var(--drop), 0 10px 24px -14px rgba(0,0,0,.6); }
 .callpanel .icon-btn.on { color: var(--on-pri); background: var(--pri); }
+.callpanel .cp-mute.off { color: #fff; background: var(--busy, #e5484d); }
 .app.in-call .rail { padding-bottom: 128px; }
 .app.in-call .side { padding-bottom: 122px; }
 @media (max-width: 900px) { .app[data-view="chat"] .callpanel { display: none; } .callpanel { width: calc(100% - 16px); } }
@@ -749,24 +751,53 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .voice-members li { display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 0 8px; border-radius: 8px; color: var(--fg2); font-size: 13.5px; }
 .voice-members li:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); color: var(--fg); }
 .voice-members li.talking .av-img { box-shadow: 0 0 0 2px var(--online); }
+.vm-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .vm-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vm-icons { display: inline-flex; align-items: center; gap: 4px; color: var(--fg2); }
 .live-pill { font-size: 9.5px; font-weight: 900; letter-spacing: .06em; padding: 1px 5px; border-radius: 5px; background: var(--busy); color: #fff; }
 
 /* ============================================================ soundboard */
-.soundboard { position: fixed; z-index: 71; padding: 12px; display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow: auto; }
+.soundboard { position: fixed; z-index: 71; padding: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow: hidden; }
 :root[data-mode="dark"] .soundboard { background: color-mix(in srgb, var(--s2) 97%, transparent); }
-.sb-head { display: flex; align-items: center; }
-.sb-note { margin-top: -4px; }
-.sb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.sb-item { position: relative; }
-.sb-sound { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border-radius: 12px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge), 0 2px 0 var(--lip-dark); }
+.sb-note { margin: 0; }
+.sb-search { display: flex; align-items: center; gap: 6px; padding: 0 4px 0 10px; border-radius: 10px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); color: var(--fg2); }
+.sb-search input { flex: 1; min-width: 0; height: 36px; border: 0; background: none; color: var(--fg); font: inherit; outline: none; }
+.sb-search .icon-btn { width: 30px; height: 30px; }
+.sb-search .icon-btn.on { color: var(--pri); }
+.sb-scroll { overflow: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 2px; margin: -2px; }
+.sb-sec { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--fg2); }
+.sb-empty { grid-column: 1 / -1; margin: 4px 0; }
+.sb-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.sb-item { position: relative; min-width: 0; }
+.sb-sound { width: 100%; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border-radius: 10px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge), 0 2px 0 var(--lip-dark); }
 .sb-sound:hover { background: color-mix(in srgb, var(--pri) 14%, var(--well)); }
 .sb-sound:active { transform: translateY(2px); box-shadow: inset 0 0 0 1px var(--edge); }
+.sb-emoji { font-size: 18px; line-height: 1; flex: none; }
+.sb-name { font-size: 13px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Preview (just you) on the left and the star on the right, shown when you point at a sound. */
+.sb-mini { position: absolute; top: 50%; translate: 0 -50%; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: var(--fg); background: var(--s3, var(--s2)); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.sb-mini:hover { background: var(--pri); color: var(--on-pri, #fff); }
+.sb-hear { left: 6px; }
+.sb-star { right: 6px; }
+.sb-star.on { color: #f0b232; }
+@media (hover: hover) {
+  .sb-mini { opacity: 0; pointer-events: none; transition: opacity .12s; }
+  .sb-item:hover .sb-mini, .sb-item:focus-within .sb-mini { opacity: 1; pointer-events: auto; }
+  .sb-item:hover .sb-sound { padding: 0 34px; }
+}
+/* Touch: the star stays put (gold when on); preview is a small corner button. */
+@media (hover: none) {
+  .sb-sound { height: 48px; padding: 0 30px; }
+  .sb-mini { background: none; box-shadow: none; color: var(--fg2); }
+}
 .sb-sound.add { color: var(--fg2); border: 2px dashed var(--edge); box-shadow: none; background: transparent; }
-.sb-emoji { font-size: 24px; line-height: 1; }
-.sb-name { font-size: 12px; font-weight: 800; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-del { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--busy); color: #fff; }
+.sb-list { display: flex; flex-direction: column; }
+.sb-edit { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--edge); }
+.sb-edit:first-child { border-top: 0; }
+.sb-edit .emoji-btn, .sb-pick { width: 40px; height: 36px; flex: none; font-size: 20px; border-radius: 10px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); display: grid; place-items: center; }
+.sb-edit .text-input { flex: 1; min-width: 0; width: auto; }
+.sb-edit .sb-vol { width: 90px; flex: none; }
+@media (max-width: 520px) { .sb-edit { flex-wrap: wrap; } .sb-edit .sb-vol { flex: 1; } }
 .trimmer { display: flex; flex-direction: column; gap: 10px; }
 .wave { width: 100%; height: 64px; border-radius: 10px; background: var(--well); }
 .trim-row { display: flex; gap: 10px; align-items: center; }
@@ -881,6 +912,15 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .ss-emoji img { width: 28px; height: 28px; object-fit: contain; flex: none; }
 .ss-emoji span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ss-role-pick { flex-wrap: wrap; gap: 6px; padding-left: 50px; }
+.ss-role { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+/* Drag handles for reordering (dragSort.ts): the row lifts while it's moved */
+.drag-grip { display: inline-grid; place-items: center; width: 24px; height: 32px; margin: -4px 0; flex: none; border-radius: 8px; color: var(--fg2); cursor: grab; touch-action: none; }
+.drag-grip:hover, .drag-grip:focus-visible { color: var(--fg); background: color-mix(in srgb, var(--fg) 8%, transparent); }
+[data-sort].sorting { position: relative; z-index: 5; background: var(--s2); box-shadow: 0 10px 24px -8px rgba(0, 0, 0, .5), inset 0 0 0 1px var(--edge); border-radius: 12px; }
+[data-sort].sorting .drag-grip { cursor: grabbing; color: var(--pri); }
+.sort-item + .sort-item { box-shadow: inset 0 1px 0 var(--edge); }
+.sort-item.sorting + .sort-item { box-shadow: none; }
+.ss-role-icon { width: 18px; height: 18px; border-radius: 5px; object-fit: cover; flex: none; }
 .chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; font-weight: 800; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
 .chip.on { background: color-mix(in srgb, var(--pri) 16%, var(--well)); }
 .text-input.wide { width: 100%; margin-bottom: 14px; }
@@ -935,7 +975,8 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .esc:hover .esc-x { background: color-mix(in srgb, var(--fg) 8%, transparent); }
 .demo-note { max-width: 660px; margin: 0 auto 14px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--label) 16%, transparent); font-weight: 700; font-size: 13.5px; }
 @media (max-width: 900px) {
-  .snav { width: auto; flex-direction: column; overflow-y: auto; padding: 10px 12px; }
+  /* The list fills the screen and scrolls inside it (it grew to its full height before, so nothing could scroll). */
+  .snav { width: auto; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px; }
   .settings[data-narrow="nav"] .spage, .settings[data-narrow="page"] .snav { display: none; }
   .snav-back { display: inline-grid; }
   .spage-head { padding-top: 10px; }
@@ -1131,9 +1172,10 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 @media (max-width: 900px) { .members-col.panel-col { display: block; position: absolute; inset: 0; z-index: 6; width: auto; background: var(--md-surface-container-low); } }
 .older-bar { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 14px; padding: 6px 6px 6px 16px; border-radius: 14px; white-space: nowrap;
   background: var(--md-inverse-surface); color: var(--md-inverse-on-surface); font-weight: 800; font-size: 13.5px; box-shadow: var(--drop), 0 10px 24px -10px rgba(0,0,0,.6); }
+.ob-jump { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 8px; background: none; color: inherit; font: inherit; font-weight: 850; cursor: pointer; }
+.ob-jump:hover { text-decoration: underline; }
 .sb-link { display: flex; gap: 8px; padding-top: 8px; }
 .sb-link .text-input { flex: 1; width: auto; min-width: 0; }
-.sb-sound.add.on { color: var(--fg); }
 
 /* Android picture-in-picture window */
 
@@ -1457,7 +1499,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .up-progress { width: 100%; height: 6px; accent-color: var(--pri); }
 
 /* "N new messages since…" and the New line, like Discord and Stoat */
-.since-bar { position: relative; flex: none; margin: 8px 14px 4px; z-index: 5; display: flex; border-radius: 12px; overflow: hidden; color: #fff; background: var(--busy); box-shadow: 0 4px 14px rgba(0,0,0,.18); font-size: 13px; font-weight: 800; }
+.since-bar { position: relative; flex: none; margin: 8px calc(14px + var(--cpv-room, 0px)) 4px 14px; z-index: 5; display: flex; border-radius: 12px; overflow: hidden; color: #fff; background: var(--busy); box-shadow: 0 4px 14px rgba(0,0,0,.18); font-size: 13px; font-weight: 800; }
 .since-bar button { display: flex; align-items: center; gap: 6px; padding: 7px 12px; color: inherit; }
 .since-bar .sb-jump { flex: 1; min-width: 0; text-align: left; }
 .since-bar .sb-read { border-left: 1px solid rgba(255,255,255,.3); white-space: nowrap; }
@@ -1675,13 +1717,13 @@ button.select:focus-visible { box-shadow: inset 0 0 0 2px var(--pri); }
 .vc-back span { flex: 1; text-align: left; }
 
 /* ---------- the small call tile (phones and tablets) ---------- */
-.minicall { position: fixed; z-index: 60; width: 96px; height: 112px; border-radius: 18px; overflow: hidden; touch-action: none; cursor: pointer; user-select: none;
+.minicall { position: fixed; z-index: 60; width: calc(104px * var(--mc-scale, 1)); height: calc(104px * var(--mc-scale, 1)); border-radius: 18px; overflow: hidden; touch-action: none; cursor: pointer; user-select: none;
   background: linear-gradient(180deg, color-mix(in srgb, #fff 8%, #15181d), #0d0f12); color: #fff;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 0 0 1px rgba(255,255,255,.08), 0 14px 30px -10px rgba(0,0,0,.75); animation: pop-in .16s ease-out; }
-.minicall.stream { width: 176px; height: 99px; }
+.minicall.stream { width: calc(184px * var(--mc-scale, 1)); height: calc(104px * var(--mc-scale, 1)); }
 .minicall.talking { box-shadow: 0 0 0 2px var(--online, #2f9e5b), 0 14px 30px -10px rgba(0,0,0,.75); }
 .minicall .vid { width: 100%; height: 100%; object-fit: cover; display: block; }
-.mc-person { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px 18px; }
+.mc-person { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px; }
 .mc-person small { max-width: 100%; font-size: 11.5px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-live { position: absolute; left: 6px; top: 6px; font-size: 10px; font-weight: 900; padding: 1px 6px; border-radius: 6px; background: var(--busy, #e5484d); }
 .mc-mic { position: absolute; right: 6px; bottom: 6px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(0,0,0,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
@@ -1772,7 +1814,10 @@ button.select:focus-visible { box-shadow: inset 0 0 0 2px var(--pri); }
 }
 
 /* picture-in-picture: only the call */
-.pipview { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; background: #05060a; color: #fff; }
+/* Picture-in-picture: the mini view filling the floating window (square with whoever's talking, wide with a stream) */
+.pipview { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, #fff 8%, #15181d), #0d0f12); }
+.pipview.stream { background: #000; }
 .pipview > video, .pipview .vid-fill { width: 100%; height: 100%; }
 .pip-person { display: flex; flex-direction: column; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; }
 .pip-person small { max-width: 90vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
@@ -2086,9 +2131,16 @@ img.mini-orb.tiny { object-fit: cover; }
 button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 .social-embed .em-img { max-height: 420px; }
 /* "You're viewing older messages": a card floating just above the message box, toward the right (desktop) */
+/* "You're viewing older messages" (desktop): a bar as wide as the message box, its bottom tucked behind the box's top edge */
 @media (min-width: 701px) {
-  .older-bar { left: auto; right: 22px; transform: none; bottom: calc(var(--composer-h, 70px) - 6px); padding: 6px 6px 6px 14px; font-size: 13px; z-index: 6;
-    box-shadow: inset 0 0 0 1px var(--edge), 0 10px 26px -12px rgba(0,0,0,.65); }
+  .older-bar { left: 14px; right: 14px; transform: none; bottom: calc(var(--composer-h, 70px) - 14px); z-index: 20; justify-content: space-between;
+    padding: 5px 6px 19px 14px; border-radius: 14px 14px 0 0; font-size: 13px; box-shadow: 0 -8px 22px -12px rgba(0,0,0,.55); }
+  /* The message box is see-through in some looks: give it a solid base while the bar is tucked behind it. */
+  .chat:has(.older-bar) .composer { background: linear-gradient(var(--well), var(--well)), var(--s2); }
+  /* The bar says who's typing while it's up (the usual line is underneath it). */
+  .chat:has(.older-bar) .typing { visibility: hidden; }
+  .ob-typing { display: inline-flex; align-items: center; gap: 6px; }
+  .composer-wrap { z-index: 21; }
 }
 
 /* Phones in a call: a clean screen like other call apps. A simple bar on top (minimise, the channel,
@@ -2121,3 +2173,57 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 .ctx-radio { margin-left: auto; width: 22px; height: 22px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fg) 40%, transparent); }
 .ctx-radio.on { box-shadow: inset 0 0 0 7px var(--pri); background: #fff; }
 .out-title { margin: 2px 0 10px; text-align: center; font-size: 19px; font-weight: 900; }
+
+/* Mature channel age check */
+.mature-gate { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px 16px; text-align: center; }
+.mature-gate .mg-sign { width: 96px; height: 84px; margin-bottom: 6px; }
+.mature-gate h2 { margin: 0; font-size: 26px; }
+.mature-gate p { margin: 0; color: var(--fg2); }
+.mg-check { display: flex; align-items: center; gap: 10px; margin-top: 8px; cursor: pointer; }
+.mg-check input { width: 18px; height: 18px; accent-color: var(--pri); }
+.mg-actions { display: flex; gap: 10px; margin-top: 12px; }
+/* A stream you were watching ended: a plain card in its place until you close it */
+.ctile-ended { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 12px; text-align: center; color: #c8cdd2; font-weight: 700; font-size: 15px; background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--pri) 22%, #111) 0%, #0b0b0d 70%); }
+.ctile-ended svg { opacity: .7; }
+.ctile-ended .btn { background: rgba(255,255,255,.1); color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+.ctile.big .ctile-ended { font-size: 17px; gap: 14px; }
+.ctile.big .ctile-ended svg { width: 44px; height: 44px; }
+.sub-back { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+.members-more { height: 1px; }
+/* Phones: your own stream's tile (not drawn back to you), and stop/enlarge buttons on streams */
+.ctile-mine { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 14px; text-align: center; color: #fff; background: #111214; }
+.ctile-mine strong { font-size: 17px; line-height: 1.25; }
+.ctile.big .ctile-mine strong { font-size: 24px; }
+.ctile-mine span { color: #c8cdd2; font-weight: 600; max-width: 300px; }
+.ctile-mine .btn { background: #fff; color: #111; box-shadow: none; }
+.ctile-corner { position: absolute; top: 8px; z-index: 3; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; background: rgba(0, 0, 0, .55); }
+.ctile-corner.left { left: 8px; }
+.ctile-corner.right { right: 8px; }
+/* Text size (Appearance/Accessibility) also grows the app's own text a little, not just messages (store.ts --ui-text) */
+:is(.chans .chan, .chans .cat, .member, .mhead, .group-body > .row, .group-title, .group-hint, .snav button, .snav-head, .ctx-item, .me-row, .bar h2, .friend-row, .cp-text, .voice-members li) { zoom: var(--ui-text, 1); }
+/* Phones: "Active now" across the top of Home (big cards for calls and activities, squares for just online) */
+.active-strip { display: flex; gap: 10px; padding: 2px 8px 12px; margin: 0 -6px 4px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; scroll-snap-type: x proximity; }
+.active-strip::-webkit-scrollbar { display: none; }
+.as-card { position: relative; flex: none; scroll-snap-align: start; display: flex; align-items: center; gap: 12px; border-radius: 18px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); color: var(--fg); text-align: left; }
+/* A big card takes most of the width, so the next one peeks in from the edge */
+.as-card.big { width: calc(100% - 44px); max-width: 360px; height: 100px; padding: 12px 36px 12px 14px; }
+.as-card.small { width: 100px; height: 100px; justify-content: center; padding: 0; }
+.as-live { position: absolute; top: 10px; right: 12px; color: var(--online); }
+.as-faces { flex: none; display: flex; align-items: center; }
+.as-faces.many { display: grid; grid-template-columns: repeat(2, 38px); grid-auto-rows: 38px; gap: 2px 4px; }
+.as-faces.many > :nth-child(2) { transform: translateY(8px); }
+.as-more { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--s3); font-size: 13px; font-weight: 800; }
+.as-text { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
+.as-text strong { font-size: 15.5px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.2; }
+.as-text small { display: flex; align-items: center; gap: 4px; color: var(--fg2); font-weight: 700; font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Home's buttons on phones: find, friends, new message */
+.home-actions { display: flex; gap: 8px; padding: 2px 2px 12px; }
+.home-actions .icon-btn { width: 46px; height: 44px; border-radius: 14px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
+.home-actions .home-friends { flex: 1; height: 44px; justify-content: center; border-radius: 14px; }
+.home-friends { gap: 8px; }
+.home-actions .icon-btn.primary-ic, .icon-btn.primary-ic { background: var(--pri); color: var(--on-pri); box-shadow: none; }
+.dm-find { margin: 2px 2px 10px; }
+.chan-sub.in-voice { color: var(--online); }
+/* A role's icon next to someone's name (their highest role that has one), like Stoat */
+.role-icon { width: 18px; height: 18px; margin-left: 4px; border-radius: 4px; object-fit: contain; vertical-align: -3px; flex: none; }
+.msg header .role-icon { margin-left: 2px; }

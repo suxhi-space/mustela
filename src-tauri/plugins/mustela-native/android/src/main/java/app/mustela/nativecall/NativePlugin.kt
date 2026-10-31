@@ -106,21 +106,19 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            // Bottom: nav buttons or a pinned taskbar take their real height (they're "tappable"); with gesture
+            // navigation only a slim strip for the handle is kept, not the whole gesture area (tablets left a big gap).
+            val tappable = insets.getInsets(WindowInsetsCompat.Type.tappableElement()).bottom
+            val bottom = if (tappable > 0) tappable else minOf(bars.bottom, (18 * density).toInt())
             val px = { n: Int -> "${(n / density).toInt()}px" }
-            val js = "(function(s){s.setProperty('--inset-top','${px(bars.top)}');s.setProperty('--inset-bottom','${px(maxOf(bars.bottom, ime.bottom))}');" +
+            val js = "(function(s){s.setProperty('--inset-top','${px(bars.top)}');s.setProperty('--inset-bottom','${px(maxOf(bottom, ime.bottom))}');" +
                 "s.setProperty('--inset-left','${px(bars.left)}');s.setProperty('--inset-right','${px(bars.right)}');s.setProperty('--keyboard','${px(ime.bottom)}');})(document.documentElement.style)"
             (v as WebView).evaluateJavascript(js, null)
             insets
         }
-        // Picture-in-picture: tell the page when the app goes in or out, so it shows just the call.
-        var lastPip: Boolean? = null
-        webView.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            val inPip = Build.VERSION.SDK_INT >= 24 && activity.isInPictureInPictureMode
-            if (inPip != lastPip) {
-                lastPip = inPip
-                (v as WebView).evaluateJavascript("document.documentElement.toggleAttribute('data-pip',$inPip);window.dispatchEvent(new CustomEvent('mustela:pip',{detail:$inPip}))", null)
-            }
-        }
+        // Picture-in-picture: tell the page when the app goes in or out, so it shows just the call. Checked on every
+        // resize and again just after (Android can resize before it says it's in picture-in-picture), and on pause/resume.
+        webView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> reportPip(); webView.postDelayed({ reportPip() }, 250) }
         // A Stoat invite link this app was opened with.
         activity.intent?.data?.let { deliverLink(webView, it.toString()) }
         // The page loads after this; ask again once it's had time to start, so it gets the sizes too.
@@ -128,6 +126,23 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private var web: WebView? = null
+
+    private var lastPip: Boolean? = null
+    /**
+     * Tells the page whether the app is in picture-in-picture. Leaving it says how: "expanded" when you tapped the
+     * window to open the app (the page then shows the call), not when you closed it (opening Mustela later, from
+     * recents or anywhere else, goes back to where you were).
+     */
+    private fun reportPip() {
+        val view = web ?: return
+        val inPip = Build.VERSION.SDK_INT >= 24 && activity.isInPictureInPictureMode
+        if (inPip == lastPip) return
+        val was = lastPip
+        lastPip = inPip
+        val expanded = was == true && !inPip &&
+            (activity as? androidx.lifecycle.LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) == true
+        view.evaluateJavascript("document.documentElement.toggleAttribute('data-pip',$inPip);window.dispatchEvent(new CustomEvent('mustela:pip',{detail:{pip:$inPip,expanded:$expanded}}))", null)
+    }
 
     /** A link opened while Mustela was already running (launchMode singleTask). */
     override fun onNewIntent(intent: Intent) {
@@ -339,7 +354,14 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
 
     // The WebView pauses when the app goes to the background; the call must not. Nothing to do here on purpose:
     // CallEngine and CallService live outside this plugin's lifecycle.
-    override fun onPause() {}
+    override fun onPause() { keepPageRunning(); activity.runOnUiThread { reportPip() } }
+
+    /** In a call: the page runs the call, so it mustn't be paused or slowed when you leave the app or lock the phone. */
+    private var inCall = false
+    private fun keepPageRunning() {
+        if (!inCall) return
+        web?.post { runCatching { web?.onResume(); web?.resumeTimers() } }
+    }
 
     /* ---------- call audio: the call volume, not media volume ---------- */
 
@@ -358,6 +380,9 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
                     activity.volumeControlStream = AudioManager.USE_DEFAULT_STREAM_TYPE
                 }
             }
+            // The page's process keeps its priority while hidden, so Android doesn't slow or drop it mid-call.
+            inCall = args.on
+            if (Build.VERSION.SDK_INT >= 26) runCatching { web?.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, !args.on) }
             // The Web engine (video) gets the same background service as the voice engine: the call keeps
             // going when you leave the app or swipe it away, with a notification to come back or leave.
             if (!CallEngine.active()) runCatching {
@@ -438,11 +463,12 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
 
     // Leaving the app during a call shows the bubble; coming back hides it.
     override fun onStop() {
+        keepPageRunning()
         if (overlayWanted && Bubble.allowed(activity)) activity.runOnUiThread { showBubble() }
     }
 
     override fun onResume() {
-        activity.runOnUiThread { Bubble.hide(activity) }
+        activity.runOnUiThread { Bubble.hide(activity); reportPip() }
     }
 
     /* ---------- screen share ---------- */

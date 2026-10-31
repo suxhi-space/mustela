@@ -8,6 +8,7 @@ import { backend } from "./store";
 import { createProfileInfo } from "./hooks";
 import { ActivityCard } from "./Profile";
 import { joinCall } from "./call/state";
+import { verb } from "./activity";
 
 type Tab = "online" | "all" | "pending" | "blocked" | "add";
 
@@ -213,5 +214,66 @@ function ActiveCard(props: { p: Person; onProfile(p: Person): void }) {
         <Show when={act()}>{(a) => <ActivityCard a={a()} compact />}</Show>
       </div>
     </Show>
+  );
+}
+
+/**
+ * Phones: "Active now" across the top of Home, like Discord's app. One big card per voice channel your friends are
+ * in (their pictures and where), a big card for a friend doing something (what they're playing or listening to), and
+ * a small square for friends who are just online. Scrolls sideways.
+ */
+export function ActiveStrip(props: { onProfile(p: Person): void; onOpenChannel(id: string): void }) {
+  const [data] = createResource(() => backend(), (b) => b.friends());
+  const online = createMemo(() => (data()?.friends ?? []).filter((p) => p.online));
+  // Friends in voice, grouped by the channel they're in.
+  const calls = createMemo(() => {
+    const by = new Map<string, { channelId: string; name: string; where?: string; screen: boolean; people: Person[] }>();
+    for (const p of online()) {
+      const v = backend()?.voiceOf(p.id);
+      if (!v) continue;
+      const g = by.get(v.channelId) ?? { channelId: v.channelId, name: v.channelName, where: v.serverName, screen: false, people: [] };
+      g.people.push(p); g.screen ||= v.screen;
+      by.set(v.channelId, g);
+    }
+    return [...by.values()];
+  });
+  const rest = createMemo(() => { const inVoice = new Set(calls().flatMap((g) => g.people.map((p) => p.id))); return online().filter((p) => !inVoice.has(p.id)); });
+  return (
+    <Show when={online().length}>
+      <section class="active-strip" aria-label="Active now" data-no-swipe>
+        <For each={calls()}>{(g) => (
+          <button class="as-card big" onClick={() => props.onOpenChannel(g.channelId)}>
+            <span class="as-faces" classList={{ many: g.people.length > 1 }}>
+              <For each={g.people.slice(0, g.people.length > 3 ? 2 : 3)}>{(p) => <Avatar person={p} size={g.people.length > 1 ? 38 : 52} presence={false} still />}</For>
+              <Show when={g.people.length > 3}><span class="as-more">+{g.people.length - 2}</span></Show>
+            </span>
+            <Icon name={g.screen ? "screen" : "volume-up"} size={18} class="as-live" />
+            <span class="as-text">
+              <strong>{g.people.map((p) => p.name).join(", ")}</strong>
+              <small>{g.name}{g.where ? ` · ${g.where}` : ""}</small>
+            </span>
+          </button>
+        )}</For>
+        <For each={rest()}>{(p) => <StripPerson p={p} onProfile={props.onProfile} />}</For>
+      </section>
+    </Show>
+  );
+}
+
+/** A friend doing something gets a big card; one who's just online, a small square. */
+function StripPerson(props: { p: Person; onProfile(p: Person): void }) {
+  const info = createProfileInfo(() => props.p.id);
+  const act = () => info()?.activity ?? null;
+  return (
+    <Show when={act()} fallback={
+      <button class="as-card small" onClick={() => props.onProfile(props.p)} aria-label={`${props.p.name}, online`} title={props.p.name}>
+        <Avatar person={props.p} size={60} still />
+      </button>
+    }>{(a) => (
+      <button class="as-card big" onClick={() => props.onProfile(props.p)}>
+        <span class="as-faces"><Avatar person={props.p} size={52} still /></span>
+        <span class="as-text"><strong>{props.p.name}</strong><small><Icon name="gamepad" size={13} />{verb(a().kind)} {a().name}</small></span>
+      </button>
+    )}</Show>
   );
 }

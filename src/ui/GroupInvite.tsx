@@ -14,6 +14,8 @@ export function GroupInvite(props: { channel: ChannelInfo; onClose(): void; onOp
   useBack(() => props.onClose());
   const [friends] = createResource(() => backend()!.friends().then((f) => f.friends));
   const inside = createMemo(() => new Set(backend()!.recipients(props.channel.id).map((p) => p.id)));
+  /** "New message" (no conversation yet): one friend opens your DM, more start a group. */
+  const fresh = () => !props.channel.id;
   const [q, setQ] = createSignal("");
   const [picked, setPicked] = createSignal<string[]>([]);
   const [busy, setBusy] = createSignal(false);
@@ -26,6 +28,10 @@ export function GroupInvite(props: { channel: ChannelInfo; onClose(): void; onOp
         for (const id of picked()) await backend()!.addToGroup(props.channel.id, id);
         toast(picked().length === 1 ? "Added to the group" : `Added ${picked().length} people`);
         props.onClose();
+      } else if (fresh() && picked().length === 1) {
+        // New message to one friend: their DM.
+        const id = await backend()!.openDM(picked()[0]!);
+        props.onClose(); props.onOpen(id);
       } else {
         const id = await backend()!.createGroup([...inside(), ...picked()]);
         props.onClose(); props.onOpen(id);
@@ -35,8 +41,8 @@ export function GroupInvite(props: { channel: ChannelInfo; onClose(): void; onOp
   return (
     <div class="scrim" onClick={props.onClose}>
       <div class="modal panel group-invite" role="dialog" aria-label="Add friends" onClick={(e) => e.stopPropagation()}>
-        <h2>{props.channel.kind === "group" ? "Add friends to this group" : "Start a group"}</h2>
-        <p class="muted small">{props.channel.kind === "group" ? "They'll see the conversation from now on." : `A new group with ${props.channel.name} and whoever you pick.`}</p>
+        <h2>{fresh() ? "New message" : props.channel.kind === "group" ? "Add friends to this group" : "Start a group"}</h2>
+        <p class="muted small">{fresh() ? "Pick one friend to message them, or a few to start a group." : props.channel.kind === "group" ? "They'll see the conversation from now on." : `A new group with ${props.channel.name} and whoever you pick.`}</p>
         <label class="search-box wide"><Icon name="search" size={16} /><input placeholder="Search friends" value={q()} onInput={(e) => setQ(e.currentTarget.value)} autofocus /></label>
         <div class="gi-list">
           <For each={list()} fallback={<p class="empty small">{friends.loading ? "Loading friends…" : "No friends to add."}</p>}>{(f) => (
@@ -47,7 +53,7 @@ export function GroupInvite(props: { channel: ChannelInfo; onClose(): void; onOp
         </div>
         <div class="row end">
           <button class="btn" onClick={props.onClose}>Cancel</button>
-          <button class="btn primary" disabled={!picked().length || busy()} onClick={() => void go()}>{props.channel.kind === "group" ? "Add" : "Create group"}</button>
+          <button class="btn primary" disabled={!picked().length || busy()} onClick={() => void go()}>{props.channel.kind === "group" ? "Add" : fresh() ? (picked().length > 1 ? "Create group" : "Message") : "Create group"}</button>
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useAutoplay } from "../autoplay";
+import { phoneLayout } from "../hooks";
 import { useBack } from "../back";
 import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import type { CustomEmoji } from "../../lib/backend/types";
@@ -66,7 +67,7 @@ export function EmojiPicker() {
         if (!s) return null;
         return { custom: custom().filter((e) => e.name.toLowerCase().includes(s)).slice(0, 60), unicode: searchEmoji(s, 120) };
       });
-      const phone = matchMedia("(max-width: 700px)").matches;
+      const phone = phoneLayout();
       const W = 420, H = 440;
       const left = () => Math.max(8, Math.min(req.x - W, innerWidth - W - 8));
       const top = () => (req.y - H - 8 > 8 ? req.y - H - 8 : Math.min(req.y + 36, innerHeight - H - 8));

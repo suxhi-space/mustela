@@ -15,15 +15,17 @@ import { startPerf } from "./perf";
 import { setScreenBack, startBackButton } from "./back";
 import { Avatar } from "./Avatar";
 import { CallPanel } from "./call/CallPanel";
-import { CallPreview } from "./call/CallPreview";
+import { CallPreview, previewOuterWidth } from "./call/CallPreview";
 import { MiniCall, PipView } from "./call/MiniCall";
-import { createPhone, createProfileInfo } from "./hooks";
+import { startSoundSync } from "./call/Soundboard";
+import { createPhone, createProfileInfo, narrowLayout, phoneLayout } from "./hooks";
+import { MOBILE_UI } from "./target";
 import { phoneVoiceChat, setPhoneVoiceChat } from "./Voice";
 import { ScreenPickerHost } from "./call/ScreenPicker";
 import { call, callBanner, checkLastCall, joinCall, setCallBanner, toggleCall } from "./call/state";
 import { Chat } from "./Chat";
 import { EmojiPicker, GifPicker, Lightbox } from "./chat/overlays";
-import { Friends, JoinServer } from "./Friends";
+import { ActiveStrip, Friends, JoinServer } from "./Friends";
 import { Icon } from "./icons";
 import { Members } from "./Members";
 import { DmProfile, ProfileView } from "./Profile";
@@ -100,6 +102,8 @@ export function Shell() {
   const [panel, setPanel] = createSignal<Panel | null>(null);
   const [discover, setDiscover] = createSignal(false);
   const [groupInvite, setGroupInvite] = createSignal<ChannelInfo | null>(null);
+  /** Phones: the "find a conversation" box in Home (null: closed) */
+  const [dmSearch, setDmSearch] = createSignal<string | null>(null);
 
   /** Favorite channels from every server (for Home, or the Favorites button under it). */
   const favourites = createMemo(() => {
@@ -130,8 +134,10 @@ export function Shell() {
   const me = () => meNow()!;
   /** The call preview (from the mockup): in a call, looking at a different chat, not on a phone, not popped out. */
   const [previewH, setPreviewH] = createSignal(0);
-  const [wide, setWide] = createSignal(matchMedia("(min-width: 901px)").matches);
-  { const mq = matchMedia("(min-width: 901px)"); const f = () => setWide(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); }
+  // Room for side columns (a tablet held sideways has it; upright it uses the touch layout).
+  const WIDE = MOBILE_UI ? "(min-width: 901px) and (orientation: landscape)" : "(min-width: 901px)";
+  const [wide, setWide] = createSignal(matchMedia(WIDE).matches);
+  { const mq = matchMedia(WIDE); const f = () => setWide(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); }
   const showPreview = () => wide() && call.active() && !call.popped() && !!channel() && call.channel()?.id !== channel()?.id && !panel();
   // The DM partner's banner, blurred behind the call preview so it blends into their profile.
   const peerInfo = createProfileInfo(() => channel()?.peer?.id ?? "", () => !!channel()?.peer && showPreview());
@@ -143,12 +149,26 @@ export function Shell() {
     const mq = matchMedia("(max-width: 520px) and (max-height: 520px)");
     const f = () => setPip(mq.matches || document.documentElement.hasAttribute("data-pip"));
     f(); mq.addEventListener("change", f); addEventListener("mustela:pip", f);
-    onCleanup(() => { mq.removeEventListener("change", f); removeEventListener("mustela:pip", f); });
+    // Tapping the picture-in-picture window to open the app goes to the call; closing it and coming back later
+    // (from recents or anywhere else) leaves you where you were.
+    const back = (e: Event) => {
+      const d = (e as CustomEvent<{ pip?: boolean; expanded?: boolean } | boolean>).detail;
+      if (typeof d === "object" && d && !d.pip && d.expanded && call.active()) { const cc = call.channel(); setPhoneVoiceChat(false); if (cc) openChannelById(cc.id); }
+    };
+    addEventListener("mustela:pip", back);
+    onCleanup(() => { mq.removeEventListener("change", f); removeEventListener("mustela:pip", f); removeEventListener("mustela:pip", back); });
   }
   /** Phones and tablets: the small call tile, whenever the call itself isn't what's on screen. */
   const showMini = () => !wide() && call.active() && !call.popped() && device().miniCall
     && !(view() === "chat" && channel()?.id === call.channel()?.id && !phoneVoiceChat());
   const sideWidth = () => (matchMedia("(max-width: 1100px)").matches ? 214 : 244);
+  /** How far the call preview reaches into the chat from the right (it floats there when nothing is open on the right). */
+  const previewRoom = () => {
+    if (!showPreview()) return 0;
+    const c = channel();
+    const column = !!panel() || (!!c && ((canMembers() && device().showMembers && c.kind !== "voice") || (c.kind === "dm" && !!c.peer && device().dmProfile)));
+    return Math.max(0, previewOuterWidth(sideWidth()) - (column ? sideWidth() : 0));
+  };
   const canMembers = () => !!chanSpace() && !chanSpace()!.home && chanSpace()!.id !== "favs";
   const direct = (c: ChannelInfo) => c.kind === "dm" || c.kind === "group";
 
@@ -174,7 +194,13 @@ export function Shell() {
     const s = spaces()?.find((x) => x.channels.some((c) => c.id === cid));
     if (s) open(s.id, cid);
   };
-  registerNav({ channel: (id) => { void refetch(); setTimeout(() => openChannelById(id), 150); }, list: () => setView("nav") });
+  // Sounds you added on your other devices come down as soon as the app opens (not when the soundboard does).
+  startSoundSync();
+  registerNav({
+    channel: (id) => { void refetch(); setTimeout(() => openChannelById(id), 150); }, list: () => setView("nav"),
+    chat: () => { if (!channel() && !discover()) return false; setView("chat"); return true; },
+    members: () => { if (!canMembers() || !channel() || channel()!.kind === "voice") return false; setSheetMembers(true); return true; },
+  });
   // Clicking a desktop notification (Windows) opens its chat.
   // Desktop: were you in a call when Mustela last closed? Asked once the server list has loaded.
   { let asked = false; createEffect(() => {
@@ -228,7 +254,7 @@ export function Shell() {
   setScreenBack(() => {
     if (sheetMembers()) { setSheetMembers(false); return true; }
     if (discover() && view() === "chat") { setDiscover(false); setView("nav"); return true; }
-    if (view() === "chat" && matchMedia("(max-width: 900px)").matches) { setView("nav"); return true; }
+    if (view() === "chat" && narrowLayout()) { setView("nav"); return true; }
     return false;
   });
   onCleanup(() => setScreenBack(null));
@@ -292,6 +318,13 @@ export function Shell() {
     return ext().channelPins.map((id) => s.channels.find((c) => c.id === id)).filter((c): c is ChannelInfo => !!c);
   });
 
+  // Phones: under a DM's name, what they're up to ("In voice", "Streaming", or their status), like Discord's list.
+  const dmVoice = (c: ChannelInfo) => (c.kind === "dm" && c.peer ? backend()?.voiceOf(c.peer.id) ?? null : null);
+  const dmSub = (c: ChannelInfo) => {
+    if (!phone() || c.kind !== "dm" || !c.peer) return undefined;
+    const v = dmVoice(c);
+    return v ? (v.screen ? "Streaming" : "In voice") : c.peer.status || undefined;
+  };
   type RowOpts = { fav?: () => void; saved?: boolean; drag?: Drag; drop?: ReturnType<typeof dropTo>; key?: string; sub?: string; onOpen?: () => void; server?: string };
   const row = (c: ChannelInfo, o: RowOpts = {}) => (
     <>
@@ -304,9 +337,9 @@ export function Shell() {
             <img class="chan-icon" src={c.iconUrl} alt="" />
           </Show>
         }>
-          <Avatar person={c.peer!} size={28} still />
+          <Avatar person={c.peer!} size={phone() ? 40 : 28} still />
         </Show>
-        <span class="chan-name">{c.name}<Show when={o.sub}><small class="chan-sub">{o.sub}</small></Show></span>
+        <span class="chan-name">{c.name}<Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
         <Show when={call.active() && call.channel()?.id === c.id}><Icon name="speaker" size={14} class="live-ic" /></Show>
         {/* DMs count every unread message (like the orbs above the server list); channels count mentions. */}
         <Show when={(c.kind === "dm" || c.kind === "group") && c.unread && !c.muted ? Math.max(c.mentions ?? 0, backend()!.unreadCount(c.id)) : c.mentions}>{(n) => <span class="badge">{n() > 99 ? "99+" : n()}</span>}</Show>
@@ -389,7 +422,7 @@ export function Shell() {
       <div class="call-banner" role="status" classList={{ moved: bn().kind === "moved" }}>
         <Icon name="speaker" size={16} />
         <span>{bn().kind === "moved" ? "Your voice has been disconnected because you connected at another location." : "You were in a voice channel last time you left Mustela."}</span>
-        <button class="btn small" onClick={() => { const c = bn().channel; setCallBanner(null); void joinCall(c); }}>Reconnect</button>
+        <button class="btn small" onClick={() => { const c = bn().channel; setCallBanner(null); void joinCall(c, { rejoin: true }); }}>Reconnect</button>
         <span class="grow" />
         <button class="icon-btn" aria-label="Close" onClick={() => setCallBanner(null)}><Icon name="close" size={16} /></button>
       </div>
@@ -424,7 +457,9 @@ export function Shell() {
 
       <aside class="side panel">
         <Show when={space() && !space()!.home && !isFavs()} fallback={
-          <header class="bar side-bar" onContextMenu={(e) => isFavs() && favMenu(e)}><h2>{isFavs() ? "Favorites" : "Home"}</h2>
+          <header class="bar side-bar" onContextMenu={(e) => isFavs() && favMenu(e)}><h2>{isFavs() ? "Favorites" : phone() ? "Messages" : "Home"}</h2>
+            {/* Phones: Home is "Messages", like Discord's app: find a conversation, your friends, a new message */}
+
             <Show when={isFavs()}><span class="grow" />
               <button class="icon-btn" aria-label="New favorites category" title="New category" onClick={() => newFavGroup()}><Icon name="plus" size={18} /></button>
               <button class="icon-btn" aria-label="Favorites options" title="Favorites options" onClick={(e) => favMenu(e)}><Icon name="dots" size={18} /></button>
@@ -475,12 +510,26 @@ export function Shell() {
                 {...dropTo("tail", (d) => d.kind === "spin" || (d.kind === "cat" && canManage()), (d) => (d.kind === "cat" ? saveCats((cats) => moveCategory(cats, d.id, null)) : setChannelPinned(d.id, false)))} /></Show>
             </>
           }>
-            <button class="chan big" classList={{ on: !channel() && !discover() }} onClick={() => { setDiscover(false); setChannelId(undefined); setView("chat"); }}>
-              <Icon name="friends" size={20} class="chan-ic" /><span class="chan-name">Friends</span>
-            </button>
-            <button class="chan big" classList={{ on: discover() }} onClick={() => { setDiscover(true); setChannelId(undefined); setView("chat"); }}>
-              <Icon name="compass" size={20} class="chan-ic" /><span class="chan-name">Discover</span>
-            </button>
+            <Show when={!phone()} fallback={<>
+              {/* Phones: find a conversation, your friends, a new message (like Discord's app) */}
+              <div class="home-actions">
+                <button class="icon-btn" classList={{ on: dmSearch() !== null }} aria-label="Find a conversation" title="Find a conversation" onClick={() => setDmSearch(dmSearch() === null ? "" : null)}><Icon name="search" size={20} /></button>
+                <button class="btn home-friends" onClick={() => { setDiscover(false); setChannelId(undefined); setView("chat"); }}><Icon name="user-plus" size={18} />Friends</button>
+                <button class="icon-btn primary-ic" aria-label="New message" title="New message" onClick={() => setGroupInvite({ id: "", name: "", kind: "dm" })}><Icon name="plus" size={22} /></button>
+              </div>
+              {/* who's around, scrolling sideways; or the box to find a conversation */}
+              <Show when={dmSearch() !== null}>
+                <label class="search-box wide dm-find"><Icon name="search" size={16} /><input placeholder="Find a conversation" value={dmSearch() ?? ""} onInput={(e) => setDmSearch(e.currentTarget.value)} autofocus /></label>
+              </Show>
+              <Show when={dmSearch() === null}><ActiveStrip onProfile={setProfile} onOpenChannel={openChannelById} /></Show>
+            </>}>
+              <button class="chan big" classList={{ on: !channel() && !discover() }} onClick={() => { setDiscover(false); setChannelId(undefined); setView("chat"); }}>
+                <Icon name="friends" size={20} class="chan-ic" /><span class="chan-name">Friends</span>
+              </button>
+              <button class="chan big" classList={{ on: discover() }} onClick={() => { setDiscover(true); setChannelId(undefined); setView("chat"); }}>
+                <Icon name="compass" size={20} class="chan-ic" /><span class="chan-name">Discover</span>
+              </button>
+            </Show>
             <For each={home().saved}>{(c) => row(c, { saved: true })}</For>
             {/* Phones: Favorites is a button in Home that opens them like a server (or sits under Home, if you chose that). */}
             <Show when={!ext().favRail && phone()}>
@@ -504,7 +553,7 @@ export function Shell() {
             )}</For>
             <h3 class="cat static" classList={{ "drop-into": dropAt() === "dms" }} {...dropTo("dms", (d) => d.kind === "dm" && settings().pins.items.some((i) => i.channel === d.id), (d) => setPin(d.id, null))}>Direct messages<span class="grow" /><button class="cat-add" title="New pin group" aria-label="New pin group" onClick={() => newPinGroup()}><Icon name="plus" size={14} /></button></h3>
             <Show when={home().rest.length === 0 && home().groups.length === 0}><p class="empty small">No conversations yet.</p></Show>
-            <For each={home().rest}>{(c) => row(c, { drag: { kind: "dm", id: c.id } })}</For>
+            <For each={home().rest.filter((c) => !dmSearch() || c.name.toLowerCase().includes(dmSearch()!.trim().toLowerCase()))}>{(c) => row(c, { drag: { kind: "dm", id: c.id } })}</For>
           </Show>
           </Show>
         </div>
@@ -552,20 +601,21 @@ export function Shell() {
                 </Show>
                 <Show when={c().kind === "dm" && c().peer}>
                   <button class="icon-btn not-phone" classList={{ on: device().dmProfile }} aria-pressed={device().dmProfile} aria-label="User profile" title={device().dmProfile ? "Hide user profile" : "Show user profile"}
-                    onClick={() => (matchMedia("(max-width: 700px)").matches ? setProfileView({ person: c().peer!, full: false, x: 0, y: 0 }) : updateDevice({ dmProfile: !device().dmProfile }))}><Icon name="profile-side" size={20} /></button>
+                    onClick={() => (phoneLayout() ? setProfileView({ person: c().peer!, full: false, x: 0, y: 0 }) : updateDevice({ dmProfile: !device().dmProfile }))}><Icon name="profile-side" size={20} /></button>
                 </Show>
                 <Show when={!hasTitleBar()}>
                   <button class="icon-btn inbox-btn not-phone" classList={{ on: inboxOpen() }} aria-label="Inbox" title="Inbox" onClick={() => setInboxOpen(!inboxOpen())}><Icon name="inbox" size={20} /><Show when={inboxBadge()}><span class="tb-dot" /></Show></button>
                 </Show>
                 <Show when={canMembers()}>
                   <button class="icon-btn" classList={{ on: device().showMembers }} aria-pressed={device().showMembers} aria-label="Members" title="Members"
-                    onClick={() => (matchMedia("(max-width: 900px)").matches ? setSheetMembers(true) : updateDevice({ showMembers: !device().showMembers }))}>
+                    onClick={() => (narrowLayout() ? setSheetMembers(true) : updateDevice({ showMembers: !device().showMembers }))}>
                     <Icon name="users" size={20} />
                   </button>
                 </Show>
               </header>
               <div class="main-body">
-                <div class="main-col">
+                {/* The "new messages" bar keeps clear of the floating call preview. */}
+                <div class="main-col" style={previewRoom() ? { "--cpv-room": `${previewRoom()}px` } : {}}>
                   <Show when={direct(c()) && call.active() && call.channel()?.id === c().id}>
                     <div class="dm-call"><CallStage channel={c()} compact /></div>
                   </Show>

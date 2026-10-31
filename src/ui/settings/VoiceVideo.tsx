@@ -1,10 +1,10 @@
 import { createResource, createSignal, onCleanup, Show } from "solid-js";
 import type { VoicePrefs } from "../../lib/backend/types";
 import { inTauri } from "../../lib/platform";
-import { listSounds } from "../../lib/sounds";
-import { applyVoicePrefs, overlayAllowed, requestOverlay } from "../call/state";
+import { applyVoicePrefs, call, holdCallForMicTest, overlayAllowed, requestOverlay } from "../call/state";
 import { Group, Row, Seg, Select, Slider, Switch } from "../controls";
-import { backend, device, ext, platform, updateDevice, updateExt } from "../store";
+import { openSettings } from "../nav";
+import { backend, device, platform, updateDevice } from "../store";
 import { QUALITIES, qualityHint } from "../call/ScreenPicker";
 
 export async function devices() {
@@ -21,9 +21,13 @@ function createMicTest() {
   const [on, setOn] = createSignal(false);
   const [err, setErr] = createSignal("");
   let stop = () => {};
+  let release: (() => Promise<void>) | null = null;
   async function start() {
-    stop();
+    // Restarting (a new input device) keeps the call held rather than unmuting for a moment.
+    const keep = release; release = null; stop();
     const v = device().voice;
+    // In a call: nobody hears the test, and you hear only yourself.
+    release = keep ?? await holdCallForMicTest();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: v.inputDevice || undefined, echoCancellation: v.echoCancellation, noiseSuppression: v.noiseSuppression, autoGainControl: v.autoGain } });
       const ctx = new AudioContext();
@@ -36,17 +40,16 @@ function createMicTest() {
       const tick = () => { an.getFloatTimeDomainData(buf); let s = 0; for (const x of buf) s += x * x; setDb(Math.max(-100, 20 * Math.log10(Math.sqrt(s / buf.length) || 1e-8))); raf = requestAnimationFrame(tick); };
       tick();
       setOn(true); setErr("");
-      stop = () => { cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); void ctx.close(); setOn(false); setDb(-100); stop = () => {}; };
-    } catch { setErr("Couldn't open the microphone. Allow Mustela to use it in your system's privacy settings."); }
+      stop = () => { cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); void ctx.close(); setOn(false); setDb(-100); stop = () => {}; void release?.(); release = null; };
+    } catch { void release?.(); release = null; setErr("Couldn't open the microphone. Allow Mustela to use it in your system's privacy settings."); }
   }
   onCleanup(() => stop());
   return { db, on, err, start, stop: () => stop() };
 }
 
-/** Stoat's "Voice & Video" plus Mustela's soundboard and input sensitivity. */
+/** Stoat's "Voice & Video" plus Mustela's input sensitivity. The soundboard has its own page (Soundboard.tsx). */
 export function VoiceVideo() {
   const [list, { refetch }] = createResource(devices);
-  const [sounds] = createResource(listSounds);
   const v = () => device().voice;
   const set = (p: Partial<VoicePrefs>) => { updateDevice({ voice: { ...v(), ...p } }); applyVoicePrefs(); };
   const mic = createMicTest();
@@ -64,7 +67,7 @@ export function VoiceVideo() {
     <div class="page">
       <Group title="Microphone">
         <Row icon="mic" label="Input device"><Select label="Input device" value={v().inputDevice} options={opts(list()?.input, "Microphone")} onChange={(inputDevice) => { set({ inputDevice }); if (mic.on()) void mic.start(); }} /></Row>
-        <Row label="Mic test" hint={mic.err() || (mic.on() ? "Talk normally. You'll hear yourself back." : "Check your level and processing.")}>
+        <Row label="Mic test" hint={mic.err() || (mic.on() ? `Talk normally. You'll hear yourself back.${call.active() ? " You're muted and deafened in the call until you stop." : ""}` : "Check your level and processing.")}>
           <button class="btn small" classList={{ on: mic.on() }} onClick={() => (mic.on() ? mic.stop() : void mic.start().then(refetch))}>{mic.on() ? "Stop" : "Let's check"}</button>
         </Row>
         <div class="row col">
@@ -106,18 +109,13 @@ export function VoiceVideo() {
         </Row>
       </Group>
 
-      <Group title="Soundboard" hint="Sounds added from a link (and your entry sound) follow you to every device; sounds added from a file stay on this one. Add them from the soundboard button in a call.">
+      <Group title="Soundboard">
         <Row icon="music" label="Soundboard volume"><Slider label="Soundboard volume" min={0} max={100} value={v().soundboardVolume} suffix="%" onChange={(soundboardVolume) => set({ soundboardVolume })} /></Row>
-        <Row label="Entry sound" hint="Plays for everyone when you join a call">
-          <Select label="Entry sound" value={ext().entrySound ?? v().entrySound} onChange={(entrySound) => { set({ entrySound }); updateExt((x) => ({ ...x, entrySound })); }}
-            options={[{ v: "", label: "None" }, ...(sounds() ?? []).map((s) => ({ v: s.id, label: `${s.emoji} ${s.name}` }))]} />
-        </Row>
+        <Row label="Soundboard settings" hint="Your entry sound, and each sound's emoji, name and volume" chevron onClick={() => openSettings("soundboard")} />
       </Group>
 
       <Show when={platform === "android" && inTauri()}>
-        <Group title="Android" hint="Background calls keep going when you leave the app, but are voice only. The web engine adds camera and screen share. In a call, the volume keys set call volume.">
-          <Row label="Call engine"><Seg label="Call engine" value={device().callEngine} onChange={(callEngine) => updateDevice({ callEngine })}
-            options={[{ v: "native", label: "Background (voice)" }, { v: "web", label: "Web (video)" }]} /></Row>
+        <Group title="Android" hint="Calls keep going when you leave the app or lock your phone, with a notification to come back or leave. In a call, the volume keys set call volume.">
           <Row label="When you leave the app in a call" hint={overlayAllowed() ? "The bubble floats over other apps: tap it to come back, hold it to mute." : "The bubble needs \"Display over other apps\". Without it, the call floats in picture-in-picture."}>
             <Show when={overlayAllowed()} fallback={<button class="btn small" onClick={() => void requestOverlay()}>Allow the bubble</button>}>
               <Seg label="When you leave the app in a call" value={device().callOverlay} onChange={(callOverlay) => updateDevice({ callOverlay })}

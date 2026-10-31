@@ -1,4 +1,6 @@
-import { createSignal, For, Match, Show, Switch } from "solid-js";
+import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
+import { phoneLayout } from "./hooks";
+import { setSettingsNav, settingsNav } from "./nav";
 import { useBack } from "./back";
 import { activeAccount } from "../lib/session/book";
 import { Avatar } from "./Avatar";
@@ -15,6 +17,7 @@ import { NotificationsPage } from "./settings/Notifications";
 import { ProfileSettings } from "./settings/ProfileSettings";
 import { SessionsPage } from "./settings/Sessions";
 import { VoiceVideo } from "./settings/VoiceVideo";
+import { SoundboardSettings } from "./settings/SoundboardSettings";
 import { ActivityPage } from "./settings/ActivityPage";
 import { DesktopPage } from "./settings/DesktopPage";
 import { PerformancePage } from "./settings/PerformancePage";
@@ -23,7 +26,7 @@ import { isDesktopApp } from "./desktop";
 import { openProfileEditor } from "./ProfileEditor";
 import { book, meNow, removeAccountById, settings } from "./store";
 
-export type Tab = "account" | "profile" | "sessions" | "bots" | "voice" | "appearance" | "accessibility" | "notifications" | "language" | "desktop" | "accounts" | "sync" | "activity" | "performance" | "advanced";
+export type Tab = "account" | "profile" | "sessions" | "bots" | "voice" | "soundboard" | "appearance" | "accessibility" | "notifications" | "language" | "desktop" | "accounts" | "sync" | "activity" | "performance" | "advanced";
 /** Same sections and order as Stoat's settings, with Mustela's extras in their own group before Advanced. */
 const GROUPS = (): { title: string; tabs: { id: Tab; label: string; icon: string }[] }[] => [
   { title: "User settings", tabs: [{ id: "profile", label: "Profile", icon: "user" }, { id: "sessions", label: "Sessions", icon: "shield" }] },
@@ -38,13 +41,14 @@ const GROUPS = (): { title: string; tabs: { id: Tab; label: string; icon: string
     { id: "accounts", label: "Accounts", icon: "swap" }, { id: "advanced", label: "Advanced", icon: "flask" },
   ] },
 ];
-const TITLE: Record<Tab, string> = { account: "My account", profile: "Profile", sessions: "Sessions", bots: "My bots", voice: "Voice & video", appearance: "Appearance", accessibility: "Accessibility", notifications: "Notifications", language: "Language", desktop: "Desktop", accounts: "Accounts", sync: "Sync & servers", activity: "Activity", performance: "Performance", advanced: "Advanced" };
+const TITLE: Record<Tab, string> = { account: "My account", profile: "Profile", sessions: "Sessions", bots: "My bots", voice: "Voice & video", soundboard: "Soundboard", appearance: "Appearance", accessibility: "Accessibility", notifications: "Notifications", language: "Language", desktop: "Desktop", accounts: "Accounts", sync: "Sync & servers", activity: "Activity", performance: "Performance", advanced: "Advanced" };
 
 const KEYWORDS: Partial<Record<Tab, string>> = {
   profile: "avatar banner bio about decoration frame nameplate effect name color pronouns",
   sessions: "devices logged in sign out",
   bots: "developer token",
-  voice: "microphone mic speaker headphones camera input output noise echo sensitivity screen share soundboard",
+  voice: "microphone mic speaker headphones camera input output noise echo sensitivity screen share",
+  soundboard: "sounds clips entry sound emoji rename volume favorite",
   appearance: "theme color dark light mode emoji pack font message size spacing density compact blur material transparency background",
   notifications: "sounds badge desktop mention",
   language: "time date format 24 hour",
@@ -63,9 +67,10 @@ export function Settings(props: { onClose(): void; initial?: string }) {
   if (props.initial === "profile") openProfileEditor();
   const [narrowNav, setNarrowNav] = createSignal(true); // phones: list first, then the page
   // Back: from a page to the list of pages (phones), then out of settings.
-  useBack(() => (narrowNav() || !matchMedia("(max-width: 700px)").matches ? props.onClose() : setNarrowNav(true)));
+  useBack(() => (narrowNav() || !phoneLayout() ? props.onClose() : setNarrowNav(true)));
   const demo = () => activeAccount(book())?.kind === "demo";
   const go = (t: Tab) => { setTab(t); setNarrowNav(false); };
+  createEffect(on(settingsNav, (t) => { if (t && t in TITLE) { go(t as Tab); setSettingsNav(null); } }));
   const me = () => meNow()!;
   // Find a page by name or by what's on it, like Discord's settings search.
   const [q, setQ] = createSignal("");
@@ -90,7 +95,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <>
               <h3 class="snav-head">{g.title}</h3>
               <For each={g.tabs}>{(t) => (
-                <button role="tab" aria-selected={tab() === t.id} classList={{ on: tab() === t.id }} onClick={() => (t.id === "profile" ? openProfileEditor() : go(t.id))}><Icon name={t.icon} size={18} />{t.label}</button>
+                <button role="tab" aria-selected={tab() === t.id || (t.id === "voice" && tab() === "soundboard")} classList={{ on: tab() === t.id || (t.id === "voice" && tab() === "soundboard") }} onClick={() => (t.id === "profile" ? openProfileEditor() : go(t.id))}><Icon name={t.icon} size={18} />{t.label}</button>
               )}</For>
             </>
           )}</For>
@@ -114,6 +119,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <Match when={tab() === "sessions"}><SessionsPage /></Match>
             <Match when={tab() === "bots"}><BotsPage /></Match>
             <Match when={tab() === "voice"}><VoiceVideo /></Match>
+            <Match when={tab() === "soundboard"}><SoundboardSettings /></Match>
             <Match when={tab() === "appearance"}><Appearance /></Match>
             <Match when={tab() === "notifications"}><NotificationsPage /></Match>
             <Match when={tab() === "language"}><LanguagePage /></Match>

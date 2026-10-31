@@ -6,6 +6,8 @@ import type { ExtSettings } from "../sync/ext";
 
 export interface Person {
   id: string;
+  /** In a server: the icon of their highest role that has one (shown next to their name, like Stoat) */
+  roleIcon?: string;
   /** Display name (server nickname where one applies) */
   name: string;
   username?: string;
@@ -93,7 +95,7 @@ export interface ChannelRules {
   waitUntil?: number;
 }
 export interface ServerInfo { id: string; name: string; description?: string; iconUrl?: string; bannerUrl?: string; ownerId: string; isOwner: boolean; perms: ServerPerms }
-export interface Role { id: string; name: string; colour?: string; hoist: boolean; rank: number }
+export interface Role { id: string; name: string; colour?: string; hoist: boolean; rank: number; iconUrl?: string }
 export interface InviteRow { code: string; channelName?: string; creator?: Person }
 export interface BanRow { person: Person; reason?: string }
 
@@ -158,6 +160,8 @@ export interface ChannelInfo {
   /** Category title in a server; channels arrive ordered, grouped by category */
   category?: string;
   categoryId?: string;
+  /** Marked mature (18+): opening it asks you to confirm your age first */
+  mature?: boolean;
   unread?: boolean;
   /** Unread mentions */
   mentions?: number;
@@ -291,12 +295,17 @@ export interface VoiceHandle {
   streams?(): { id: string; watching: boolean; hasAudio: boolean }[];
   /** Start or stop receiving someone's screen share */
   watch?(id: string, on: boolean): void;
+  /** People whose stream you were watching when it ended (shown as "This stream has ended" until you close it) */
+  ended?(): string[];
+  closeEnded?(id: string): void;
   /** Per-person volume (0-2, 1 = normal) and local mute, for their voice or their stream's audio */
   userAudio?(id: string, kind: "voice" | "stream"): { volume: number; muted: boolean };
   setUserAudio?(id: string, kind: "voice" | "stream", p: { volume?: number; muted?: boolean }): void;
   /** Floating emoji reactions in the call (Mustela clients see them) */
   react?(emoji: string): void;
   onReaction?(cb: (from: string, emoji: string) => void): () => void;
+  /** The connection right now, to notice a call that died quietly (a phone that slept, an app in the background) */
+  connection?(): "connected" | "reconnecting" | "disconnected";
   /** LiveKit credentials, so the call can move to the pop-out window and back */
   auth?: { url: string; token: string };
   /** Fires once if the call ends without you leaving. "moved" = picked up by another window. */
@@ -405,7 +414,9 @@ export interface ChatBackend {
   editServer(serverId: string, p: { name?: string; description?: string; icon?: File | null; banner?: File | null }): Promise<void>;
   roles(serverId: string): Role[];
   createRole(serverId: string, name: string): Promise<void>;
-  editRole(serverId: string, roleId: string, p: { name?: string; colour?: string | null; hoist?: boolean }): Promise<void>;
+  editRole(serverId: string, roleId: string, p: { name?: string; colour?: string | null; hoist?: boolean; icon?: File | null }): Promise<void>;
+  /** The roles top to bottom (highest first); you can only move roles below your own highest one */
+  setRoleOrder(serverId: string, roleIds: string[]): Promise<void>;
   deleteRole(serverId: string, roleId: string): Promise<void>;
   serverEmojis(serverId: string): CustomEmoji[];
   uploadEmoji(serverId: string, name: string, file: File): Promise<void>;

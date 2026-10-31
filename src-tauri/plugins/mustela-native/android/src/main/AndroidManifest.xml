@@ -7,6 +7,9 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- A call keeps the CPU and Wi-Fi awake with the screen off (CallService) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- The voice bubble over other apps during a call (asked for in the app, never required) -->
@@ -20,6 +23,7 @@
         <!-- Also: Stoat invite links tapped in other apps can open here ("Open with Mustela"), plus mustela://invite/CODE. -->
         <activity
             android:name="${applicationId}.MainActivity"
+            android:exported="true"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             tools:node="merge">

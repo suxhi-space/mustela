@@ -1,12 +1,13 @@
 import { createSignal, For, Show } from "solid-js";
-import { createPhone } from "./hooks";
+import { createPhone, phoneLayout } from "./hooks";
 import type { ChannelInfo, Person, VoiceMember } from "../lib/backend/types";
 import { Avatar, NameText } from "./Avatar";
 import { CallStage, callMemberMenu } from "./call/CallStage";
 import { call } from "./call/state";
 import { Chat } from "./Chat";
 import { Icon } from "./icons";
-import { device, updateDevice } from "./store";
+import { backend, device, updateDevice } from "./store";
+import { openProfile, openProfileBeside } from "./nav";
 
 function MemberIcons(props: { m: VoiceMember }) {
   return (
@@ -27,8 +28,12 @@ export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string
     <ul class="voice-members">
       <For each={props.members}>{(m) => (
         <li classList={{ talking: call.speaking().includes(m.id) && !call.soundboard().includes(m.id), sound: call.soundboard().includes(m.id) }} onContextMenu={(e) => callMemberMenu(e, m)}>
-          <Avatar person={m} size={22} presence={false} still={!(call.speaking().includes(m.id))} />
-          <span class="vm-name"><NameText person={m} fontOnly /></span>
+          {/* Their profile, like Discord: beside the list on desktop, the usual card on phones. */}
+          <button class="vm-who" aria-label={`${m.name}'s profile`}
+            onClick={(e) => (phoneLayout() ? openProfile(backend()?.person(m.id) ?? m) : openProfileBeside(backend()?.person(m.id) ?? m, e.currentTarget))}>
+            <Avatar person={m} size={22} presence={false} still={!(call.speaking().includes(m.id))} />
+            <span class="vm-name"><NameText person={m} fontOnly /></span>
+          </button>
           <MemberIcons m={live(m)} />
         </li>
       )}</For>

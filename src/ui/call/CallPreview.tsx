@@ -6,6 +6,8 @@ import { call } from "./state";
 
 const KEY = "mustela:call-preview-width";
 const MIN = 214, MAX = 900, DEFAULT = 340;
+/** How wide the preview is drawn next to a side column of `side` px (the column widens to hold it). */
+export const previewOuterWidth = (side: number) => Math.max(side, width() || DEFAULT) + 16;
 const saved = () => { try { const n = Number(localStorage.getItem(KEY)); return n >= MIN && n <= MAX ? n : 0; } catch { return 0; } };
 const [width, setWidthSig] = createSignal(saved());
 /** The preview's width in CSS pixels (0 until you resize it: then the default, at least the side panel's width). */

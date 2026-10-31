@@ -18,16 +18,34 @@ export const openProfile = (p: Person, full = false) => {
   const near = Date.now() - lastPointer.t < 1000;
   setProfileView({ person: p, full: full || !near, x: lastPointer.x, y: lastPointer.y });
 };
+/** Opens someone's profile card just right of `el`'s column (a list in the sidebar), so it doesn't cover the names. */
+export const openProfileBeside = (p: Person, el: Element) => {
+  const col = (el.closest(".side, aside, .panel") ?? el).getBoundingClientRect(), row = el.getBoundingClientRect();
+  // The card goes 16px right of x and its top 60px above y (see ProfilePopout); line its top up with the row.
+  setProfileView({ person: p, full: false, x: col.right - 8, y: row.top + 60 });
+};
 export const profileOpen = () => profileView()?.person ?? null;
 export const setProfileOpen = (p: Person | null) => (p ? openProfile(p) : setProfileView(null));
 export const [settingsOpen, setSettingsOpen] = createSignal<string | false>(false);
+/** A page to switch to in settings that are already open (Settings picks it up). */
+export const [settingsNav, setSettingsNav] = createSignal<string | null>(null);
+/** Open settings at `tab`, or switch to it if settings are already open. */
+export const openSettings = (tab: string) => (settingsOpen() ? setSettingsNav(tab) : setSettingsOpen(tab));
 
-type Go = { channel(id: string): void; reply(m: { id: string }): void; list(): void };
+type Go = {
+  channel(id: string): void; reply(m: { id: string }): void; list(): void;
+  /** Touch layout: back into the chat you had open, and the members sheet (the mobile gestures use these) */
+  chat(): boolean; members(): boolean;
+};
 let go: Partial<Go> = {};
 export const registerNav = (g: Partial<Go>) => { go = { ...go, ...g }; };
 export const openChannel = (id: string) => go.channel?.(id);
 /** Phones: back to the channel list (the call keeps going, in the small tile). */
 export const backToList = () => go.list?.();
+/** Touch layout: back to the open chat (false when there isn't one) */
+export const backToChat = () => go.chat?.() ?? false;
+/** Touch layout: the members sheet (false where there's no member list, like DMs) */
+export const openMembersSheet = () => go.members?.() ?? false;
 
 /** The server you're looking at (null on Home), so profiles can show roles and "Member since" there. */
 export const [currentServer, setCurrentServer] = createSignal<string | null>(null);

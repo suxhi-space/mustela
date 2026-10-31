@@ -3,6 +3,7 @@ import { useAutoplay } from "../autoplay";
 import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { createEditor, type ChipLookup } from "./Editor";
 import { openReactions } from "./Reactions";
+import { samePost, socialLinks as findSocialLinks, videoSite } from "../../lib/social";
 import type { ChannelRules, Attachment, Embed, Msg, Person, Reaction } from "../../lib/backend/types";
 import { plain } from "../../lib/markdown";
 import { fmtStamp, fmtTime } from "../../lib/time";
@@ -109,24 +110,32 @@ function YouTubeInline(props: { id: string; thumb?: string; title?: string }) {
   );
 }
 
-/** Links to social posts (X, Instagram, Bluesky, TikTok, Reddit) that Stoat didn't give a picture or video for. */
-const SOCIAL_RE = /https:\/\/(?:www\.|m\.|mobile\.|old\.|vm\.)?(?:x\.com|twitter\.com|fxtwitter\.com|fixupx\.com|vxtwitter\.com|fixvx\.com|instagram\.com|kkinstagram\.com|ddinstagram\.com|bsky\.app|tiktok\.com|reddit\.com)\/[^\s<>()]+/gi;
-
-/** A social post's own preview (fetched by the app, the way Discord does), with its picture or video. */
-function SocialPreview(props: { url: string }) {
+/**
+ * A social post's own preview (fetched by the app, the way Discord does), with its picture or video. Stoat's
+ * own card for the link (`fallback`) shows while it loads, and stays if there's nothing better.
+ */
+function SocialPreview(props: { url: string; fallback?: Embed }) {
+  const [broken, setBroken] = createSignal(false);
   const [p] = createResource(() => props.url, async (url) => {
     if (!inTauri()) return null;
     const { invoke } = await import("@tauri-apps/api/core");
     return invoke<{ url: string; site?: string; title?: string; description?: string; image?: string; video?: string; colour?: string } | null>("link_preview", { url }).catch(() => null);
   });
   return (
-    <Show when={p()}>{(x) => (
+    <Show when={p()} fallback={<Show when={props.fallback}>{(e) => <EmbedView e={e()} />}</Show>}>{(x) => (
       <div class="embed panel-inset social-embed" style={x().colour && /^#[0-9a-f]{3,8}$/i.test(x().colour!) ? { "--embed": x().colour } : {}}>
         <Show when={x().site}><div class="em-site">{x().site}</div></Show>
         <Show when={x().title}><a class="em-title" href={props.url} target="_blank" rel="noopener noreferrer nofollow">{x().title}</a></Show>
         <Show when={x().description}><div class="em-desc">{x().description!.slice(0, 400)}</div></Show>
-        <Show when={x().video} fallback={<Show when={x().image}><img class="em-img" src={x().image} alt="" loading="lazy" onClick={() => openLightbox(x().image!, x().title ?? "image")} /></Show>}>
-          <video class="em-video" controls playsinline preload="none" poster={x().image} src={x().video} />
+        <Show when={x().video && !broken()} fallback={<Show when={x().image}>
+          <Show when={x().video} fallback={<img class="em-img" src={x().image} alt="" loading="lazy" onClick={() => openLightbox(x().image!, x().title ?? "image")} />}>
+            {/* The video wouldn't play here: open the post instead. */}
+            <a class="em-player" href={props.url} target="_blank" rel="noopener noreferrer nofollow" aria-label="Open the video">
+              <img class="em-img" src={x().image} alt="" loading="lazy" /><span class="em-play"><Icon name="play" size={22} /></span>
+            </a>
+          </Show>
+        </Show>}>
+          <video class="em-video" controls playsinline preload="metadata" poster={x().image} src={x().video} ref={(v) => v.setAttribute("referrerpolicy", "no-referrer")} onError={() => setBroken(true)} />
         </Show>
       </div>
     )}</Show>
@@ -268,12 +277,18 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
     if (!t || /\s/.test(t) || !/^https?:\/\//.test(t)) return false;
     return (m().embeds ?? []).some((e) => e.gif) || invites().length > 0;
   });
-  // Social posts in the text that Stoat gave no picture or video for get their own preview.
+  // Social posts in the text get their own preview unless Stoat's already shows it all (a video, or a
+  // picture where the post isn't likely a video). Stoat's card for the link is kept as the fallback.
   const socialLinks = createMemo(() => {
-    const urls = [...new Set((m().text.match(SOCIAL_RE) ?? []).map((u) => u.replace(/[.,!?:;'")\]]+$/, "")))].slice(0, 3);
-    const covered = (u: string) => (m().embeds ?? []).some((e) => (e.image || e.video) && !!e.url && (e.url === u || u.includes(e.url.replace(/^https?:\/\/(www\.)?/, "").split("?")[0]!)));
-    return urls.filter((u) => !covered(u));
+    const urls = findSocialLinks(m().text);
+    const stoatFor = (u: string) => (m().embeds ?? []).find((e) => !!e.url && !e.gif && (e.url === u || samePost(e.url, u)));
+    return urls.flatMap((u) => {
+      const e = stoatFor(u);
+      if (e && (e.video || (e.image && !videoSite(u)))) return [];
+      return [{ url: u, fallback: e }];
+    });
   });
+  const ownEmbeds = createMemo(() => { const taken = new Set(socialLinks().map((x) => x.fallback).filter(Boolean)); return (m().embeds ?? []).filter((e) => !taken.has(e)); });
   const menu = (e: MouseEvent) => messageMenu(e, m(), { reply: props.act.onReply, edit: (x) => props.act.onEdit(x), askDelete: () => setConfirmDel(true) }, props.act.serverId);
   const fail = (e: unknown) => toast((e as Error)?.message || "That didn't work.", true);
   const react = (emoji: string, on: boolean) => void b().react(m().channelId, m().id, emoji, on).catch(fail);
@@ -313,6 +328,8 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
               <button class="msg-name" onClick={() => props.act.onProfile(m().author)} style={roleStyle(m().author.colour)}>
                 <NameText person={m().author} fontOnly />
               </button>
+              {/* Their top role's icon, like Stoat */}
+              <Show when={m().author.roleIcon}>{(src) => <img class="role-icon" src={src()} alt="" />}</Show>
               <Show when={m().author.bot}><span class="tag">Bot</span></Show>
               <Show when={!compact()}><time title={stamp(m().at)}>{stamp(m().at)}</time></Show>
             </header>
@@ -353,8 +370,8 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
           </Show>
           <Show when={m().attachments?.length}><div class="attachments"><For each={m().attachments}>{(a) => <AttachmentView a={a} />}</For></div></Show>
           <Show when={invites().length}><div class="embeds"><For each={invites()}>{(c) => <InviteCard code={c} />}</For></div></Show>
-          <Show when={m().embeds?.length}><div class="embeds"><For each={m().embeds}>{(e) => <EmbedView e={e} />}</For></div></Show>
-          <Show when={socialLinks().length}><div class="embeds"><For each={socialLinks()}>{(u) => <SocialPreview url={u} />}</For></div></Show>
+          <Show when={ownEmbeds().length}><div class="embeds"><For each={ownEmbeds()}>{(e) => <EmbedView e={e} />}</For></div></Show>
+          <Show when={socialLinks().length}><div class="embeds"><For each={socialLinks()}>{(x) => <SocialPreview url={x.url} fallback={x.fallback} />}</For></div></Show>
           <Show when={m().reactions?.length}>
             <div class="reactions">
               <For each={m().reactions}>{(r) => <ReactionChip r={r} onToggle={(on) => react(r.emoji, on)} onView={() => openReactions(m(), r.emoji)} />}</For>

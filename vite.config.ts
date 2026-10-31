@@ -1,17 +1,40 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 import { readFileSync } from "node:fs";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
+/**
+ * Which screens this build ships: "desktop" (Windows, macOS, Linux), "mobile" (Android and iOS: phones and tablets),
+ * or "auto" (the web build and `npm run dev`: picks when the page loads). Only the chosen set ends up in the build.
+ * Tauri tells us the platform it's building for; MUSTELA_UI or `--mode mobile|desktop` override it (npm run dev:mobile).
+ */
+const tauriPlatform = process.env.TAURI_ENV_PLATFORM;
+const uiFor = (mode: string) => process.env.MUSTELA_UI ?? (mode === "mobile" || mode === "desktop" ? mode : null) ?? (tauriPlatform === "android" || tauriPlatform === "ios" ? "mobile" : tauriPlatform ? "desktop" : "auto");
+
+/**
+ * In the mobile build a tablet held upright gets the touch layout like a phone; held sideways it keeps the desktop
+ * layout (src/ui/target.ts has the same rule for code). So the "narrow screen" rules also apply in portrait.
+ */
+const touchLayout = (): Plugin => ({
+  name: "mustela-touch-layout",
+  enforce: "pre",
+  transform(code, id) {
+    if (!id.endsWith(".css")) return null;
+    return code
+      .replace(/@media \(max-width: (700|900)px\)/g, "@media (max-width: $1px), (orientation: portrait)")
+      .replace(/@media \(min-width: 701px\)/g, "@media (min-width: 701px) and (orientation: landscape)");
+  },
+});
+
 // Tauri expects a fixed dev port and no screen clearing.
-export default defineConfig({
-  plugins: [solid()],
-  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+export default defineConfig(({ mode }) => ({
+  plugins: [solid(), ...(uiFor(mode) === "mobile" ? [touchLayout()] : [])],
+  define: { __APP_VERSION__: JSON.stringify(pkg.version), __UI__: JSON.stringify(uiFor(mode)) },
   clearScreen: false,
   // The Rust build folder is huge and changes constantly: watching it can crash the dev server.
   server: { port: 1420, strictPort: true, host: process.env.TAURI_DEV_HOST || false, watch: { ignored: ["**/src-tauri/**", "**/release/**"] } },
   // Audio worklets must stay real files: the app only runs its own scripts, never data: or blob: ones.
   build: { target: "es2022", sourcemap: false, assetsInlineLimit: (file) => (file.endsWith(".js") ? false : undefined) },
   test: { environment: "node", exclude: ["server/**", "node_modules/**", "src-tauri/**"] },
-});
+}));

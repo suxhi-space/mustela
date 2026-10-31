@@ -1,0 +1,156 @@
+/* Mobile screens only (phones and tablets): loaded by src/mobile/main.tsx, never part of the desktop build. */
+
+/* ---------- the phone's own edges: status bar, notch, gesture bar or nav buttons, side nav in landscape ---------- */
+/* The app measures these itself on Android (NativePlugin.kt: nav buttons or a pinned taskbar at their height, just a
+   slim strip for gesture navigation); the browser's own numbers are only the fallback (the web on a phone). */
+:root {
+  --sa-top: var(--inset-top, env(safe-area-inset-top, 0px));
+  --sa-bottom: var(--inset-bottom, env(safe-area-inset-bottom, 0px));
+  --sa-left: var(--inset-left, env(safe-area-inset-left, 0px));
+  --sa-right: var(--inset-right, env(safe-area-inset-right, 0px));
+}
+.ai-prompt { left: calc(12px + var(--sa-left)); right: calc(12px + var(--sa-right)); bottom: calc(12px + var(--sa-bottom)); width: auto; max-width: 480px; margin: 0 auto; }
+.toast { bottom: calc(24px + var(--sa-bottom)); }
+
+/* ---------- swipe a chat away to the channel list (src/mobile/gestures.ts) ---------- */
+.app.swiping .rail, .app.swiping .side { display: flex !important; }
+.app.swiping .userpanel { display: flex !important; }
+.app.swiping .main { display: flex; position: absolute; inset: var(--sa-top) var(--sa-right) 0 var(--sa-left); z-index: 30;
+  box-shadow: -14px 0 32px -8px rgba(0, 0, 0, .45); will-change: transform; }
+
+/* ---------- profile card: centred on screen, everything on it (mutuals included), scrolls inside itself ---------- */
+.profile-pop { inset: 0 !important; left: 0 !important; top: 0 !important; transform: none !important; width: 100% !important; height: 100%; max-height: none !important;
+  display: grid; place-items: center; padding: calc(16px + var(--sa-top)) calc(12px + var(--sa-right)) calc(16px + var(--sa-bottom)) calc(12px + var(--sa-left));
+  background: rgba(0, 0, 0, .45); border-radius: 0; overflow: hidden; }
+.profile-pop .pp-sheet { position: relative; margin: 0; width: min(440px, 100%); min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain;
+  border-radius: 22px; background: var(--s1); box-shadow: 0 20px 50px -10px rgba(0, 0, 0, .6); scrollbar-width: none; }
+.profile-pop .pp-sheet::before { display: none; }
+.profile-pop .pcard { min-height: 0; border-radius: 22px; padding-bottom: 6px; }
+.profile-pop .pc-avatar, .profile-pop .pc-name { cursor: default; }
+
+/* ---------- "You're viewing older messages": the same slim bar as desktop, tucked behind the message box ---------- */
+.jump-present { display: none !important; }
+.chat .older-bar, .chat .older-bar.desk-only { display: flex !important; left: 10px; right: 10px; transform: none; bottom: calc(var(--composer-h, 70px) - 14px); z-index: 20;
+  justify-content: space-between; white-space: nowrap; padding: 5px 6px 19px 14px; border-radius: 14px 14px 0 0; font-size: 13px;
+  box-shadow: 0 -8px 22px -12px rgba(0, 0, 0, .55); }
+.chat .older-bar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.composer-wrap { z-index: 21; }
+.chat:has(.older-bar) .composer { background: linear-gradient(var(--well), var(--well)), var(--s2); }
+.chat:has(.older-bar) .typing { visibility: hidden; }
+
+/* ---------- "N new messages": one compact line ---------- */
+.since-bar { font-size: 12.5px; }
+.since-bar .sb-jump { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The whole left side jumps already; on a phone "Jump" and "Mark as read" shrink to their icons to keep it one line. */
+.since-bar .sb-act { font-size: 0; gap: 0; }
+.since-bar .sb-read { font-size: 0; gap: 0; padding: 7px 14px; }
+
+/* ---------- a tablet held sideways keeps the desktop layout, clear of the status bar and nav buttons ---------- */
+@media (min-width: 701px) and (orientation: landscape) {
+  .app { padding: calc(var(--gapx) + var(--sa-top)) calc(var(--gapx) + var(--sa-right)) calc(var(--gapx) + var(--sa-bottom)) var(--sa-left); }
+  .userpanel { left: calc(8px + var(--sa-left)); }
+}
+/* Held upright: the card comes up from the bottom, the screen's width (up to 600px on a tablet), with a handle;
+   pull it down to close (sheetDrag.ts). Sideways it stays centred. */
+@media (orientation: portrait), (max-width: 700px) {
+  .profile-pop { place-items: end center; padding: calc(40px + var(--sa-top)) 0 0; }
+  .profile-pop .pp-sheet { width: min(600px, 100%); max-height: calc(100% - 8px); border-radius: 22px 22px 0 0; padding-bottom: var(--sa-bottom);
+    animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+  .profile-pop .pcard { border-radius: 22px 22px 0 0; }
+  .profile-pop .pp-sheet::before { display: block; content: ""; position: absolute; top: 7px; left: 50%; z-index: 9; width: 40px; height: 5px; margin-left: -20px;
+    border-radius: 3px; background: rgba(255, 255, 255, .6); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+}
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+
+/* ---------- a voice channel before you join: who's there in the middle, Chat and Join along the bottom ---------- */
+.cstage-idle { padding-bottom: calc(84px + var(--sa-bottom)); }
+.cstage-idle .cs-join { position: absolute; left: 16px; right: 16px; bottom: calc(14px + var(--sa-bottom)); width: auto; max-width: 480px; margin: 0 auto; }
+
+/* ---------- your own card (the bar at the bottom): a sheet from the bottom like everyone else's card ---------- */
+.pop-scrim:has(> .mecard) { background: rgba(0, 0, 0, .45); }
+.mecard { left: 0; right: 0; bottom: 0; width: auto; max-width: 600px; margin: 0 auto; max-height: calc(100% - var(--sa-top) - 40px);
+  border-radius: 22px 22px 0 0; padding-bottom: var(--sa-bottom); overscroll-behavior: contain; animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+.mecard .pcard { border-radius: 22px 22px 0 0; }
+.mecard::before { content: ""; position: absolute; top: 7px; left: 50%; z-index: 9; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px;
+  background: rgba(255, 255, 255, .6); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+
+/* ---------- in a call: the voice bar sits on the profile bar as one card, with bigger buttons ---------- */
+@media (max-width: 700px), (orientation: portrait) {
+  .callpanel { left: 10px; width: calc(100% - 20px); height: 60px; bottom: calc(10px + var(--sa-bottom) + 62px); padding: 8px 10px 6px 16px; gap: 6px;
+    border-radius: 18px 18px 0 0; box-shadow: inset 0 -1px 0 var(--edge); }
+  .callpanel .icon-btn { width: 42px; height: 42px; border-radius: 12px; }
+  .callpanel .icon-btn .ic { width: 20px; height: 20px; }
+  .cp-text strong { font-size: 14.5px; }
+  .cp-text small { font-size: 13px; }
+  .app.in-call .userpanel { border-radius: 0 0 18px 18px; }
+}
+
+/* ---------- motion: screens slide, cards and sheets ease in, buttons give under your thumb ----------
+   (none of it when Reduce motion is on, in Mustela's Accessibility page or the phone's own settings) */
+@keyframes m-in-right { from { transform: translateX(28%); opacity: .4; } }
+@keyframes m-in-left { from { transform: translateX(-12%); opacity: .5; } }
+@keyframes m-fade-up { from { transform: translateY(10px); opacity: 0; } }
+@media (max-width: 700px), (orientation: portrait) {
+  /* Into a chat from the list, and back */
+  :root:not([data-reduce-motion]) .app[data-view="chat"]:not(.swiping) .main { animation: m-in-right .24s cubic-bezier(.2, .8, .2, 1); }
+  :root:not([data-reduce-motion]) .app[data-view="nav"]:not(.swiping) .side { animation: m-in-left .2s cubic-bezier(.2, .8, .2, 1); }
+  /* Settings: the list and each page slide in */
+  :root:not([data-reduce-motion]) .settings[data-narrow="page"] .spage { animation: m-in-right .24s cubic-bezier(.2, .8, .2, 1); }
+  :root:not([data-reduce-motion]) .settings[data-narrow="nav"] .snav { animation: m-in-left .2s cubic-bezier(.2, .8, .2, 1); }
+}
+/* Hold menus slide up like the other sheets */
+:root:not([data-reduce-motion]) .ctx.ctx-sheet { animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+/* Switching server: its channels fade up */
+:root:not([data-reduce-motion]) .chans { animation: m-fade-up .2s ease-out; }
+/* Call tiles ease into their new size and place */
+:root:not([data-reduce-motion]) .ctile { transition: transform .2s ease, box-shadow .2s ease; }
+/* Press feedback */
+:root:not([data-reduce-motion]) :is(.btn, .icon-btn, .cbtn, .ct-btn, .chan, .member, .me-row, .orb, .ctx-item, .sb-sound, .snav button, .row.tap) {
+  transition: transform .12s ease, background-color .15s ease, opacity .15s ease; }
+:root:not([data-reduce-motion]) :is(.btn, .icon-btn, .cbtn, .ct-btn, .orb, .sb-sound):active { transform: scale(.94); }
+
+/* ---------- touch sizes: everything you tap is at least about a fingertip (44px), text fields read at 16px ---------- */
+/* The message box: a comfortable height, its hint on one line (it used to wrap onto three when text was larger) */
+.composer { min-height: 54px; padding: 6px; align-items: center; border-radius: 22px; }
+.composer .icon-btn { width: 38px; height: 42px; flex: none; }
+.composer .cm-editor, .composer .cm-content { font-size: 16px; }
+.composer .cm-line:has(.cm-placeholder) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer .cm-placeholder { white-space: nowrap; }
+/* Headers: the name gets the room, the buttons stay a fingertip wide */
+.bar { gap: 2px; }
+.bar h2 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .bar-peer { min-width: 0; flex: 1 1 auto; }
+.bar .icon-btn { width: 42px; height: 42px; flex: none; }
+/* Search in a chat: the full width and a proper height */
+.mp-head:has(.mp-search) > .grow { display: none; }
+.mp-search { height: 46px !important; border-radius: 14px; }
+.mp-search input { font-size: 16px; }
+.mp-tabs button { min-height: 40px; padding: 8px 16px; font-size: 14px; }
+.mp-filters .select, .mp-filters select { min-height: 44px; }
+/* Text fields and dropdowns */
+.text-input, .select, select, .search-box input { font-size: 16px; }
+.text-input, .select, select { min-height: 44px; }
+.search-box.wide, .search-box.wide:focus-within { height: 46px; }
+/* Emoji and GIF pickers: a full-width search and bigger targets */
+.emoji-search { min-height: 46px; font-size: 16px; flex: 1; width: auto; }
+.emoji-top { display: flex; }
+.emoji-grid button { font-size: 26px; min-width: 44px; }
+.emoji-grid button .uemoji-img { width: 32px; height: 32px; }
+/* Settings rows, member and channel rows */
+.group-body > .row { min-height: 56px; }
+.snav button { min-height: 50px; }
+.chans .chan { min-height: 44px; }
+.member { min-height: 52px; }
+/* The rest of the fingertip check (anything you tap under ~40px) */
+.chans .cat { min-height: 38px; }
+.cat-add { min-width: 38px; min-height: 38px; }
+.bar .bar-peer { min-height: 42px; }
+.composer .send-btn { width: 40px; height: 42px; flex: none; }
+.voice-members .vm-who { min-height: 40px; }
+.since-bar .sb-jump, .since-bar .sb-read { min-height: 42px; }
+.reply-ref { min-height: 32px; }
+.emoji-rail button { width: 42px; height: 42px; }
+/* DMs: the bigger pictures get the room they need (rows were squashed together) */
+.chans .chan.dm { min-height: 58px; gap: 12px; padding-top: 7px; padding-bottom: 7px; }
+.chans .chan.dm .chan-name { line-height: 1.25; }
+.chans .chan.dm .chan-sub { font-size: 12.5px; margin-top: 2px; }

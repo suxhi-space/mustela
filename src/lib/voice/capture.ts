@@ -65,13 +65,21 @@ export async function startNativeCapture(src: ScreenSource, quality: keyof typeo
     if (pending) { const p = pending; pending = null; void draw(p); }
   };
   frames.onmessage = (buf) => {
-    if (stopped) return;
+    if (stopped) { void invoke("screen_ack").catch(() => {}); return; }
     // An empty message means the window closed or the screen went away.
     if (!buf || (buf as ArrayBuffer).byteLength === 0) { stop(); ended.forEach((f) => f()); return; }
     if (busy) { if (pending) void invoke("screen_ack").catch(() => {}); pending = buf as ArrayBuffer; } else void draw(buf as ArrayBuffer);
   };
+  const firstPicture = (ms: number) => Promise.race([gotFrame.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
   await invoke("screen_start", { id: src.id, width: w, height: h, fps, channel: frames });
-  const ok = await Promise.race([gotFrame.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 6000))]);
+  let ok = await firstPicture(5000);
+  if (!ok && !stopped) {
+    // Windows sometimes doesn't hand over the first picture of a window: start the capture once more.
+    await invoke("screen_stop").catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
+    await invoke("screen_start", { id: src.id, width: w, height: h, fps, channel: frames }).catch(() => {});
+    ok = await firstPicture(5000);
+  }
   if (!ok) {
     stopped = true;
     void invoke("screen_stop").catch(() => {});

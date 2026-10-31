@@ -441,6 +441,8 @@ if (!canBuild(platform)) {
 }
 
 if (platform !== "server") { step("Version and updates"); await askRelease(); }
+// Which screens the app ships (vite.config.ts): phones and tablets get the mobile ones, computers the desktop ones.
+process.env.MUSTELA_UI ??= platform === "android" ? "mobile" : platform === "web" ? "auto" : "desktop";
 
 step("Checking your setup");
 tc.setAssumeYes(YES);

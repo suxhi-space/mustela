@@ -1,11 +1,12 @@
 import { Show } from "solid-js";
 import { device, updateDevice } from "../store";
 import { Icon } from "../icons";
-import { call, closePopout, leaveCall, openPopout, toggleCall } from "./state";
+import { call, closePopout, leaveCall, openPopout, screenButton, toggleCall } from "./state";
 
 /**
  * The bar above your card while you're in a call, as wide as the card (like Discord's).
- * Mute and deafen live on the card itself, so this has where you are, sharing, pop-out and leave.
+ * Mute and deafen live on the card itself on desktop, so there this has where you are, sharing, pop-out and leave.
+ * Phones have a mute button in place of sharing (sharing is in the call screen).
  */
 export function CallPanel(props: { onOpen(): void; /** Where the call is: the server's name, or "Direct message" */ where?: string }) {
   return (
@@ -22,12 +23,44 @@ export function CallPanel(props: { onOpen(): void; /** Where the call is: the se
             <Icon name={call.popped() ? "back" : "popout"} size={18} />
           </button>
         </Show>
-        <button class="icon-btn" classList={{ on: call.on().screen }} aria-pressed={call.on().screen} onClick={() => void toggleCall("screen")} aria-label={call.on().screen ? "Stop sharing" : "Share your screen"} title={call.on().screen ? "Stop sharing" : "Share your screen"}><Icon name="screen" size={18} /></button>
+        <button class="icon-btn desk-only" classList={{ on: call.on().screen }} aria-pressed={call.on().screen} onClick={(e) => screenButton(e.currentTarget)} aria-label={call.on().screen ? "Stop or change your stream" : "Share your screen"} title={call.on().screen ? "Stop or change your stream" : "Share your screen"}><Icon name="screen" size={18} /></button>
+        <MuteButton />
         {/* Phones: show or hide the small call tile that follows you around the app */}
         <button class="icon-btn phone-only" classList={{ on: device().miniCall }} aria-pressed={device().miniCall} onClick={() => updateDevice({ miniCall: !device().miniCall })}
           aria-label={device().miniCall ? "Hide the mini call view" : "Show the mini call view"} title={device().miniCall ? "Hide the mini call view" : "Show the mini call view"}><Icon name={device().miniCall ? "eye" : "eye-off"} size={18} /></button>
         <button class="icon-btn danger" onClick={() => void leaveCall()} aria-label="Leave call" title="Leave call"><Icon name="hangup" size={18} /></button>
       </div>
     </Show>
+  );
+}
+
+/**
+ * Phones: tap to mute or unmute; hold to mute and deafen. Deafened, it shows that, and a tap undeafens.
+ */
+function MuteButton() {
+  let timer: ReturnType<typeof setTimeout> | undefined, held = false;
+  let micBefore = true; // undeafening puts your mic back how it was, like Discord
+  const deaf = () => call.on().deaf;
+  const label = () => (deaf() ? "Undeafen" : call.on().mic ? "Mute (hold to deafen)" : "Unmute (hold to deafen)");
+  const press = (e: PointerEvent) => {
+    held = false;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    timer = setTimeout(() => {
+      held = true;
+      if (!deaf()) { micBefore = call.on().mic; void toggleCall("deaf"); navigator.vibrate?.(20); }
+    }, 450);
+  };
+  const release = () => clearTimeout(timer);
+  return (
+    <button class="icon-btn phone-only cp-mute" classList={{ off: !call.on().mic || deaf(), deaf: deaf() }} aria-label={label()} title={label()}
+      onPointerDown={press} onPointerUp={release} onPointerLeave={release} onPointerCancel={release} onContextMenu={(e) => e.preventDefault()}
+      onClick={async () => {
+        if (held) { held = false; return; }
+        if (!deaf()) return void toggleCall("mic");
+        await toggleCall("deaf");
+        if (micBefore && !call.on().mic) await toggleCall("mic");
+      }}>
+      <Icon name={deaf() ? "headphones-off" : call.on().mic ? "mic" : "mic-off"} size={18} />
+    </button>
   );
 }

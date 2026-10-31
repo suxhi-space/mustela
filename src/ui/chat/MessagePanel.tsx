@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createResource, createSignal, For, Match, on, Show, Switch } from "solid-js";
+import { narrowLayout } from "../hooks";
 import { useBack } from "../back";
 import type { Attachment, ChannelInfo, Msg, Person } from "../../lib/backend/types";
 import { fmtStamp } from "../../lib/time";
@@ -160,7 +161,7 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; onClos
       <Show when={preview()}>{(m) => <MessagePreview m={m()} onClose={() => setPreview(null)} onJump={() => {
         requestJump(m().channelId, m().id);
         // Where the panel covers the chat (phones, narrow windows), get out of the way so the message is seen.
-        if (matchMedia("(max-width: 900px)").matches) props.onClose(); else setPreview(null);
+        if (narrowLayout()) props.onClose(); else setPreview(null);
       }} />}</Show>
     </section>
   );

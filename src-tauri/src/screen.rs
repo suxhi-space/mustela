@@ -31,7 +31,9 @@ pub struct Source {
 #[derive(Default)]
 pub struct ScreenState {
     video: Mutex<Option<Arc<AtomicBool>>>,
-    inflight: Arc<AtomicU32>,
+    /// Frames sent and not yet drawn, for the share running now. Each share gets its own counter, so a
+    /// frame from the last share that arrives after it stopped (and is never drawn) can't hold up the next one.
+    inflight: Mutex<Arc<AtomicU32>>,
     #[cfg(target_os = "windows")]
     audio: Mutex<Option<Arc<AtomicBool>>>,
 }
@@ -148,8 +150,8 @@ pub fn start(state: &ScreenState, id: &str, max_w: u32, max_h: u32, fps: u32, ch
     let id = id.to_string();
     let running = Arc::new(AtomicBool::new(true));
     *state.video.lock().unwrap() = Some(running.clone());
-    let inflight = state.inflight.clone();
-    inflight.store(0, Ordering::SeqCst);
+    let inflight = Arc::new(AtomicU32::new(0));
+    *state.inflight.lock().unwrap() = inflight.clone();
     let frame = Duration::from_millis(1000 / fps.clamp(1, 60) as u64);
     // Fewer bytes at higher sizes keeps it light; text stays readable at 75.
     let quality = if max_w > 1280 { 72 } else { 78 };
@@ -247,7 +249,7 @@ fn crop_from_display(w: &xcap::Window) -> xcap::XCapResult<xcap::image::RgbaImag
 
 /// The page drew a frame.
 pub fn ack(state: &ScreenState) {
-    let _ = state.inflight.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+    let _ = state.inflight.lock().unwrap().fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
 }
 
 pub fn stop(state: &ScreenState) {

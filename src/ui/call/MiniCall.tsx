@@ -1,14 +1,15 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { Avatar } from "../Avatar";
+import { zoomNow } from "../appSize";
 import { Icon } from "../icons";
 import { backend } from "../store";
 import { VideoFill } from "./CallStage";
-import { call, toggleCall } from "./state";
+import { call } from "./state";
 
 /**
  * Phones and tablets: while you're in a call and looking at something else, the call stays with you as a
- * small tile you can drag anywhere. It shows the stream you're watching, or whoever is talking (or spoke
- * last), with their ring. Tap it to go back to the call; the button mutes you.
+ * small tile you can drag anywhere: square with whoever is talking (or spoke last) and their ring, or wide
+ * with the stream you're watching (never your own). Tap it to go back to the call.
  */
 /** What a small view of the call shows: the stream you're watching, or whoever is talking (or spoke last). */
 export function callFocus() {
@@ -33,38 +34,64 @@ export function callFocus() {
   return { stream, person, talking };
 }
 
+/** How big the mini view is (pinched bigger or smaller), kept while the app is open. */
+const [miniScale, setMiniScale] = createSignal(1);
+
 export function MiniCall(props: { onOpen(): void }) {
   const { stream, person, talking } = callFocus();
 
-  /* drag anywhere; a touch that doesn't move is a tap */
+  /* drag anywhere; a touch that doesn't move is a tap; pinch with two fingers to resize (like picture-in-picture) */
   const [pos, setPos] = createSignal({ right: 12, top: 124 });
   let start: { x: number; y: number; right: number; top: number; moved: boolean } | null = null;
   let el!: HTMLDivElement;
+  const fingers = new Map<number, { x: number; y: number }>();
+  let pinch: { d: number; scale: number } | null = null;
+  const spread = () => { const [a, b] = [...fingers.values()]; return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0; };
   const down = (e: PointerEvent) => {
     if ((e.target as HTMLElement).closest("button")) return;
     el.setPointerCapture(e.pointerId);
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.size === 2) { pinch = { d: spread(), scale: miniScale() }; start = null; return; }
     start = { x: e.clientX, y: e.clientY, ...pos(), moved: false };
   };
   const move = (e: PointerEvent) => {
+    if (fingers.has(e.pointerId)) fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && fingers.size === 2) {
+      // Bigger or smaller, up to the screen's width (it keeps its shape: square, or wide for a stream).
+      const base = stream() ? 184 : 104;
+      const most = Math.max(1, (innerWidth / zoomNow() - 16) / base);
+      setMiniScale(Math.max(0.75, Math.min(most, pinch.scale * spread() / Math.max(1, pinch.d))));
+      keepOnScreen();
+      return;
+    }
     if (!start) return;
     const dx = e.clientX - start.x, dy = e.clientY - start.y;
     if (!start.moved && Math.hypot(dx, dy) < 6) return;
     start.moved = true;
-    const r = el.getBoundingClientRect();
+    // Screen pixels to the app's own pixels (App size zooms the app on phones).
+    const z = zoomNow(), r = el.getBoundingClientRect();
     setPos({
-      right: Math.max(4, Math.min(innerWidth - r.width - 4, start.right - dx)),
-      top: Math.max(4, Math.min(innerHeight - r.height - 4, start.top + dy)),
+      right: Math.max(4, Math.min((innerWidth - r.width) / z - 4, start.right - dx / z)),
+      top: Math.max(4, Math.min((innerHeight - r.height) / z - 4, start.top + dy / z)),
     });
   };
-  const up = () => { const s = start; start = null; if (s && !s.moved) props.onOpen(); };
+  const keepOnScreen = () => {
+    const z = zoomNow(), r = el.getBoundingClientRect();
+    setPos((p) => ({ right: Math.max(4, Math.min((innerWidth - r.width) / z - 4, p.right)), top: Math.max(4, Math.min((innerHeight - r.height) / z - 4, p.top)) }));
+  };
+  const up = (e: PointerEvent) => {
+    fingers.delete(e.pointerId);
+    if (pinch) { if (fingers.size === 0) pinch = null; return; } // the end of a pinch isn't a tap
+    const s = start; start = null; if (s && !s.moved) props.onOpen();
+  };
 
   return (
     <div ref={el} class="minicall" classList={{ stream: !!stream(), talking: talking() && !stream() }} role="button" aria-label="Back to the call"
-      style={{ right: `${pos().right}px`, top: `${pos().top}px` }}
-      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => (start = null)}>
+      style={{ right: `${pos().right}px`, top: `${pos().top}px`, "--mc-scale": String(miniScale()) }}
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={(e) => { fingers.delete(e.pointerId); pinch = null; start = null; }}>
       <Show when={stream()} fallback={
         <Show when={person()}>{(p) => (
-          <span class="mc-person"><Avatar person={p()} size={52} presence={false} still={!talking()} /><small>{p().name}</small></span>
+          <span class="mc-person"><Avatar person={p()} size={Math.round(52 * miniScale())} presence={false} still={!talking()} /><small>{p().name}</small></span>
         )}</Show>
       }>{(id) => (
         <>
@@ -72,9 +99,6 @@ export function MiniCall(props: { onOpen(): void }) {
           <span class="mc-live">LIVE</span>
         </>
       )}</Show>
-      <button class="mc-mic" classList={{ off: !call.on().mic }} aria-label={call.on().mic ? "Mute" : "Unmute"} onClick={() => void toggleCall("mic")}>
-        <Icon name={call.on().mic ? "mic" : "mic-off"} size={14} />
-      </button>
     </div>
   );
 }
@@ -90,7 +114,7 @@ export function PipView() {
   const fit = () => setSize(Math.max(40, Math.round(Math.min(innerWidth, innerHeight - 30) * 0.62)));
   fit(); addEventListener("resize", fit); onCleanup(() => removeEventListener("resize", fit));
   return (
-    <div class="pipview" classList={{ talking: talking() && !stream() }} aria-label="Call">
+    <div class="pipview" classList={{ talking: talking() && !stream(), stream: !!stream() }} aria-label="Call">
       <Show when={stream()} fallback={
         <Show when={person()}>{(p) => (
           <span class="pip-person"><Avatar person={p()} size={size()} presence={false} still={!talking()} /><small>{p().name}</small></span>

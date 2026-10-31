@@ -22,7 +22,7 @@ export function AdvancedPage() {
       <UpdatesGroup />
       <Group title="Troubleshooting" hint="None of these sign you out or touch your account.">
         <Row label="Reload" hint="Reconnects and redraws everything" onClick={() => location.reload()} chevron />
-        <Row label="Forget cached profiles" hint="Other people's profiles are fetched again" onClick={() => { (backend() as any)?.profiles?.clear?.(); toast("Profiles will refresh"); }} chevron />
+        <Row label="Forget cached profiles" hint="Other people's profiles are fetched again" onClick={() => { const b = backend() as any; if (b?.forgetProfiles) b.forgetProfiles(); else b?.profiles?.clear?.(); toast("Profiles will refresh"); }} chevron />
         <Row label="Reset this device's settings" hint="Layout, window, sounds and voice settings go back to defaults" danger
           onClick={async () => { if (await confirmDialog("Reset this device's settings?", "Synced settings (colors, profile) are kept.", "Reset", true)) { updateDevice({ ...DEFAULT_DEVICE }); toast("Device settings reset"); } }} />
       </Group>

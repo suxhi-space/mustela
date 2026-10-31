@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { dragToClose } from "./sheetDrag";
 import { useBack } from "./back";
 import { Icon } from "./icons";
 
@@ -42,6 +43,7 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
     if (top + r.height > innerHeight - 8) top = Math.max(8, innerHeight - r.height - 8);
     setPos({ left: Math.max(8, left), top });
     if (!props.sub) (el.querySelector(".ctx-item:not([disabled])") as HTMLElement | null)?.focus({ focusVisible: false } as FocusOptions);
+    if (props.sheet) dragToClose(el, closeMenu);
   });
   const keys = (e: KeyboardEvent) => {
     const btns = [...el.querySelectorAll<HTMLButtonElement>(":scope > button:not([disabled])")];

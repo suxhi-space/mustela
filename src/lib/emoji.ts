@@ -1,9 +1,10 @@
+import { EMOJI_DATA } from "./emoji-data";
+
 /**
- * A compact unicode emoji set for the picker and :shortcode: replacement.
- * Not exhaustive on purpose: the common ~300, grouped like most pickers.
- * Anything else can still be typed or pasted directly.
+ * Short names people already type (:joy:, :thumbsup:, :+1:…) for common emoji. The picker shows every standard
+ * emoji (emoji-data.ts); these names are just extra ways to find and type them, and win when naming one.
  */
-const RAW: [string, string][] = [
+const ALIASES: [string, string][] = [
   ["Smileys", "grinning:😀 smiley:😃 smile:😄 grin:😁 laughing:😆 sweat_smile:😅 rofl:🤣 joy:😂 slight_smile:🙂 upside_down:🙃 wink:😉 blush:😊 innocent:😇 smiling_face_with_hearts:🥰 heart_eyes:😍 star_struck:🤩 kissing_heart:😘 yum:😋 stuck_out_tongue:😛 zany_face:🤪 money_mouth:🤑 hugging:🤗 thinking:🤔 shushing_face:🤫 zipper_mouth:🤐 raised_eyebrow:🤨 neutral_face:😐 expressionless:😑 no_mouth:😶 smirk:😏 unamused:😒 rolling_eyes:🙄 grimacing:😬 relieved:😌 pensive:😔 sleepy:😪 drooling_face:🤤 sleeping:😴 mask:😷 nauseated_face:🤢 sneezing_face:🤧 hot_face:🥵 cold_face:🥶 woozy_face:🥴 dizzy_face:😵 exploding_head:🤯 cowboy:🤠 partying_face:🥳 sunglasses:😎 nerd:🤓 monocle:🧐 confused:😕 worried:😟 slight_frown:🙁 open_mouth:😮 hushed:😯 astonished:😲 flushed:😳 pleading_face:🥺 frowning:😦 anguished:😧 fearful:😨 cold_sweat:😰 cry:😢 sob:😭 scream:😱 confounded:😖 persevere:😣 disappointed:😞 sweat:😓 weary:😩 tired_face:😫 yawning_face:🥱 triumph:😤 rage:😡 angry:😠 skull:💀 poop:💩 clown:🤡 ghost:👻 alien:👽 robot:🤖 smiley_cat:😺 heart_eyes_cat:😻 see_no_evil:🙈 hear_no_evil:🙉 speak_no_evil:🙊"],
   ["People", "wave:👋 raised_hand:✋ ok_hand:👌 pinched_fingers:🤌 v:✌️ crossed_fingers:🤞 love_you_gesture:🤟 metal:🤘 call_me:🤙 point_left:👈 point_right:👉 point_up:☝️ point_down:👇 thumbsup:👍 +1:👍 thumbsdown:👎 -1:👎 fist:✊ punch:👊 clap:👏 raised_hands:🙌 open_hands:👐 palms_up:🤲 handshake:🤝 pray:🙏 writing_hand:✍️ nail_care:💅 muscle:💪 brain:🧠 eyes:👀 eye:👁️ tongue:👅 lips:👄 baby:👶 person:🧑 man:👨 woman:👩 older_person:🧓 detective:🕵️ superhero:🦸 mage:🧙 vampire:🧛 zombie:🧟 dancer:💃 man_dancing:🕺 shrug:🤷 facepalm:🤦 bow:🙇 raising_hand:🙋 ok_person:🙆 no_good:🙅 tipping_hand:💁"],
   ["Nature", "dog:🐶 cat:🐱 mouse:🐭 hamster:🐹 rabbit:🐰 fox:🦊 bear:🐻 panda:🐼 koala:🐨 tiger:🐯 lion:🦁 cow:🐮 pig:🐷 frog:🐸 monkey:🐵 chicken:🐔 penguin:🐧 bird:🐦 duck:🦆 eagle:🦅 owl:🦉 bat:🦇 wolf:🐺 boar:🐗 horse:🐴 unicorn:🦄 bee:🐝 bug:🐛 butterfly:🦋 snail:🐌 ladybug:🐞 turtle:🐢 snake:🐍 lizard:🦎 octopus:🐙 squid:🦑 crab:🦀 fish:🐟 tropical_fish:🐠 dolphin:🐬 whale:🐳 shark:🦈 otter:🦦 badger:🦡 skunk:🦨 sloth:🦥 hedgehog:🦔 feather:🪶 paw_prints:🐾 dragon:🐉 cactus:🌵 christmas_tree:🎄 evergreen_tree:🌲 deciduous_tree:🌳 palm_tree:🌴 seedling:🌱 herb:🌿 shamrock:☘️ four_leaf_clover:🍀 maple_leaf:🍁 fallen_leaf:🍂 mushroom:🍄 bouquet:💐 rose:🌹 hibiscus:🌺 sunflower:🌻 blossom:🌼 tulip:🌷 cherry_blossom:🌸 sun:☀️ sun_with_face:🌞 full_moon:🌕 crescent_moon:🌙 star:⭐ star2:🌟 sparkles:✨ zap:⚡ fire:🔥 boom:💥 snowflake:❄️ cloud:☁️ rainbow:🌈 umbrella:☔ droplet:💧 ocean:🌊"],
@@ -14,16 +15,18 @@ const RAW: [string, string][] = [
 ];
 
 export interface EmojiEntry { name: string; char: string }
-export const EMOJI_GROUPS: { title: string; items: EmojiEntry[] }[] = RAW.map(([title, s]) => ({
+const pairs = (s: string) => s.split(" ").filter(Boolean).map((pair) => { const k = pair.indexOf(":"); return { name: pair.slice(0, k), char: pair.slice(k + 1) }; });
+const SHORT = new Map<string, string>();
+for (const [, s] of ALIASES) for (const e of pairs(s)) { const k = e.char.replace(/\uFE0F/g, ""); if (!SHORT.has(k)) SHORT.set(k, e.name); }
+export const EMOJI_GROUPS: { title: string; items: EmojiEntry[] }[] = EMOJI_DATA.map(([title, s]) => ({
   title,
-  items: s.split(" ").filter(Boolean).map((pair) => {
-    const k = pair.indexOf(":");
-    return { name: pair.slice(0, k), char: pair.slice(k + 1) };
-  }),
+  // Shown by the short name people know where there is one ("joy" rather than "face_with_tears_of_joy").
+  items: pairs(s).map((e) => ({ name: SHORT.get(e.char.replace(/\uFE0F/g, "")) ?? e.name, char: e.char })),
 }));
 
 const BY_NAME = new Map<string, string>();
-for (const g of EMOJI_GROUPS) for (const e of g.items) if (!BY_NAME.has(e.name)) BY_NAME.set(e.name, e.char);
+for (const [, s] of ALIASES) for (const e of pairs(s)) if (!BY_NAME.has(e.name)) BY_NAME.set(e.name, e.char);
+for (const [, s] of EMOJI_DATA) for (const e of pairs(s)) if (!BY_NAME.has(e.name)) BY_NAME.set(e.name, e.char);
 
 export function shortcodeToEmoji(name: string): string | null {
   return BY_NAME.get(name.toLowerCase()) ?? null;
@@ -43,7 +46,7 @@ export function searchEmoji(q: string, limit = 40): EmojiEntry[] {
 
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"];
 
-const BY_CHAR = new Map<string, string>();
+const BY_CHAR = new Map<string, string>(SHORT);
 for (const g of EMOJI_GROUPS) for (const e of g.items) { const k = e.char.replace(/\uFE0F/g, ""); if (!BY_CHAR.has(k)) BY_CHAR.set(k, e.name); }
 /** Shortcode for a unicode emoji ("🔥" → "fire"), if it's one we know. */
 export const emojiName = (char: string) => BY_CHAR.get(char.replace(/\uFE0F/g, "")) ?? null;

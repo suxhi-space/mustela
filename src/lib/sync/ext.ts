@@ -25,6 +25,8 @@ export interface ExtSettings {
   favRail: boolean;
   /** Favorite emoji, in order: unicode characters, or custom emoji ids */
   favEmoji: string[];
+  /** Favorite soundboard sounds (their ids), shown first on the soundboard */
+  favSounds: string[];
   /** The soundboard sound played when you join a call ("" for none); follows you to every device */
   entrySound?: string;
   /** Your look per server (decorations, colours, about me, banner), over your main profile */
@@ -35,7 +37,7 @@ export interface ExtSettings {
 
 export interface FavGroup { id: string; name: string; color: string }
 
-export const DEFAULT_EXT: ExtSettings = { v: 1, privacy: { mode: "everyone", servers: [] }, channelPins: [], favourites: [], favGroups: [], favIn: {}, favRail: false, favEmoji: [], serverLooks: {}, updatedAt: 0 };
+export const DEFAULT_EXT: ExtSettings = { v: 1, privacy: { mode: "everyone", servers: [] }, channelPins: [], favourites: [], favGroups: [], favIn: {}, favRail: false, favEmoji: [], favSounds: [], serverLooks: {}, updatedAt: 0 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
 function favGroupsOf(v: unknown): FavGroup[] {
@@ -61,7 +63,7 @@ export function sanitizeExt(raw: unknown): ExtSettings {
   const groupIds = new Set(favGroups.map((g) => g.id));
   const favIn: Record<string, string> = {};
   if (r.favIn && typeof r.favIn === "object") for (const [k, g] of Object.entries(r.favIn as Record<string, unknown>)) if (favourites.includes(k) && typeof g === "string" && groupIds.has(g)) favIn[k] = g;
-  return { v: 1, privacy: { mode, servers }, channelPins: ids(r.channelPins), favourites, favGroups, favIn, favRail: r.favRail === true, entrySound: typeof r.entrySound === "string" && r.entrySound.length <= 64 ? r.entrySound : undefined, favEmoji: Array.isArray(r.favEmoji) ? [...new Set((r.favEmoji as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0 && x.length <= 40))].slice(0, 100) : [], serverLooks: sanitizeServerLooks(r.serverLooks), updatedAt: typeof r.updatedAt === "number" && r.updatedAt >= 0 ? r.updatedAt : 0 };
+  return { v: 1, privacy: { mode, servers }, channelPins: ids(r.channelPins), favourites, favGroups, favIn, favRail: r.favRail === true, entrySound: typeof r.entrySound === "string" && r.entrySound.length <= 64 ? r.entrySound : undefined, favEmoji: Array.isArray(r.favEmoji) ? [...new Set((r.favEmoji as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0 && x.length <= 40))].slice(0, 100) : [], favSounds: Array.isArray(r.favSounds) ? [...new Set((r.favSounds as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0 && x.length <= 64))].slice(0, 200) : [], serverLooks: sanitizeServerLooks(r.serverLooks), updatedAt: typeof r.updatedAt === "number" && r.updatedAt >= 0 ? r.updatedAt : 0 };
 }
 
 export function parseExt(value: string | undefined | null): ExtSettings | null {

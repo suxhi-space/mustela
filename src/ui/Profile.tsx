@@ -1,4 +1,6 @@
 import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";
+import { MOBILE_UI } from "./target";
+import { dragToClose } from "./sheetDrag";
 import { useBack } from "./back";
 import type { Activity } from "../lib/cloud";
 import { activity, elapsed, verb } from "./activity";
@@ -260,7 +262,7 @@ function QuickMessage(props: { person: Person; onSent(channelId: string): void }
 export function ProfileView(props: { onMessage(channelId: string): void }) {
   return (
     <Show when={profileView()}>{(v) => (
-      <Show when={!v().full} fallback={<ProfileFull person={v().person} onClose={() => setProfileView(null)} onMessage={props.onMessage} />}>
+      <Show when={!v().full || MOBILE_UI} fallback={<ProfileFull person={v().person} onClose={() => setProfileView(null)} onMessage={props.onMessage} />}>
         <ProfilePopout person={v().person} x={v().x} y={v().y} onClose={() => setProfileView(null)} onMessage={props.onMessage} />
       </Show>
     )}</Show>
@@ -283,6 +285,9 @@ function ProfilePopout(props: { person: Person; x: number; y: number; onClose():
   };
   // The card grows as its voice status and mutuals arrive, so keep it on screen.
   onMount(() => { place(); const ro = new ResizeObserver(place); ro.observe(el); onCleanup(() => ro.disconnect()); });
+  // Phones and tablets: pull the card down to close it.
+  let sheet!: HTMLDivElement;
+  onMount(() => { if (MOBILE_UI) dragToClose(sheet, props.onClose); });
   const esc = (e: KeyboardEvent) => e.key === "Escape" && props.onClose();
   addEventListener("keydown", esc); onCleanup(() => removeEventListener("keydown", esc));
   async function message() {
@@ -296,9 +301,9 @@ function ProfilePopout(props: { person: Person; x: number; y: number; onClose():
           // Phones: the empty space above the card closes it.
           if (e.target === e.currentTarget) return props.onClose();
           // Clicking their picture or name opens the full profile, like Discord.
-          if ((e.target as HTMLElement).closest(".pc-avatar, .pc-name")) setProfileView({ person: props.person, full: true, x: 0, y: 0 });
+          if (!MOBILE_UI && (e.target as HTMLElement).closest(".pc-avatar, .pc-name")) setProfileView({ person: props.person, full: true, x: 0, y: 0 });
         }}>
-        <div class="pp-sheet">
+        <div class="pp-sheet" ref={sheet}>
         <ProfileCard person={props.person} compact>
           <Show when={!self()} fallback={
             <div class="pc-actions"><button class="btn small primary" onClick={() => { props.onClose(); openProfileEditor(); }}><Icon name="pencil" size={15} />Edit profile</button></div>
@@ -306,6 +311,8 @@ function ProfilePopout(props: { person: Person; x: number; y: number; onClose():
             <Show when={!props.person.bot}><QuickMessage person={props.person} onSent={(cid) => { props.onClose(); props.onMessage(cid); }} /></Show>
           </Show>
           <Show when={currentServer()}>{(sid) => <ServerSection person={props.person} serverId={sid()} />}</Show>
+          {/* Phones and tablets: everything's on the card, mutuals included (no separate full profile). */}
+          <Show when={MOBILE_UI && !self()}><MutualLists person={props.person} /></Show>
         </ProfileCard>
         <Show when={!self()}>
           <div class="pc-toprow">
@@ -389,12 +396,22 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
 /** Beside a DM, like Discord: their card, what you share, and a way into the full profile. */
 export function DmProfile(props: { person: Person }) {
   createEffect(on(() => props.person.id, (id) => void refreshProfile(id)));
+  return (
+    <aside class="dm-profile" aria-label={`${props.person.name}'s profile`}>
+      <ProfileCard person={props.person}>
+        <MutualLists person={props.person} />
+        <button class="btn dmp-full" onClick={() => setProfileView({ person: props.person, full: true, x: 0, y: 0 })}><Icon name="user" size={16} />View full profile</button>
+      </ProfileCard>
+    </aside>
+  );
+}
+
+/** Mutual servers and friends, each a row that opens into its list (the DM side card, and the card on phones). */
+function MutualLists(props: { person: Person }) {
   const [mutual] = createResource(() => props.person.id, (id) => backend()!.mutual(id));
   const [openList, setOpenList] = createSignal<"servers" | "friends" | null>(null);
   const toggle = (k: "servers" | "friends") => setOpenList(openList() === k ? null : k);
   return (
-    <aside class="dm-profile" aria-label={`${props.person.name}'s profile`}>
-      <ProfileCard person={props.person}>
         <div class="dmp-lists">
           <button class="dmp-row" aria-expanded={openList() === "servers"} onClick={() => toggle("servers")}>
             <span>Mutual servers — {mutual()?.servers.length ?? "…"}</span><Icon name="right" size={14} class={openList() === "servers" ? "rot90" : ""} />
@@ -413,8 +430,5 @@ export function DmProfile(props: { person: Person }) {
             )}</For>
           </Show>
         </div>
-        <button class="btn dmp-full" onClick={() => setProfileView({ person: props.person, full: true, x: 0, y: 0 })}><Icon name="user" size={16} />View full profile</button>
-      </ProfileCard>
-    </aside>
   );
 }

@@ -4,6 +4,7 @@ import { inTauri } from "../../lib/platform";
 import { playSfx } from "../../lib/sfx";
 import { backend, device, platform, ext } from "../store";
 import { pickScreen } from "./ScreenPicker";
+import { openMenu } from "../menu";
 
 /**
  * The one call this window is in. It lives here, not in a component, so the
@@ -32,6 +33,8 @@ export const call = {
   people: createMemo<VoiceMember[]>(() => (tick(), handle()?.participants() ?? [])),
   speaking: createMemo<string[]>(() => (tick(), handle()?.speaking() ?? [])),
   streams: createMemo(() => (tick(), handle()?.streams?.() ?? [])),
+  /** Streams you were watching that ended, until you close them */
+  ended: createMemo(() => (tick(), handle()?.ended?.() ?? [])),
   /** People playing a soundboard sound right now: their ring takes another colour */
   soundboard: createMemo<string[]>(() => (tick(), handle()?.soundboard?.() ?? [])),
   canPopOut: () => platform !== "android" && !matchMedia("(pointer: coarse)").matches,
@@ -50,14 +53,22 @@ const allowedQuality = () => {
 const desktopCapture = () => inTauri() && (platform === "windows" || platform === "mac" || platform === "linux");
 
 /**
- * The call runs outside the page: Android with the native engine chosen (a service keeps it going), or
- * Linux whose WebKitGTK has no WebRTC (the call runs in Rust).
+ * The call runs outside the page: only on Linux whose WebKitGTK has no WebRTC (the call runs in Rust).
+ * Android always runs the call in the page (camera, screen share and streams work there); a service keeps it going.
  */
-const useNative = () => inTauri() && ((platform === "android" && device().callEngine === "native") || (platform === "linux" && !("RTCPeerConnection" in globalThis)));
+const useNative = () => inTauri() && platform === "linux" && !("RTCPeerConnection" in globalThis);
 
-export async function joinCall(c: ChannelInfo) {
+/** `rejoin`: Mustela picking a dropped call back up by itself (no entry sound: you never really left). */
+export async function joinCall(c: ChannelInfo, opts: { rejoin?: boolean } = {}) {
   if (call.active() || busy()) { if (channel()?.id === c.id) return; await leaveCall(); }
+  // Stoat already has you in this call (on your other device): you're moving it here, not arriving.
+  // (Asked live, so it works from anywhere you join, not just the voice channel's own screen.)
+  const meId = backend()?.me.id ?? "";
+  const moving = backend()?.voiceOf(meId)?.channelId === c.id || !!c.voice?.some((p) => p.id === meId);
   setErr(""); setBusy(true);
+  // Android: into call mode before the call's sound exists. Its sound only plays at call volume (like a phone call)
+  // when it starts with call mode already on and the mic open (room.ts); the soundboard preview, made later, always was.
+  if (android()) await nativeCmd("call_audio", { payload: { on: true } });
   try {
     let h: VoiceHandle;
     try { h = await backend()!.joinVoice(c.id, useNative() ? "native" : "web", device().voice); }
@@ -70,9 +81,12 @@ export async function joinCall(c: ChannelInfo) {
     setCallBanner(null);
     rememberCall(c);
     if (device().voice.joinDeafened && h.setDeaf) { await h.setDeaf(true); setOn(h.state?.() ?? on()); }
-    void playEntrySound(h);
+    if (!moving && !opts.rejoin) void playEntrySound(h);
     if (device().sounds.call) playSfx("join");
-  } catch (e) { setErr(e instanceof Error && e.message ? e.message : "Couldn't join voice. Check your connection and that you have permission."); }
+  } catch (e) {
+    setErr(e instanceof Error && e.message ? e.message : "Couldn't join voice. Check your connection and that you have permission.");
+    if (android() && !handle()) void nativeCmd("call_audio", { payload: { on: false } });
+  }
   finally { setBusy(false); }
 }
 
@@ -101,28 +115,54 @@ export function checkLastCall(find: (id: string) => ChannelInfo | undefined) {
 const rejoined = new Set<string>();
 
 function attach(h: VoiceHandle, c: ChannelInfo) {
-  let count = h.participants().length;
+  // Who's here and who's streaming, to play a sound when that changes (by id, so a swap still counts).
+  const snap = () => { const ps = h.participants(); return { ids: new Set(ps.map((p) => p.id)), live: new Set(ps.filter((p) => p.screen).map((p) => p.id)) }; };
+  let was = snap();
   h.onChange(() => {
     setTick((t) => t + 1); const s = h.state?.(); if (s) setOn(s);
-    const n = h.participants().length;
-    if (n !== count && device().sounds.call) playSfx(n > count ? "join" : "leave");
-    count = n;
+    const now = snap();
+    const joined = [...now.ids].some((id) => !was.ids.has(id)), left = [...was.ids].some((id) => !now.ids.has(id));
+    if (device().sounds.call) { if (left) playSfx("leave"); else if (joined) playSfx("join"); }
+    if (device().sounds.streams) {
+      // Someone who just left took their stream with them; the leave sound covers that.
+      if ([...now.live].some((id) => !was.live.has(id))) playSfx("streamStart");
+      else if ([...was.live].some((id) => !now.live.has(id) && now.ids.has(id))) playSfx("streamStop");
+    }
+    was = now;
   });
   h.onEnd((reason) => {
     if (handle() !== h) return;
     // Joined from somewhere else with this account: let it go (no rejoining, which would kick the other device).
     if (reason === "moved") { setHandle(null); setTick((t) => t + 1); rememberCall(null); setCallBanner({ kind: "moved", channel: c }); return; }
+    dropped();
+  });
+  // A call can die quietly: a phone that slept or an app left in the background stops the connection without
+  // anything saying so, and you'd look "in the call" while nobody hears you. Check it when you come back and
+  // every few seconds; gone, or stuck reconnecting for 20 s, counts as dropped.
+  let stuckSince = 0;
+  const check = () => {
+    if (handle() !== h) { clearInterval(watch); document.removeEventListener("visibilitychange", check); return; }
+    const st = h.connection?.();
+    if (st === "connected" || !st) { stuckSince = 0; return; }
+    if (st === "reconnecting") { stuckSince ||= Date.now(); if (Date.now() - stuckSince < 20_000) return; }
+    void h.leave().catch(() => {});
+    dropped();
+  };
+  const watch = setInterval(check, 5000);
+  document.addEventListener("visibilitychange", check);
+  function dropped() {
+    if (handle() !== h) return;
     // Dropped (the connection gave up after its own retries): rejoin once rather than end the call.
     if (!rejoined.has(c.id)) {
       rejoined.add(c.id);
       setTimeout(() => rejoined.delete(c.id), 60_000);
       setHandle(null);
       setErr("Connection lost. Reconnecting…");
-      void joinCall(c).then(() => { if (handle()) setErr(""); });
+      void joinCall(c, { rejoin: true }).then(() => { if (handle()) setErr(""); });
       return;
     }
     void leaveCall().then(() => setErr("The call dropped. Check your connection and join again."));
-  });
+  }
   h.onReaction?.((from, emoji) => {
     const key = Math.random();
     setReactions([...reactions(), { key, from, emoji }].slice(-24));
@@ -152,6 +192,26 @@ export async function leaveCall() {
   await h?.leave().catch(() => {});
 }
 
+/** A source already picked for "Change stream", used by the next start instead of asking again. */
+let pendingChoice: Awaited<ReturnType<typeof pickScreen>> = null;
+
+/** Switch what you're sharing: pick the new screen or window first (cancel keeps the current one), then swap. */
+export async function changeScreen() {
+  if (!handle() || !on().screen) return;
+  if (desktopCapture()) { const c = await pickScreen(); if (!c) return; pendingChoice = c; }
+  await toggleCall("screen"); // stop
+  await toggleCall("screen"); // and start with the new one
+}
+
+/** The share button: start sharing, or while you're sharing, a menu to stop or change it. */
+export function screenButton(anchor: Element) {
+  if (!on().screen) return void toggleCall("screen");
+  openMenu(anchor, [
+    { label: "Stop streaming", icon: "screen", danger: true, onSelect: () => void toggleCall("screen") },
+    { label: "Change stream", icon: "swap", onSelect: () => void changeScreen() },
+  ]);
+}
+
 export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
   const h = handle(); if (!h) return;
   const next = !on()[k];
@@ -169,7 +229,8 @@ export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
         try { await h.setScreen(true, { quality: allowedQuality(), native }); } catch (e) { native.stop(); throw e; }
       } else if (k === "screen" && next && desktopCapture()) {
         // Desktop: Mustela's own picker and capture (no system picker or "is sharing" bar).
-        const choice = await pickScreen();
+        const choice = pendingChoice ?? await pickScreen();
+        pendingChoice = null;
         if (!choice) return;
         if (choice.source === "system") await h.setScreen(true, { quality: choice.quality });
         else {
@@ -178,7 +239,11 @@ export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
           native.onEnded(() => { setOn(h.state?.() ?? { ...on(), screen: false }); setTick((t) => t + 1); });
           try { await h.setScreen(true, { quality: choice.quality, native }); } catch (e) { native.stop(); throw e; }
         }
-      } else await (k === "mic" ? h.setMic(next) : k === "cam" ? h.setCamera(next) : h.setScreen(next, { quality: allowedQuality() }));
+      } else if (k === "mic") {
+        // Windows can briefly report the microphone busy ("Could not start audio source"): try once more.
+        try { await h.setMic(next); }
+        catch (e) { if (!next || !/audio source|NotReadable/i.test(`${(e as Error)?.name} ${(e as Error)?.message}`)) throw e; await new Promise((r) => setTimeout(r, 600)); await h.setMic(true); }
+      } else await (k === "cam" ? h.setCamera(next) : h.setScreen(next, { quality: allowedQuality() }));
     }
     setOn(h.state?.() ?? { ...on(), [k]: next }); setErr(""); setTick((t) => t + 1);
   } catch (e) {
@@ -192,6 +257,29 @@ export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
       : `Couldn't turn on your ${k === "mic" ? "microphone" : k === "cam" ? "camera" : "audio"}.${why}`);
     setOn(h.state?.() ?? on());
   }
+}
+
+/**
+ * While you test your mic in settings: deafen and mute you in the call (so nobody hears the test and you
+ * hear only yourself). Returns a function that puts your mic and deafen back how they were.
+ */
+export async function holdCallForMicTest(): Promise<() => Promise<void>> {
+  const h = handle();
+  if (!h) return async () => {};
+  const before = { ...on() };
+  try {
+    if (before.mic) await h.setMic(false);
+    if (!before.deaf) await h.setDeaf?.(true);
+  } catch { /* best effort */ }
+  setOn(h.state?.() ?? { ...on(), mic: false, deaf: true }); setTick((t) => t + 1);
+  return async () => {
+    if (handle() !== h) return; // left the call meanwhile
+    try {
+      if (!before.deaf) await h.setDeaf?.(false);
+      if (before.mic) await h.setMic(true);
+    } catch { /* best effort */ }
+    setOn(h.state?.() ?? { ...on(), mic: before.mic, deaf: before.deaf }); setTick((t) => t + 1);
+  };
 }
 
 /** Plays a soundboard clip into the call, at the soundboard volume from Voice & Video settings. */

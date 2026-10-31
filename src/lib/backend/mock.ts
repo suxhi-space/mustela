@@ -87,6 +87,7 @@ const spacesFor = (): Space[] => [
     { id: "c1", name: "general", kind: "text", category: "Text channels", unread: true, mentions: 1, description: "Say hi! Be kind." },
     { id: "c2", name: "show-and-tell", kind: "text", category: "Text channels", description: "Share your profile setups" },
     { id: "c2b", name: "music", kind: "text", category: "Text channels", muted: true },
+    { id: "c2c", name: "art-plus", kind: "text", category: "Text channels", mature: true, description: "Grown-up art only" },
     { id: "c3", name: "Lounge", kind: "voice", category: "Voice", voice: [{ ...P("u1"), muted: false }, { ...P("u2"), muted: true, screen: true }] },
     { id: "c3b", name: "Study hall", kind: "voice", category: "Voice" },
   ] },
@@ -316,9 +317,11 @@ export class DemoBackend implements ChatBackend {
   async editServer() {}
   roles() { return [...this.roleList]; }
   async createRole(_s: string, name: string) { this.roleList.push({ id: crypto.randomUUID(), name, hoist: false, rank: this.roleList.length + 1 }); }
-  async editRole(_s: string, rid: string, p: { name?: string; colour?: string | null; hoist?: boolean }) {
-    this.roleList = this.roleList.map((r) => (r.id === rid ? { ...r, ...(p.name !== undefined ? { name: p.name } : {}), ...(p.hoist !== undefined ? { hoist: p.hoist } : {}), ...(p.colour !== undefined ? { colour: p.colour ?? undefined } : {}) } : r));
+  async editRole(_s: string, rid: string, p: { name?: string; colour?: string | null; hoist?: boolean; icon?: File | null }) {
+    this.roleList = this.roleList.map((r) => (r.id === rid ? { ...r, ...(p.name !== undefined ? { name: p.name } : {}), ...(p.hoist !== undefined ? { hoist: p.hoist } : {}), ...(p.colour !== undefined ? { colour: p.colour ?? undefined } : {}),
+      ...(p.icon !== undefined ? { iconUrl: p.icon ? URL.createObjectURL(p.icon) : undefined } : {}) } : r));
   }
+  async setRoleOrder(_s: string, ids: string[]) { this.roleList = this.roleList.map((r) => ({ ...r, rank: Math.max(0, ids.indexOf(r.id)) })); }
   async deleteRole(_s: string, rid: string) { this.roleList = this.roleList.filter((r) => r.id !== rid); }
   serverEmojis(sid: string) { return this.emojis().filter((e) => e.serverId === sid); }
   async uploadEmoji() { throw new Error("Uploading emoji needs a real Stoat account."); }
@@ -466,7 +469,14 @@ export class DemoBackend implements ChatBackend {
     const st = { mic: true, cam: false, screen: false, deaf: false };
     const audio: Record<string, { volume: number; muted: boolean }> = {};
     let watching = false, talk = 0, gone = false;
-    const timer = setInterval(() => { talk = (talk + 1) % 6; ping(); }, 1200);
+    // Otto's stream goes off for a few seconds now and then, to show "This stream has ended" and coming back.
+    let live = true, ended = false, beat = 0;
+    const timer = setInterval(() => {
+      talk = (talk + 1) % 6; beat++;
+      if (live && beat % 20 === 0) { live = false; if (watching) { watching = false; ended = true; } }
+      else if (!live && beat % 20 === 6) { live = true; if (ended) { ended = false; watching = true; } }
+      ping();
+    }, 1200);
     // a moving "screen" so the stream tile has real video
     const cv = document.createElement("canvas"); cv.width = 640; cv.height = 360;
     const g = cv.getContext("2d")!;
@@ -480,7 +490,7 @@ export class DemoBackend implements ChatBackend {
     const stream = (cv as HTMLCanvasElement & { captureStream?(fps: number): MediaStream }).captureStream?.(20);
     const people = () => [
       { ...this.me, muted: !st.mic, deaf: st.deaf, camera: st.cam, screen: st.screen },
-      { ...P("u1"), muted: false }, { ...P("u2"), muted: true, screen: true },
+      { ...P("u1"), muted: false }, { ...P("u2"), muted: true, screen: live },
     ];
     return {
       auth: { url: "wss://demo", token: "demo" },
@@ -491,8 +501,10 @@ export class DemoBackend implements ChatBackend {
       participants: people,
       speaking: () => (gone ? [] : talk < 2 ? ["u1"] : talk < 4 && st.mic ? [this.me.id] : []),
       video: (id, source) => (id === "u2" && source !== "camera" && watching ? stream?.getVideoTracks()[0] ?? null : null),
-      streams: () => [{ id: "u2", watching, hasAudio: true }],
-      watch: (_id, on) => { watching = on; ping(); },
+      streams: () => (live ? [{ id: "u2", watching, hasAudio: true }] : []),
+      watch: (_id, on) => { watching = on; if (on) ended = false; ping(); },
+      ended: () => (ended ? ["u2"] : []),
+      closeEnded: () => { ended = false; ping(); },
       userAudio: (id) => audio[id] ?? { volume: 1, muted: false },
       setUserAudio: (id, _k, p) => { audio[id] = { ...(audio[id] ?? { volume: 1, muted: false }), ...p }; ping(); },
       react: (e) => reactSubs.forEach((cb) => cb(this.me.id, e)),

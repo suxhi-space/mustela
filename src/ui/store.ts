@@ -157,22 +157,35 @@ function adopt(acc: Account, b: ChatBackend) {
   // The newer settings: local copy first, then whichever is newer.
   const localExt = parseExt(kv.getItem(extKey(acc.id))) ?? structuredClone(DEFAULT_EXT);
   setExtSig(localExt);
-  void b.pullExt().then((remote) => {
-    if (backend() !== b) return;
-    if (remote && remote.updatedAt > ext().updatedAt) { setExtSig(remote); kv.setItem(extKey(acc.id), JSON.stringify(remote)); }
-    else if (ext().updatedAt > (remote?.updatedAt ?? 0)) void b.pushExt(ext()).catch(() => {});
-  }).catch(() => {});
-  // Merge with what the account has on the server, in the background.
-  void (async () => {
-    try {
-      const remote = await b.pullSettings();
-      if (backend() !== b) return; // switched away meanwhile
-      const { winner, push } = resolve(settings(), remote);
-      setSettings(winner); persistSettings(winner); applyLimits(winner);
-      if (push) await b.pushSettings(winner);
-      setSyncState("synced");
-    } catch { if (backend() === b) setSyncState("error"); }
-  })();
+  const pullAll = () => {
+    void b.pullExt().then((remote) => {
+      if (backend() !== b) return;
+      if (remote && remote.updatedAt > ext().updatedAt) { setExtSig(remote); kv.setItem(extKey(acc.id), JSON.stringify(remote)); }
+      else if (ext().updatedAt > (remote?.updatedAt ?? 0)) void b.pushExt(ext()).catch(() => {});
+    }).catch(() => {});
+    // Merge with what the account has on the server, in the background.
+    void (async () => {
+      try {
+        const remote = await b.pullSettings();
+        if (backend() !== b) return; // switched away meanwhile
+        const { winner, push } = resolve(settings(), remote);
+        setSettings(winner); persistSettings(winner); applyLimits(winner);
+        if (push) await b.pushSettings(winner);
+        setSyncState("synced");
+      } catch { if (backend() === b) setSyncState("error"); }
+    })();
+  };
+  pullAll();
+  // Coming back to the app (a phone left in the background for hours, a window on another desktop): changes made on
+  // your other devices meanwhile come in, at most every 30 seconds.
+  let lastPull = Date.now();
+  const onBack = () => {
+    if (backend() !== b) return void document.removeEventListener("visibilitychange", onBack);
+    if (document.visibilityState !== "visible" || Date.now() - lastPull < 30_000) return;
+    lastPull = Date.now();
+    pullAll();
+  };
+  document.addEventListener("visibilitychange", onBack);
 }
 
 async function connect(acc: Account): Promise<ChatBackend> {
@@ -343,6 +356,8 @@ export function startAppearance() {
       // Touch screens read a little bigger (Settings > Accessibility can turn that off).
       const bump = d.a11y.touchText && matchMedia("(pointer: coarse)").matches ? 2 : 0;
       root.style.setProperty("--msg-font", `${d.text.size + bump}px`);
+      // The rest of the app's text (channels, members, settings, menus, headers) follows at about half the strength.
+      root.style.setProperty("--ui-text", String(Math.round((1 + (d.text.size - 15) * 0.025) * 1000) / 1000));
       root.style.setProperty("--msg-gap", `${d.text.spacing}px`);
       root.toggleAttribute("data-underline-links", d.a11y.underlineLinks);
       root.toggleAttribute("data-no-role-colors", !d.a11y.roleColors);

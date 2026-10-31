@@ -1,7 +1,7 @@
 import {
   type AudioProcessorOptions, type TrackProcessor,
   DisconnectReason, LocalAudioTrack, LocalVideoTrack, Participant, RemoteParticipant, RemoteTrack, RemoteTrackPublication, Room, RoomEvent,
-  AudioPresets, ScreenSharePresets, Track, VideoPresets,
+  AudioPresets, ConnectionState, ScreenSharePresets, Track, VideoPresets, createLocalAudioTrack,
 } from "livekit-client";
 import type { Person, VoiceHandle, VoiceMember, VoicePrefs } from "../backend/types";
 
@@ -32,17 +32,29 @@ const saveUA = (x: Record<string, UserAudio>) => { try { localStorage.setItem(UA
 const SPEAK_DB = -48;    // louder than this counts as talking
 const SPEAK_HOLD = 300;  // ms the ring stays on after they stop
 
+/**
+ * Android's web view only plays sound on the phone's call channel (call volume, earpiece and Bluetooth like a phone
+ * call) from audio that starts once the phone is in call mode with the microphone open. In build4 the call's sound
+ * was set up while joining, before either, so all of it (the soundboard in the call too) played as media; only the
+ * soundboard preview, made later, followed call volume. So on Android: call mode first (joinCall in state.ts), then
+ * the mic, then one Web Audio mix that every voice, stream and sound goes through.
+ */
+const ANDROID = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+
 export async function connectVoice(url: string, token: string, me: Person, nameOf: (id: string) => Person, prefs: VoicePrefs): Promise<VoiceHandle> {
+  const capture = {
+    deviceId: prefs.inputDevice || undefined,
+    echoCancellation: prefs.echoCancellation,
+    noiseSuppression: prefs.noiseSuppression,
+    autoGainControl: prefs.autoGain,
+  };
+  // Android: the microphone first (it's published, muted if you join muted, once connected), then the mix.
+  const earlyMic = ANDROID ? await createLocalAudioTrack(capture).catch(() => null) : null;
   const room = new Room({
     adaptiveStream: true,
     dynacast: true,
-    webAudioMix: true,
-    audioCaptureDefaults: {
-      deviceId: prefs.inputDevice || undefined,
-      echoCancellation: prefs.echoCancellation,
-      noiseSuppression: prefs.noiseSuppression,
-      autoGainControl: prefs.autoGain,
-    },
+    webAudioMix: ANDROID ? { audioContext: new AudioContext({ latencyHint: "interactive" }) } : true,
+    audioCaptureDefaults: capture,
     audioOutput: { deviceId: prefs.outputDevice || undefined },
     videoCaptureDefaults: { deviceId: prefs.videoDevice || undefined, resolution: VideoPresets.h720.resolution },
     publishDefaults: {
@@ -63,11 +75,12 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
   const audioOf = (id: string): UserAudio => ua[id] ?? { v: 1, m: false, sv: 1, sm: false };
   let deaf = false;
   let outVolume = prefs.outputVolume / 100;
+  const vol = (x: number) => x; // the Web Audio mix goes to 200%
   const applyVolume = (p: RemoteParticipant) => {
     const a = audioOf(p.identity);
-    p.setVolume(deaf || a.m ? 0 : outVolume * a.v, Track.Source.Microphone);
-    p.setVolume(deaf || a.sm ? 0 : outVolume * a.sv, Track.Source.ScreenShareAudio);
-    for (const pub of p.audioTrackPublications.values()) if (pub.source === Track.Source.Unknown) (pub as RemoteTrackPublication).audioTrack && ((pub as RemoteTrackPublication).track as any)?.setVolume?.(deaf ? 0 : outVolume); // soundboards
+    p.setVolume(deaf || a.m ? 0 : vol(outVolume * a.v), Track.Source.Microphone);
+    p.setVolume(deaf || a.sm ? 0 : vol(outVolume * a.sv), Track.Source.ScreenShareAudio);
+    for (const pub of p.audioTrackPublications.values()) if (pub.source === Track.Source.Unknown) (pub as RemoteTrackPublication).audioTrack && ((pub as RemoteTrackPublication).track as any)?.setVolume?.(deaf ? 0 : vol(outVolume)); // soundboards
   };
   const applyAll = () => room.remoteParticipants.forEach(applyVolume);
 
@@ -130,12 +143,39 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
     try { const e = JSON.parse(dec.decode(payload)).e; if (typeof e === "string" && e.length <= 16) reactSubs.forEach((f) => f(p.identity, e)); } catch { /* not ours */ }
   });
 
-  await room.connect(url, token);
+  /* ---- streams: never start playing by themselves ----
+   * Everything except screen shares is received as usual. A screen share (and its sound) only comes in when you
+   * press Watch. When a stream you're watching ends, it's kept as "ended" until you close it; if that person goes
+   * live again before you do, you're watching again straight away. */
+  const watched = new Set<string>(), endedStreams = new Set<string>();
+  const isScreen = (s: Track.Source) => s === Track.Source.ScreenShare || s === Track.Source.ScreenShareAudio;
+  const decide = (pub: RemoteTrackPublication, p: RemoteParticipant) => {
+    if (!isScreen(pub.source)) { pub.setSubscribed(true); return; }
+    if (pub.source === Track.Source.ScreenShare && endedStreams.has(p.identity)) { endedStreams.delete(p.identity); watched.add(p.identity); }
+    pub.setSubscribed(watched.has(p.identity));
+  };
+  room.on(RoomEvent.TrackPublished, (pub: RemoteTrackPublication, p: RemoteParticipant) => { decide(pub, p); ping(); });
+  room.on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => { p.trackPublications.forEach((pub) => decide(pub as RemoteTrackPublication, p)); });
+  room.on(RoomEvent.TrackUnpublished, (pub: RemoteTrackPublication, p: RemoteParticipant) => {
+    if (pub.source === Track.Source.ScreenShare && watched.delete(p.identity)) { endedStreams.add(p.identity); ping(); }
+  });
+  room.on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => { if (watched.delete(p.identity)) { endedStreams.add(p.identity); ping(); } });
+
+  await room.connect(url, token, { autoSubscribe: false });
+  if (earlyMic) {
+    // The mic opened before the mix (see ANDROID); it goes out like any microphone, muted if you join muted.
+    await room.localParticipant.publishTrack(earlyMic, { source: Track.Source.Microphone }).catch(() => earlyMic.stop());
+    if (prefs.joinMuted) await room.localParticipant.getTrackPublication(Track.Source.Microphone)?.mute().catch(() => {});
+  } else if (ANDROID) {
+    // No mic (refused): still in the call, listening; a later unmute asks again.
+    if (!prefs.joinMuted) await room.localParticipant.setMicrophoneEnabled(true).catch(() => {});
+  }
+  room.remoteParticipants.forEach((p) => p.trackPublications.forEach((pub) => decide(pub as RemoteTrackPublication, p)));
   void room.startAudio().catch(() => {});
   void ctx.resume().catch(() => {});
 
   // Join with the microphone on unless you asked otherwise; a refused mic doesn't stop you listening.
-  if (!prefs.joinMuted) await room.localParticipant.setMicrophoneEnabled(true).catch(() => {});
+  if (!ANDROID && !prefs.joinMuted) await room.localParticipant.setMicrophoneEnabled(true).catch(() => {});
 
   /**
    * Soundboard while you're muted: LiveKit's mute silences the whole mic track, sounds included. So a sound
@@ -307,10 +347,17 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("NoDisplayMedia");
       const q = SCREEN[o?.quality ?? prefs.screenQuality] ?? SCREEN["720p30"];
       // Same capture settings as Stoat's client: raw stream audio, no voice processing on it.
-      const pub = await room.localParticipant.setScreenShareEnabled(true, {
+      const share = (audio: boolean) => room.localParticipant.setScreenShareEnabled(true, {
         resolution: q.resolution, contentHint: q.contentHint,
-        audio: o?.audio === false ? false : { autoGainControl: false, echoCancellation: false, noiseSuppression: false },
+        audio: audio ? { autoGainControl: false, echoCancellation: false, noiseSuppression: false } : false,
       }, { screenShareEncoding: q.encoding });
+      let pub;
+      try { pub = await share(o?.audio !== false); }
+      catch (e) {
+        // "Could not start audio source": the system's sound capture is busy. Share the picture without it.
+        if (o?.audio === false || !/audio source|NotReadable/i.test(`${(e as Error)?.name} ${(e as Error)?.message}`)) throw e;
+        pub = await share(false);
+      }
       // Stopping from the browser's own "Stop sharing" bar or closing the window being shared.
       const t = pub?.track;
       if (t) {
@@ -363,14 +410,18 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
     soundboard: () => { const now = performance.now(); return [...soundUntil].filter(([, t]) => t > now).map(([id]) => id); },
     streams: () => [...room.remoteParticipants.values()].filter((p) => p.getTrackPublication(Track.Source.ScreenShare)).map((p) => ({
       id: p.identity,
-      watching: !!p.getTrackPublication(Track.Source.ScreenShare)?.isSubscribed,
+      watching: watched.has(p.identity),
       hasAudio: !!p.getTrackPublication(Track.Source.ScreenShareAudio),
     })),
     watch: (id, on) => {
       const p = room.remoteParticipants.get(id);
-      for (const s of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) p?.getTrackPublication(s)?.setSubscribed(on);
+      if (on) { watched.add(id); endedStreams.delete(id); } else watched.delete(id);
+      for (const s of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) (p?.getTrackPublication(s) as RemoteTrackPublication | undefined)?.setSubscribed(on);
       ping();
     },
+    connection: () => (room.state === ConnectionState.Connected ? "connected" : room.state === ConnectionState.Disconnected ? "disconnected" : "reconnecting"),
+    ended: () => [...endedStreams],
+    closeEnded: (id) => { endedStreams.delete(id); ping(); },
     userAudio: (id, kind) => { const a = audioOf(id); return kind === "voice" ? { volume: a.v, muted: a.m } : { volume: a.sv, muted: a.sm }; },
     setUserAudio: (id, kind, p) => {
       const a = { ...audioOf(id) };

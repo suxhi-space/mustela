@@ -1,20 +1,55 @@
 import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { phoneLayout } from "./hooks";
 import type { ChannelInfo, Msg, Person } from "../lib/backend/types";
 import { Composer, composer } from "./chat/Composer";
 import { MessageRow } from "./chat/Message";
 import { Icon } from "./icons";
 import { backend } from "./store";
-import { jumpRequest, setJumpRequest } from "./nav";
+import { backToList, jumpRequest, openChannel, setJumpRequest } from "./nav";
 import { getDraft } from "./drafts";
 
 const day = (d: Date) => d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+
+/* ---------- mature channels: confirm your age first, like Stoat (remembered per channel on this device) ---------- */
+const AGE_KEY = "mustela:mature-ok";
+const okd = (): string[] => { try { return JSON.parse(localStorage.getItem(AGE_KEY) ?? "[]"); } catch { return []; } };
+const [confirmed, setConfirmed] = createSignal<string[]>(okd());
+const confirmAge = (id: string) => { const next = [...confirmed().filter((x) => x !== id), id].slice(-500); setConfirmed(next); try { localStorage.setItem(AGE_KEY, JSON.stringify(next)); } catch { /* storage off: asks again next time */ } };
+/** The last channel you were in that isn't mature, for "Back". */
+let lastSafe: string | null = null;
+
+export function Chat(props: Parameters<typeof ChannelChat>[0]) {
+  createEffect(() => { if (!props.channel.mature) lastSafe = props.channel.id; });
+  return (
+    <Show when={!props.channel.mature || confirmed().includes(props.channel.id)} fallback={<MatureGate channel={props.channel} />}>
+      <ChannelChat {...props} />
+    </Show>
+  );
+}
+
+function MatureGate(props: { channel: ChannelInfo }) {
+  const [sure, setSure] = createSignal(false);
+  const back = () => (phoneLayout() || !lastSafe ? backToList() : openChannel(lastSafe));
+  return (
+    <div class="mature-gate">
+      <svg class="mg-sign" viewBox="0 0 64 56" aria-hidden="true"><path d="M28.5 4a4 4 0 0 1 7 0l27 46a4 4 0 0 1-3.5 6H5a4 4 0 0 1-3.5-6z" fill="#f5a524" /><rect x="29" y="18" width="6" height="20" rx="3" fill="#1b1b1f" /><circle cx="32" cy="45" r="3.5" fill="#1b1b1f" /></svg>
+      <h2>#{props.channel.name}</h2>
+      <p>This channel is marked as mature.</p>
+      <label class="mg-check"><input type="checkbox" checked={sure()} onChange={(e) => setSure(e.currentTarget.checked)} />I confirm that I am at least 18 years old.</label>
+      <div class="mg-actions">
+        <button class="btn" onClick={back}>Back</button>
+        <button class="btn primary" disabled={!sure()} onClick={() => confirmAge(props.channel.id)}>Enter channel</button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * One channel's messages: newest page first, older pages as you scroll up,
  * live updates, typing, replies, edits. Keeps you pinned to the bottom unless
  * you've scrolled up to read.
  */
-export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(p: Person): void; onOpenChannel(id: string): void; banner?: JSX.Element }) {
+function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(p: Person): void; onOpenChannel(id: string): void; banner?: JSX.Element }) {
   const [msgs, setMsgs] = createSignal<Msg[]>([]);
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading");
   const [more, setMore] = createSignal(false);
@@ -114,13 +149,15 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     const mk = since();
     if (!mk) return "";
     const list = msgs();
-    const i = list.findIndex((m) => m.id === mk);
-    const fresh = i < 0 ? null : list.slice(i + 1).filter((m) => m.author.id !== b().me.id);
-    if (fresh && !fresh.length) return "";
-    const when = i >= 0 ? list[i + 1]?.at : undefined;
-    const time = when ? when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
-    const n = fresh ? `${fresh.length} new message${fresh.length === 1 ? "" : "s"}` : `${list.length}+ new messages`;
-    return time ? `${n} since ${time}` : n;
+    // Message ids sort by time, so "newer than where you read" works even when that message itself isn't
+    // loaded (or was deleted). Only when every loaded message is newer can there be more than we see: then "N+".
+    const fresh = list.filter((m) => m.id > mk && m.author.id !== b().me.id);
+    if (!fresh.length) return "";
+    const more = !!list.length && list[0]!.id > mk && !list.some((m) => m.id === mk);
+    const firstNew = list.find((m) => m.id > mk);
+    const time = firstNew ? firstNew.at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+    const n = `${fresh.length}${more ? "+" : ""} new message${fresh.length === 1 && !more ? "" : "s"}`;
+    return time && !more ? `${n} since ${time}` : n;
   });
   async function jumpToNew() {
     const from = unreadFrom();
@@ -258,6 +295,12 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     if (mine) setEditing(mine.id);
   };
 
+  // While the "older messages" bar covers the typing line, the bar says who's typing instead.
+  const OlderText = () => (
+    <Show when={typingText()} fallback={<span>You're viewing older messages</span>}>
+      <span class="ob-typing"><span class="dots" aria-hidden="true"><i /><i /><i /></span>{typingText()}</span>
+    </Show>
+  );
   const typingText = () => {
     const t = typers();
     if (!t.length) return "";
@@ -288,8 +331,14 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
       onMount(() => {
         const box = el.querySelector<HTMLElement>(".composer-wrap");
         if (!box) return;
-        const ro = new ResizeObserver(() => el.style.setProperty("--composer-h", `${box.offsetHeight}px`));
-        ro.observe(box); onCleanup(() => ro.disconnect());
+        // From the bottom of the chat to the top of the message box itself (a reply or upload bar above it counts).
+        const measure = () => {
+          const top = (box.querySelector(".reply-bar, .pending-files, .upload-bar, .composer") as HTMLElement | null ?? box).getBoundingClientRect().top;
+          el.style.setProperty("--composer-h", `${Math.round(el.getBoundingClientRect().bottom - top)}px`);
+        };
+        const ro = new ResizeObserver(measure);
+        ro.observe(box); ro.observe(el); onCleanup(() => ro.disconnect());
+        measure();
       });
     }}
       onDragEnter={(e) => { if (hasFiles(e)) { e.preventDefault(); setDropping(dropping() + 1); } }}
@@ -331,8 +380,12 @@ export function Chat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
           <div ref={bottom} class="newer-sentinel" />
         </div>
       </div>
-      <Show when={detached()} fallback={<Show when={!pinned()}><button class="jump-present panel" onClick={() => void present()}><Icon name="down" size={16} />Jump to present</button></Show>}>
-        <div class="older-bar" role="status"><span>You're viewing older messages</span><button class="btn small primary" onClick={() => void present()}>Jump to present</button></div>
+      {/* Scrolled up or jumped back: on desktop a bar tucked behind the top of the message box; phones keep their own. */}
+      <Show when={detached()} fallback={<Show when={!pinned()}>
+        <div class="older-bar desk-only" role="status"><OlderText /><button class="ob-jump" onClick={() => void present()}>Jump to present<Icon name="down" size={14} /></button></div>
+        <button class="jump-present panel phone-only" onClick={() => void present()}><Icon name="down" size={16} />Jump to present</button>
+      </Show>}>
+        <div class="older-bar" role="status"><OlderText /><button class="ob-jump" onClick={() => void present()}>Jump to present<Icon name="down" size={14} /></button></div>
       </Show>
       <div class="typing" aria-live="polite">
         <Show when={typingText()}><span class="dots" aria-hidden="true"><i /><i /><i /></span>{typingText()}</Show>

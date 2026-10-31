@@ -1,5 +1,8 @@
 import type { A11yPrefs } from "../../lib/device";
-import { Group, Row, Seg, Slider, Switch } from "../controls";
+import { Show } from "solid-js";
+import { Group, Row, Seg, Select, Slider, Switch } from "../controls";
+import { MOBILE_UI } from "../target";
+import { phoneFontScale } from "../appSize";
 import { device, look, updateDevice, updateLook } from "../store";
 
 /**
@@ -12,8 +15,17 @@ export function AccessibilityPage() {
   const text = () => device().text;
   return (
     <div class="page">
+      {/* Phones and tablets: everything bigger or smaller at once, like the app's own zoom */}
+      <Show when={MOBILE_UI}>
+        <Group title="App size" hint="Text, buttons, icons and spacing, all together. Following your phone uses its font size setting.">
+          <Row icon="eye" label="App size">
+            <Select label="App size" value={String(a().appSize)} onChange={(v) => set({ appSize: +v })}
+              options={[{ v: "0", label: `Match my phone (${Math.round(phoneFontScale() * 100)}%)` }, ...[80, 90, 100, 115, 130, 150, 175].map((n) => ({ v: String(n), label: `${n}%` }))]} />
+          </Row>
+        </Group>
+      </Show>
       <Group title="Text" hint="These change how messages read on this device.">
-        <Row label="Message text size"><Slider label="Message text size" min={12} max={22} value={text().size} suffix="px" onChange={(size) => updateDevice({ text: { ...text(), size } })} /></Row>
+        <Row label="Text size" hint="Messages, and a little of the rest of the app"><Slider label="Text size" min={12} max={22} value={text().size} suffix="px" onChange={(size) => updateDevice({ text: { ...text(), size } })} /></Row>
         <Row label="Space between message groups"><Slider label="Space between message groups" min={0} max={24} value={text().spacing} suffix="px" onChange={(spacing) => updateDevice({ text: { ...text(), spacing } })} /></Row>
         <Row label="Easier-to-read messages" hint="A little heavier and more spaced out.">
           <Switch label="Easier-to-read messages" on={a().readable} onChange={(readable) => set({ readable })} />

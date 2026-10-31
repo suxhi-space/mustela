@@ -5,6 +5,8 @@ export interface A11yPrefs {
   reduceMotion: "on" | "off" | "system";
   /** Touch screens: text a size up */
   touchText: boolean;
+  /** Phones and tablets: the whole app's size in percent (text, buttons, spacing); 0 follows the phone's font size */
+  appSize: number;
   /** Links in messages always underlined */
   underlineLinks: boolean;
   /** Names in their role's colour */
@@ -68,7 +70,7 @@ export interface DeviceSettings {
   /** Show the message text in notifications (off = "New message" only) */
   notifyPreview: boolean;
   /** Sounds: new message, someone joins/leaves your call, mute/deafen clicks */
-  sounds: { message: boolean; call: boolean; toggles: boolean };
+  sounds: { message: boolean; call: boolean; toggles: boolean; streams: boolean };
   /** Flash the taskbar / dock badge for unread mentions */
   badge: boolean;
   /** What's drawn behind the panels: a starfield, a plain color, or your own picture */
@@ -131,7 +133,7 @@ export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "fu
 
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
-  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, localLook: null, miniCall: true, voice: { ...DEFAULT_VOICE_PREFS },
+  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true, streams: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, appSize: 0, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, localLook: null, miniCall: true, voice: { ...DEFAULT_VOICE_PREFS },
 };
 
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
@@ -153,7 +155,7 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     callOverlay: oneOf(r.callOverlay, ["bubble", "pip"], d.callOverlay),
     notifications: r.notifications !== false,
     notifyPreview: r.notifyPreview !== false,
-    sounds: { message: (r.sounds as any)?.message !== false, call: (r.sounds as any)?.call !== false, toggles: (r.sounds as any)?.toggles !== false },
+    sounds: { message: (r.sounds as any)?.message !== false, call: (r.sounds as any)?.call !== false, toggles: (r.sounds as any)?.toggles !== false, streams: (r.sounds as any)?.streams !== false },
     badge: r.badge !== false,
     closeToTray: r.closeToTray !== false,
     autoUpdate: r.autoUpdate !== false,
@@ -192,7 +194,9 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
       const old = (r.perf as any)?.systemMotion === true ? "system" : "off";
       return {
         reduceMotion: oneOf(a.reduceMotion, ["on", "off", "system"], old),
-        touchText: a.touchText !== false, underlineLinks: a.underlineLinks === true, roleColors: a.roleColors !== false, readable: a.readable === true,
+        touchText: a.touchText !== false,
+        appSize: typeof a.appSize === "number" && (a.appSize === 0 || (a.appSize >= 80 && a.appSize <= 175)) ? Math.round(a.appSize) : 0,
+        underlineLinks: a.underlineLinks === true, roleColors: a.roleColors !== false, readable: a.readable === true,
       };
     })(),
     syncLook: r.syncLook !== false,

@@ -1,16 +1,17 @@
-import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js";
 import type { ChannelInfo, Person, VoiceMember, VoicePrefs } from "../../lib/backend/types";
 import { Select, Slider, Switch } from "../controls";
 import { devices } from "../settings/VoiceVideo";
 import { Avatar, NameText } from "../Avatar";
 import { Icon } from "../icons";
 import { openMenu, type MenuItem } from "../menu";
-import { backToList, setProfileOpen, setSettingsOpen } from "../nav";
+import { backToList, currentServer, setProfileOpen, setSettingsOpen } from "../nav";
+import { channelMenu } from "../menus";
 import { backend, device, platform, updateDevice } from "../store";
 import { inTauri } from "../../lib/platform";
 import { createPhone } from "../hooks";
 import { openSoundboard } from "./Soundboard";
-import { applyVoicePrefs, call, canPip, closePopout, enterPip, joinCall, leaveCall, openPopout, toggleCall } from "./state";
+import { applyVoicePrefs, call, canPip, closePopout, enterPip, joinCall, leaveCall, openPopout, screenButton, toggleCall } from "./state";
 
 /** One person's camera or screen. Muted: their sound plays through the call's audio, not this element. */
 /**
@@ -120,7 +121,7 @@ function holdToOpen() {
   };
 }
 
-type Tile = { key: string; person: VoiceMember; kind: "person" | "stream" };
+type Tile = { key: string; person: VoiceMember; kind: "person" | "stream"; ended?: boolean };
 
 /**
  * The call, Discord-style: a dark stage with everyone as tiles (cameras and
@@ -144,19 +145,21 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   onMount(() => stage.addEventListener("click", (e) => { if (swallow) { swallow = false; e.stopPropagation(); } }, true));
   const wake = () => {
     setChrome(true); clearTimeout(chromeTimer);
-    if (touchPhone() && here() && !props.popout && (!props.chatOpen || !phone())) chromeTimer = setTimeout(() => { if (!document.querySelector(".call-sheet.open, .ctx-sheet, .soundboard")) setChrome(false); else wake(); }, 4000);
+    // Only while a tile is enlarged (like Discord): in the grid the controls stay put.
+    if (touchPhone() && here() && !props.popout && (!props.chatOpen || !phone()) && focused()) chromeTimer = setTimeout(() => { if (!document.querySelector(".call-sheet.open, .ctx-sheet, .soundboard")) setChrome(false); else wake(); }, 4000);
   };
-  createEffect(() => { touchPhone(); here(); props.chatOpen; wake(); });
+  createEffect(() => { touchPhone(); here(); props.chatOpen; untrack(wake); });
   createEffect(() => document.documentElement.classList.toggle("call-immersive", touchPhone() && here() && (!props.chatOpen || !phone()) && !chrome()));
   // Phones in the call: its own bar on top replaces the channel's.
   createEffect(() => document.documentElement.classList.toggle("call-top-on", phone() && here() && !props.popout && !props.chatOpen));
   onCleanup(() => document.documentElement.classList.remove("call-top-on"));
   // Watching a stream on a phone: let it turn sideways, like a video (back to normal when you stop watching).
-  createEffect(on(() => touchPhone() && here() && !props.popout && !!focused() && focused()!.startsWith("s:") && platform === "android" && inTauri(), (wide) => {
+  // Only someone else's stream: yours is just a "You're sharing your screen!" card on phones.
+  createEffect(on(() => touchPhone() && here() && !props.popout && !!focused() && focused()!.startsWith("s:") && focused() !== `s:${backend()?.me.id}` && platform === "android" && inTauri(), (wide) => {
     void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|landscape", { payload: { on: wide } })).catch(() => {});
   }));
   // The phone's status bar and nav buttons: hidden only while a stream you're focused on fills the screen.
-  createEffect(on(() => platform === "android" && inTauri() && touchPhone() && here() && !chrome() && !!focused()?.startsWith("s:"), (full) => {
+  createEffect(on(() => platform === "android" && inTauri() && touchPhone() && here() && !chrome() && !!focused()?.startsWith("s:") && focused() !== `s:${backend()?.me.id}`, (full) => {
     void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|system_bars", { payload: { on: !full } })).catch(() => {});
   }));
   onCleanup(() => {
@@ -171,30 +174,42 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   onMount(() => { const d = doc(); d.addEventListener("fullscreenchange", sync); onCleanup(() => d.removeEventListener("fullscreenchange", sync)); });
   const toggleFull = () => (doc().fullscreenElement ? void doc().exitFullscreen() : void stage.requestFullscreen?.().catch(() => {}));
 
+  /** Someone has a camera on or is streaming: only then is there anything for "only video" to keep. */
+  const anyVideo = createMemo(() => call.people().some((p) => p.camera || p.screen));
   const tiles = createMemo<Tile[]>(() => {
     const out: Tile[] = [];
-    const hide = device().hideNoVideo;
+    // "Hide people without video" keeps only cameras and the streams you're watching (you included: no camera,
+    // no tile). With nobody on camera or streaming it has nothing to keep, so it does nothing.
+    const hide = device().hideNoVideo && anyVideo();
+    const me = backend()?.me.id;
+    const watched = (id: string) => id === me || !!call.streams().find((s) => s.id === id)?.watching;
+    const gone = call.ended();
     for (const p of call.people()) {
-      // "Hide people without video" keeps only cameras and streams (you included: no camera, no tile).
       if (!hide || p.camera) out.push({ key: `p:${p.id}`, person: p, kind: "person" });
-      if (p.screen) out.push({ key: `s:${p.id}`, person: p, kind: "stream" });
+      if (p.screen && (!hide || watched(p.id))) out.push({ key: `s:${p.id}`, person: p, kind: "stream" });
+      // A stream you were watching ended: its tile stays (same place) until you close it.
+      else if (!p.screen && gone.includes(p.id)) out.push({ key: `s:${p.id}`, person: p, kind: "stream", ended: true });
     }
+    for (const id of gone) if (!out.some((t) => t.key === `s:${id}`)) out.push({ key: `s:${id}`, person: backend()!.person(id), kind: "stream", ended: true });
     return out;
   });
   // Tiles are listed by key, so a tile (and its video) stays put when someone starts or stops talking.
   // Rebuilding every tile on each change made streams stutter and could crash the call.
   const byKey = createMemo(() => new Map(tiles().map((t) => [t.key, t])));
   const keys = createMemo<string[]>((prev) => { const next = tiles().map((t) => t.key); return prev && prev.length === next.length && prev.every((k, i) => k === next[i]) ? prev : next; });
-  // A new stream gets the focus, like Discord.
+  // A new stream gets the focus on desktop. Phones keep the grid (like Discord's app): you enlarge one yourself.
   let seen = new Set<string>();
   createEffect(() => {
     const streams = tiles().filter((t) => t.kind === "stream").map((t) => t.key);
     const fresh = streams.find((k) => !seen.has(k));
     seen = new Set(streams);
-    if (fresh && !focus()) setFocus(fresh);
+    if (fresh && !focus() && !phone()) setFocus(fresh);
     if (focus() && !tiles().some((t) => t.key === focus())) setFocus(null);
   });
   const focused = () => (focus() && byKey().has(focus()!) ? focus() : null);
+  // Enlarging or shrinking a tile starts (or stops) the controls' timer; the call updating many times a second doesn't.
+  const hasFocus = createMemo(() => !!focused());
+  createEffect(on(hasFocus, () => wake(), { defer: true }));
   const others = createMemo<string[]>(() => keys().filter((k) => k !== focus()));
   const streamInfo = (id: string) => call.streams().find((s) => s.id === id);
 
@@ -211,25 +226,50 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
     const mutedForMe = () => (call.tick(), p().id !== backend()?.me.id && !!call.handle()?.userAudio?.(p().id, tp.t.kind === "stream" ? "stream" : "voice").muted);
     const hasVideo = () => (call.tick(), !!call.handle()?.video(p().id, tp.t.kind === "stream" ? "screen" : "camera"));
     const watching = () => tp.t.kind !== "stream" || p().id === backend()?.me.id || !!streamInfo(p().id)?.watching || hasVideo();
+    const mine = () => tp.t.kind === "stream" && p().id === backend()?.me.id;
     return (
       <div class="ctile" classList={{ talking: talking() && !sound(), sound: sound(), stream: tp.t.kind === "stream", big: !!tp.big, video: hasVideo() }}
         {...holdToOpen()}
         onClick={() => { if (!justHeld()) setFocus(focus() === tp.t.key ? null : tp.t.key); }}
         onDblClick={() => { setFocus(tp.t.key); toggleFull(); }}
         onContextMenu={(e) => { heldAt = Date.now(); callMemberMenu(e, p(), { focus: () => setFocus(tp.t.key), fullscreen: () => { setFocus(tp.t.key); toggleFull(); } }); }}>
+        <Show when={!tp.t.ended} fallback={
+          <div class="ctile-ended">
+            <Icon name="screen" size={30} />
+            <span>This stream has ended.</span>
+            <button class="btn small" onClick={(e) => { e.stopPropagation(); call.handle()?.closeEnded?.(p().id); }}>Close stream</button>
+          </div>
+        }>
+        {/* Phones: your own stream isn't drawn back to you (that's the phone's whole screen, and costly), like Discord. */}
+        <Show when={!(phone() && mine())} fallback={
+          <div class="ctile-mine">
+            <strong>You're sharing your screen!</strong>
+            <Show when={tp.big}><span>You can switch to other apps for your friends to see.</span></Show>
+            <button class="btn small" onClick={(e) => { e.stopPropagation(); void toggleCall("screen"); }}>Stop sharing</button>
+          </div>
+        }>
         <Show when={hasVideo() && watching()} fallback={
           <Show when={tp.t.kind === "stream" && !watching()} fallback={<span class="ctile-av"><Avatar person={p()} size={tp.big ? 96 : 64} presence={false} still={!talking() && !!device().perf.lighterInCalls} /></span>}>
             <div class="ctile-watch">
               <Icon name="screen" size={28} />
               <span>{p().name} is streaming</span>
-              <button class="btn small primary" onClick={(e) => { e.stopPropagation(); call.handle()?.watch?.(p().id, true); setFocus(tp.t.key); }}>Watch stream</button>
+              <button class="btn small primary" onClick={(e) => { e.stopPropagation(); call.handle()?.watch?.(p().id, true); if (!phone()) setFocus(tp.t.key); }}>Watch stream</button>
             </div>
           </Show>
         }>
           <VideoFill id={p().id} source={tp.t.kind === "stream" ? "screen" : "camera"} fit={tp.t.kind === "stream" ? "contain" : "cover"} />
         </Show>
+        </Show>
+        </Show>
+        {/* Phones, on a stream you're watching (or your own): stop it, and make it big or small again */}
+        <Show when={phone() && tp.t.kind === "stream" && !tp.t.ended && (mine() || (watching() && hasVideo()))}>
+          <button class="ctile-corner left" aria-label={mine() ? "Stop sharing" : "Stop watching"}
+            onClick={(e) => { e.stopPropagation(); if (mine()) void toggleCall("screen"); else { call.handle()?.watch?.(p().id, false); if (focus() === tp.t.key) setFocus(null); } }}><Icon name="close" size={18} /></button>
+          <button class="ctile-corner right" aria-label={tp.big ? "Make it smaller" : "Make it bigger"}
+            onClick={(e) => { e.stopPropagation(); setFocus(focus() === tp.t.key ? null : tp.t.key); }}><Icon name={tp.big ? "collapse" : "expand"} size={18} /></button>
+        </Show>
         <span class="ctile-name">
-          <Show when={tp.t.kind === "stream"}><span class="live-pill">LIVE</span></Show>
+          <Show when={tp.t.kind === "stream"}><Show when={!tp.t.ended} fallback={<Icon name="screen" size={14} />}><span class="live-pill">LIVE</span></Show></Show>
           <NameText person={p()} />
           <Show when={tp.t.kind === "person" && p().deaf}><Icon name="headphones-off" size={14} class="danger" /></Show>
           <Show when={tp.t.kind === "person" && p().muted && !p().deaf}><Icon name="mic-off" size={14} class="danger" /></Show>
@@ -251,39 +291,15 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
         <div class="cstage-idle">
           <Show when={call.popped() && here()} fallback={
             <>
-              {/* Desktop: who's here at a glance, like before. Phones: a list you can read with a thumb. */}
-              <Show when={phone()} fallback={
-                <>
-                  <div class="cs-faces">
-                    <For each={(props.channel.voice ?? []).slice(0, 6)} fallback={<span class="cs-empty-ic"><Icon name="speaker" size={34} /></span>}>
-                      {(p) => <Avatar person={p} size={56} presence={false} still profile={null} />}
-                    </For>
-                  </div>
-                  <h2>{props.channel.name}</h2>
-                  <p class="muted">{props.channel.voice?.length ? `${props.channel.voice.map((p) => p.name).slice(0, 3).join(", ")}${props.channel.voice.length > 3 ? ` and ${props.channel.voice.length - 3} more` : ""} ${props.channel.voice.length === 1 ? "is" : "are"} in the call.` : "No one's here yet."}
-                    {elsewhere() ? ` You're in ${call.channel()?.name}; joining moves you here.` : ""}</p>
-                </>
-              }>
-              <div class="cs-head">
-                  <span class="cs-ic"><Icon name="speaker" size={22} /></span>
-                  <h2>{props.channel.name}</h2>
-                </div>
-                {/* Who's here, before you join */}
-                <Show when={props.channel.voice?.length} fallback={<p class="muted">No one's here yet. Join and others will see you're in.</p>}>
-                  <section class="cs-people">
-                    <h3 class="label">{props.channel.voice!.length === 1 ? "1 person" : `${props.channel.voice!.length} people`} in voice</h3>
-                    <ul>
-                      <For each={(props.channel.voice ?? []).slice(0, 8)}>{(p) => (
-                        <li><Avatar person={p} size={30} presence={false} still /><span class="cs-name"><NameText person={p} /></span>
-                          <Show when={p.screen}><span class="live-pill">LIVE</span></Show>
-                          <Show when={p.muted}><Icon name="mic-off" size={14} class="danger" /></Show></li>
-                      )}</For>
-                      <Show when={(props.channel.voice?.length ?? 0) > 8}><li class="muted">and {props.channel.voice!.length - 8} more</li></Show>
-                    </ul>
-                  </section>
-                </Show>
-                <Show when={elsewhere()}><p class="muted small">You're in {call.channel()?.name}. Joining moves you here.</p></Show>
-              </Show>
+              {/* Who's here at a glance: their pictures, then the names (the same on phones; the buttons go to the bottom there). */}
+              <div class="cs-faces">
+                <For each={(props.channel.voice ?? []).slice(0, 6)} fallback={<span class="cs-empty-ic"><Icon name="speaker" size={34} /></span>}>
+                  {(p) => <Avatar person={p} size={56} presence={false} still profile={null} />}
+                </For>
+              </div>
+              <h2>{props.channel.name}</h2>
+              <p class="muted">{props.channel.voice?.length ? `${props.channel.voice.map((p) => p.name).slice(0, 3).join(", ")}${props.channel.voice.length > 3 ? ` and ${props.channel.voice.length - 3} more` : ""} ${props.channel.voice.length === 1 ? "is" : "are"} in the call.` : "No one's here yet."}
+                {elsewhere() ? ` You're in ${call.channel()?.name}; joining moves you here.` : ""}</p>
               <Show when={phone()} fallback={
                 <button class="btn big primary" disabled={call.busy()} onClick={() => void joinCall(props.channel)}>{call.busy() ? "Joining…" : elsewhere() ? "Switch to this call" : "Join voice"}</button>
               }>
@@ -318,12 +334,13 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
         <Show when={phone() && !props.popout}>
           <header class="call-top">
             <button class="ct-btn" aria-label="Minimise the call" onClick={() => backToList()}><Icon name="down" size={22} /></button>
-            <button class="ct-name" aria-label={`${props.channel.name}, open the chat`} onClick={() => props.onToggleChat?.()}>
-              <Icon name="speaker" size={16} /><span>{props.channel.name}</span><Icon name="right" size={14} />
+            {/* The channel's menu card (like holding it in the list); the chat has its own button next to it. */}
+            <button class="ct-name" aria-label={`${props.channel.name}, channel options`} onClick={(e) => channelMenu(e, props.channel, props.channel.kind === "voice" ? currentServer() ?? undefined : undefined)}>
+              <Icon name="speaker" size={16} /><span>{props.channel.name}</span><Icon name="down" size={14} />
             </button>
             <span class="grow" />
             <button class="ct-btn" classList={{ on: !call.on().deaf }} aria-label="Sound: where it plays and how loud" onClick={(e) => void openOutputSheet(e.currentTarget)}>
-              <Icon name={call.on().deaf ? "headphones-off" : "volume"} size={20} /></button>
+              <Icon name={call.on().deaf ? "headphones-off" : "volume-up"} size={20} /></button>
             <Show when={props.onToggleChat}><button class="ct-btn" aria-label="Open the chat" onClick={() => props.onToggleChat?.()}><Icon name="chat" size={20} /></button></Show>
           </header>
         </Show>
@@ -332,20 +349,20 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
         </Show>
         <div class="cbar" classList={{ "has-sheet": phone() && !props.popout }} role="toolbar" aria-label="Call controls">
           <span class="cbar-side">
-            <button class="cbtn ghost desk-only" classList={{ on: device().hideNoVideo }} aria-pressed={device().hideNoVideo} title={device().hideNoVideo ? "Show everyone" : "Hide people without video"} onClick={() => updateDevice({ hideNoVideo: !device().hideNoVideo })}><Icon name="video-off" size={18} /></button>
+            <button class="cbtn ghost desk-only" classList={{ on: device().hideNoVideo && anyVideo() }} aria-pressed={device().hideNoVideo} disabled={!anyVideo()} title={!anyVideo() ? "Nobody has video on" : device().hideNoVideo ? "Show everyone" : "Hide people without video and streams you're not watching"} onClick={() => updateDevice({ hideNoVideo: !device().hideNoVideo })}><Icon name="video-off" size={18} /></button>
             <Show when={props.onToggleChat}><button class="cbtn ghost" classList={{ on: !!props.chatOpen }} title={props.chatOpen ? "Hide chat" : "Show chat"} aria-pressed={!!props.chatOpen} onClick={props.onToggleChat}><Icon name="chat" size={20} /></button></Show>
           </span>
           <span class="cbar-mid">
             <button class="cbtn" classList={{ off: !call.on().mic }} title={call.on().mic ? "Mute" : "Unmute"} aria-pressed={!call.on().mic} onClick={() => void toggleCall("mic")}><Icon name={call.on().mic ? "mic" : "mic-off"} size={20} /></button>
             <button class="cbtn" classList={{ off: call.on().deaf }} title={call.on().deaf ? "Undeafen" : "Deafen"} aria-pressed={call.on().deaf} onClick={() => void toggleCall("deaf")}><Icon name={call.on().deaf ? "headphones-off" : "headphones"} size={20} /></button>
             <button class="cbtn" classList={{ on: call.on().cam }} title={call.on().cam ? "Turn off camera" : "Turn on camera"} aria-pressed={call.on().cam} onClick={() => void toggleCall("cam")}><Icon name={call.on().cam ? "video" : "video-off"} size={20} /></button>
-            <button class="cbtn" classList={{ on: call.on().screen }} title={call.on().screen ? "Stop sharing" : "Share your screen"} aria-pressed={call.on().screen} onClick={() => void toggleCall("screen")}><Icon name="screen" size={20} /></button>
+            <button class="cbtn" classList={{ on: call.on().screen }} title={call.on().screen ? "Stop or change your stream" : "Share your screen"} aria-pressed={call.on().screen} onClick={(e) => screenButton(e.currentTarget)}><Icon name="screen" size={20} /></button>
             <button class="cbtn" title="Soundboard" onClick={(e) => openSoundboard(e.currentTarget)}><Icon name="music" size={20} /></button>
             <Show when={canPip()}><button class="cbtn" title="Picture in picture" onClick={() => void enterPip()}><Icon name="collapse" size={20} /></button></Show>
             <button class="cbtn leave" title="Leave call" onClick={() => void leaveCall()}><Icon name="hangup" size={22} /></button>
             {/* Phones: the rest in one menu, so the bar fits */}
             <button class="cbtn ghost phone-only" title="More" aria-label="More call options" onClick={(e) => openMenu(e.currentTarget, [
-              { label: device().hideNoVideo ? "Show everyone" : "Hide people without video", icon: "video-off", onSelect: () => updateDevice({ hideNoVideo: !device().hideNoVideo }) },
+              { label: device().hideNoVideo ? "Show everyone" : "Hide people without video", icon: "video-off", disabled: !anyVideo(), onSelect: () => updateDevice({ hideNoVideo: !device().hideNoVideo }) },
               { label: full() ? "Exit full screen" : "Full screen", icon: full() ? "fullscreen-exit" : "fullscreen", onSelect: toggleFull },
             ])}><Icon name="dots" size={20} /></button>
           </span>
@@ -411,7 +428,7 @@ function CallSheet(props: { chatOpen?: boolean; onToggleChat?(): void; full: boo
         <div class="sheet-main">
           <button class="cbtn" classList={{ on: call.on().cam }} aria-label={call.on().cam ? "Turn off camera" : "Turn on camera"} aria-pressed={call.on().cam} onClick={() => void toggleCall("cam")}><Icon name={call.on().cam ? "video" : "video-off"} size={22} /></button>
           <button class="cbtn" classList={{ off: !call.on().mic }} aria-label={call.on().mic ? "Mute" : "Unmute"} aria-pressed={!call.on().mic} onClick={() => void toggleCall("mic")}><Icon name={call.on().mic ? "mic" : "mic-off"} size={22} /></button>
-          <button class="cbtn" classList={{ on: call.on().screen }} aria-label={call.on().screen ? "Stop sharing" : "Share your screen"} aria-pressed={call.on().screen} onClick={() => void toggleCall("screen")}><Icon name="screen" size={22} /></button>
+          <button class="cbtn" classList={{ on: call.on().screen }} aria-label={call.on().screen ? "Stop or change your stream" : "Share your screen"} aria-pressed={call.on().screen} onClick={(e) => screenButton(e.currentTarget)}><Icon name="screen" size={22} /></button>
           <button class="cbtn" aria-label="Soundboard" onClick={(e) => { const el = e.currentTarget; setOpen(false); openSoundboard(el); }}><Icon name="music" size={22} /></button>
           <button class="cbtn leave" aria-label="Leave call" onClick={() => void leaveCall()}><Icon name="hangup" size={24} /></button>
         </div>
@@ -419,7 +436,7 @@ function CallSheet(props: { chatOpen?: boolean; onToggleChat?(): void; full: boo
           <div class="sheet-grid">
             <button classList={{ on: call.on().deaf }} onClick={act(() => void toggleCall("deaf"))}><Icon name={call.on().deaf ? "headphones-off" : "headphones"} size={22} /><span>{call.on().deaf ? "Undeafen" : "Deafen"}</span></button>
             <Show when={canPip()}><button onClick={act(() => void enterPip())}><Icon name="collapse" size={22} /><span>Picture in picture</span></button></Show>
-            <button classList={{ on: device().hideNoVideo }} onClick={act(() => updateDevice({ hideNoVideo: !device().hideNoVideo }))}><Icon name="video-off" size={22} /><span>{device().hideNoVideo ? "Show everyone" : "Only video"}</span></button>
+            <button classList={{ on: device().hideNoVideo }} disabled={!call.people().some((p) => p.camera || p.screen)} onClick={act(() => updateDevice({ hideNoVideo: !device().hideNoVideo }))}><Icon name="video-off" size={22} /><span>{device().hideNoVideo ? "Show everyone" : "Only video"}</span></button>
             <button onClick={act(props.toggleFull)}><Icon name={props.full ? "fullscreen-exit" : "fullscreen"} size={22} /><span>{props.full ? "Exit full screen" : "Full screen"}</span></button>
           </div>
           <QuickVoiceSettings onAll={act(() => setSettingsOpen("voice"))} />

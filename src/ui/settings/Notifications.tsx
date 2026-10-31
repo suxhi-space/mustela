@@ -32,7 +32,8 @@ export function NotificationsPage() {
 
       <Group title="Sounds">
         <Row icon="music" label="New message" hint="When a notification would show"><button class="btn small" onClick={() => playSfx("message")}>Play</button><Switch label="Message sound" on={sounds().message} onChange={(v) => setSound("message", v)} /></Row>
-        <Row label="Someone joins or leaves your call"><button class="btn small" onClick={() => playSfx("join")}>Play</button><Switch label="Call sounds" on={sounds().call} onChange={(v) => setSound("call", v)} /></Row>
+        <Row label="Someone joins or leaves your call"><button class="btn small" onClick={() => playSfx("join")}>Join</button><button class="btn small" onClick={() => playSfx("leave")}>Leave</button><Switch label="Call sounds" on={sounds().call} onChange={(v) => setSound("call", v)} /></Row>
+        <Row label="Someone starts or stops a stream"><button class="btn small" onClick={() => playSfx("streamStart")}>Start</button><button class="btn small" onClick={() => playSfx("streamStop")}>Stop</button><Switch label="Stream sounds" on={sounds().streams} onChange={(v) => setSound("streams", v)} /></Row>
         <Row label="Mute and deafen"><button class="btn small" onClick={() => playSfx("mute")}>Play</button><Switch label="Mute sounds" on={sounds().toggles} onChange={(v) => setSound("toggles", v)} /></Row>
       </Group>
 

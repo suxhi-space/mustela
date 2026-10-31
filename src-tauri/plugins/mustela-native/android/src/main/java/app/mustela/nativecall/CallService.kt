@@ -8,16 +8,19 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
 /**
  * Foreground service (type "microphone") that keeps the process, and so the
- * call in [CallEngine], alive while Mustela is in the background or has been
- * swiped out of recents. It owns no audio itself; it exists so Android
- * treats the app as "in a call" and doesn't kill it.
+ * call, alive while Mustela is in the background or the screen is off, and
+ * shows the "In voice call" notification with Leave. It owns no audio itself;
+ * it exists so Android treats the app as "in a call" and doesn't kill it, and it
+ * keeps the phone awake enough for the call (see holdAwake).
  */
 class CallService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -26,10 +29,12 @@ class CallService : Service() {
         if (intent?.action == ACTION_STOP) {
             onLeave?.invoke() // a call in the web view (the Web engine): the page leaves it
             CallEngine.stop()
+            letSleep()
             stopForegroundCompat()
             stopSelf()
             return START_NOT_STICKY
         }
+        holdAwake()
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: CallEngine.channelName ?: "Voice call"
         val n = buildNotification(title)
         if (Build.VERSION.SDK_INT >= 29) {
@@ -46,7 +51,33 @@ class CallService : Service() {
 
     override fun onDestroy() {
         CallEngine.stop()
+        letSleep()
         super.onDestroy()
+    }
+
+    /*
+     * With the screen off the phone sleeps: the CPU stops and Wi-Fi idles, and the call's connection quietly dies
+     * (you'd look "in the call" while nobody hears you). A call holds both awake, like any calling app, until it ends.
+     */
+    private var cpu: PowerManager.WakeLock? = null
+    private var wifi: WifiManager.WifiLock? = null
+
+    private fun holdAwake() {
+        if (cpu == null) runCatching {
+            cpu = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mustela:call").apply { setReferenceCounted(false); acquire(6 * 60 * 60 * 1000L) }
+        }
+        if (wifi == null) runCatching {
+            val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else @Suppress("DEPRECATION") WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            wifi = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+                .createWifiLock(mode, "mustela:call").apply { setReferenceCounted(false); acquire() }
+        }
+    }
+
+    private fun letSleep() {
+        runCatching { cpu?.takeIf { it.isHeld }?.release() }
+        runCatching { wifi?.takeIf { it.isHeld }?.release() }
+        cpu = null; wifi = null
     }
 
     private fun stopForegroundCompat() {
