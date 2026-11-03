@@ -1,0 +1,67 @@
+# Runs on every push and pull request: type check, tests, and one real build per platform.
+# This is the stability net: until now only a Mac has ever built or tested Mustela.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Type check and tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - name: Sync server tests
+        working-directory: server
+        run: node --test
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: windows, os: windows-latest, artifacts: "release/windows/*" }
+          - { platform: macos,   os: macos-latest,   artifacts: "release/macos/*" }
+          - { platform: linux,   os: ubuntu-22.04,   artifacts: "release/linux/*" }
+          - { platform: android, os: ubuntu-22.04,   artifacts: "release/android/*" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: "src-tauri -> target" }
+      - name: Linux system libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf pkg-config libpipewire-0.3-dev libasound2-dev \
+            libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev libgbm-dev libegl1-mesa-dev libwayland-dev clang
+      - uses: actions/setup-java@v4
+        if: matrix.platform == 'android'
+        with: { distribution: temurin, java-version: 17 }
+      - name: Build
+        run: node scripts/build.mjs --platform ${{ matrix.platform }} --yes
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mustela-${{ matrix.platform }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error

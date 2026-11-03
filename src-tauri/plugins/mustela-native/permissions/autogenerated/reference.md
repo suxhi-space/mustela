@@ -22,6 +22,7 @@ Accent color and native voice call commands
 - `allow-system-bars`
 - `allow-audio-outputs`
 - `allow-set-audio-output`
+- `allow-media-file`
 
 ## Permission Table
 
@@ -210,6 +211,32 @@ Enables the landscape command without any pre-configured scope.
 <td>
 
 Denies the landscape command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-media-file`
+
+</td>
+<td>
+
+Enables the media_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-media-file`
+
+</td>
+<td>
+
+Denies the media_file command without any pre-configured scope.
 
 </td>
 </tr>

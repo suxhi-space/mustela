@@ -22,6 +22,7 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn call_audio(&self, _: SetMic) -> Result<()> { Ok(()) }
   pub fn landscape(&self, _: SetMic) -> Result<()> { Ok(()) }
   pub fn system_bars(&self, _: SetMic) -> Result<()> { Ok(()) }
+  pub fn media_file(&self, _: MediaFile) -> Result<()> { Ok(()) }
   pub fn audio_outputs(&self) -> Result<AudioOutputs> { Ok(AudioOutputs::default()) }
   pub fn set_audio_output(&self, _: SetOutput) -> Result<()> { Ok(()) }
   pub fn set_call_overlay(&self, _: Overlay) -> Result<()> { Ok(()) }

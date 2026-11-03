@@ -2,10 +2,13 @@ import { zoomNow } from "./appSize";
 /**
  * Drag a bottom card down to close it (touch), like Discord's and Stoat's apps: grab it anywhere while its contents
  * are scrolled to the top (or by the top edge) and pull down. Let go past a third of its height, or flick it, and it
- * slides away; otherwise it springs back.
+ * slides away; otherwise it springs back. Pulling it up (or scrolling it) grows it to full height first.
  */
 export function dragToClose(card: HTMLElement, close: () => void) {
   let y0 = 0, t0 = 0, dy = 0, dragging = false, armed = false;
+  // Pull it up, or scroll what's in it, and the card grows to the top of the screen (below the status bar).
+  const grow = () => card.classList.add("sheet-tall");
+  card.addEventListener("scroll", () => { if (card.scrollTop > 4) grow(); }, { passive: true });
   const scroller = () => (card.scrollTop > 0 ? card : (card.querySelector<HTMLElement>("[data-sheet-scroll]") ?? card));
   card.addEventListener("touchstart", (e) => {
     if (e.touches.length !== 1) return;
@@ -18,7 +21,7 @@ export function dragToClose(card: HTMLElement, close: () => void) {
     if (!armed) return;
     const d = e.touches[0]!.clientY - y0;
     if (!dragging) {
-      if (d < 8) { if (d < -4) armed = false; return; } // scrolling up: leave it to the list
+      if (d < 8) { if (d < -4) { armed = false; grow(); } return; } // pulling up: the card grows, then the list scrolls
       dragging = true;
       card.style.transition = "none";
     }

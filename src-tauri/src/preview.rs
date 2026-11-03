@@ -30,7 +30,8 @@ const SITES: &[(&[&str], &[&str], &str)] = &[
     (&["x.com", "twitter.com", "fxtwitter.com", "fixupx.com", "vxtwitter.com", "fixvx.com", "twittpr.com", "d.fxtwitter.com", "d.fixupx.com", "nitter.net", "xcancel.com"],
         &["fxtwitter.com", "vxtwitter.com"], "X"),
     (&["instagram.com", "kkinstagram.com", "ddinstagram.com", "d.ddinstagram.com", "instagramez.com", "vxinstagram.com", "uuinstagram.com", "eeinstagram.com", "g.ddinstagram.com"],
-        &["kkinstagram.com", "instagramez.com", "ddinstagram.com"], "Instagram"),
+        // ddinstagram has shut down and the rest come and go, so ask several (all at once) and Instagram last.
+        &["kkinstagram.com", "vxinstagram.com", "eeinstagram.com", "uuinstagram.com", "instagramez.com", "www.instagram.com"], "Instagram"),
     (&["tiktok.com", "vm.tiktok.com", "vt.tiktok.com", "tnktok.com", "tiktxk.com", "vxtiktok.com", "kktiktok.com", "tfxktok.com"],
         &["tnktok.com", "vxtiktok.com", "tiktok.com"], "TikTok"),
     (&["reddit.com", "old.reddit.com", "new.reddit.com", "rxddit.com", "old.rxddit.com", "vxreddit.com", "rxyddit.com"],
@@ -134,30 +135,46 @@ pub fn build(url: &str, site: &str, m: &HashMap<String, String>) -> Option<LinkP
 
 static CACHE: Mutex<Option<HashMap<String, Option<LinkPreview>>>> = Mutex::new(None);
 
+/// Bots the mirrors hand previews to. Discord's is the one they all know; some only answer Telegram's or Facebook's.
+const BOTS: &[&str] = &[
+    "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
+    "TelegramBot (like TwitterBot)",
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+];
+
+fn client(ua: &str) -> Option<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        // Redirects stay on https (the fixer sites redirect to their CDN); private addresses are refused.
+        .redirect(reqwest::redirect::Policy::custom(|a| if a.previous().len() < 4 && crate::fetch::validate_url(a.url().as_str()).is_ok() { a.follow() } else { a.stop() }))
+        .user_agent(ua)
+        .build().ok()
+}
+
 /// A social post's preview, or None when there's nothing to show.
 #[tauri::command]
 pub async fn link_preview(url: String) -> Option<LinkPreview> {
     if let Some(hit) = CACHE.lock().unwrap().as_ref().and_then(|c| c.get(&url).cloned()) { return hit; }
     let (tries, site) = sources_for(&url)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
-        // Redirects stay on https (the fixer sites redirect to their CDN); private addresses are refused.
-        .redirect(reqwest::redirect::Policy::custom(|a| if a.previous().len() < 4 && crate::fetch::validate_url(a.url().as_str()).is_ok() { a.follow() } else { a.stop() }))
-        // The fixer sites only hand out previews to link-preview bots; Discord's is the one they all know.
-        .user_agent("Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)")
-        .build().ok()?;
-    // Ask each mirror in turn; keep the first answer with a picture or video (or failing that, any text).
+    // Ask every mirror at once (one dead mirror shouldn't make the rest wait), as each bot in turn until one
+    // hands out a video. Earlier mirrors in the list win ties.
     let mut best: Option<LinkPreview> = None;
-    for fetch in tries {
-        let Some(p) = fetch_one(&client, &url, &fetch, site).await else { continue };
-        let media = p.image.is_some() || p.video.is_some();
-        if best.is_none() || media { best = Some(p); }
-        if media { break; }
+    for ua in BOTS {
+        let Some(c) = client(ua) else { continue };
+        let found = futures_util::future::join_all(tries.iter().map(|f| fetch_one(&c, &url, f, site))).await;
+        let rank = |p: &LinkPreview| if p.video.is_some() { 2 } else if p.image.is_some() { 1 } else { 0 };
+        for p in found.into_iter().flatten() {
+            if best.as_ref().map_or(true, |b| rank(&p) > rank(b)) { best = Some(p); }
+        }
+        if best.as_ref().is_some_and(|b| b.video.is_some()) { break; }
     }
-    let mut c = CACHE.lock().unwrap();
-    let map = c.get_or_insert_with(HashMap::new);
-    if map.len() > 500 { map.clear(); }
-    map.insert(url, best.clone());
+    // Only keep answers: a miss (the mirrors down, no connection) is asked again next time.
+    if best.is_some() {
+        let mut c = CACHE.lock().unwrap();
+        let map = c.get_or_insert_with(HashMap::new);
+        if map.len() > 500 { map.clear(); }
+        map.insert(url, best.clone());
+    }
     best
 }
 
@@ -204,6 +221,7 @@ mod tests {
         assert_eq!(source_for("https://x.com/a/status/1").unwrap().0, "https://fxtwitter.com/a/status/1");
         assert_eq!(source_for("https://www.instagram.com/reel/De2dwg9knL7/").unwrap().0, "https://kkinstagram.com/reel/De2dwg9knL7/");
         assert_eq!(source_for("https://www.kkinstagram.com/reel/De2dwg9knL7/").unwrap().0, "https://kkinstagram.com/reel/De2dwg9knL7/");
+        assert_eq!(sources_for("https://kkinstagram.com/reel/De0cudiRIbE/").unwrap().0.last().unwrap(), "https://www.instagram.com/reel/De0cudiRIbE/");
         assert_eq!(source_for("https://www.furaffinity.net/view/66547325/").unwrap().0, "https://www.furaffinity.net/view/66547325/");
         assert_eq!(source_for("https://www.xfuraffinity.net/view/66547325/").unwrap().0, "https://www.furaffinity.net/view/66547325/");
         assert_eq!(sources_for("https://www.xfuraffinity.net/view/66547325/").unwrap().0[1], "https://xfuraffinity.net/view/66547325/");

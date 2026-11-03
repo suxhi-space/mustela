@@ -102,3 +102,10 @@ pub struct AudioOutputs {
 pub struct SetOutput {
   pub id: i32,
 }
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct MediaFile {
+  pub url: String,
+  pub name: String,
+  pub share: bool,
+}

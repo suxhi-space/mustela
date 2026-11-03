@@ -1,6 +1,6 @@
 import { toast } from "../menu";
 import { useAutoplay } from "../autoplay";
-import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { createEditor, type ChipLookup } from "./Editor";
 import { openReactions } from "./Reactions";
 import { samePost, socialLinks as findSocialLinks, videoSite } from "../../lib/social";
@@ -12,7 +12,7 @@ import { Icon } from "../icons";
 import { backend, device } from "../store";
 import { inTauri } from "../../lib/platform";
 import { Markdown, type MdCtx } from "./Markdown";
-import { isFav, openEmojiPicker, openLightbox, toggleFav } from "./overlays";
+import { isFav, openEmojiPicker, openGallery, openLightbox, toggleFav } from "./overlays";
 import { messageMenu } from "../menus";
 import { copy } from "../menu";
 import { UEmoji } from "./UEmoji";
@@ -44,7 +44,48 @@ function ReactionChip(props: { r: Reaction; onToggle(on: boolean): void; onView?
   );
 }
 
-function AttachmentView(props: { a: Attachment }) {
+const isMediaAtt = (a: Attachment) => a.type === "image" || a.type === "video";
+const mediaOf = (m: Msg) => (m.attachments ?? []).filter(isMediaAtt);
+
+/**
+ * A message's pictures and videos as one grid: 2 side by side, 3 as one big and two stacked, 4 in a square, and
+ * more in rows of three (with the odd ones out as a wider first row), every row the same height.
+ */
+function MediaGrid(props: { m: Msg }) {
+  const media = () => mediaOf(props.m);
+  const n = () => media().length;
+  const lead = () => (n() === 2 || n() === 4 ? 2 : n() % 3);
+  const tile = (i: number): JSX.CSSProperties => {
+    if (n() === 3) return {};
+    if (i < lead()) return lead() === 1 ? { "grid-column": "span 6", "aspect-ratio": "3 / 1" } : { "grid-column": "span 3", "aspect-ratio": n() === 2 ? "1 / 1" : "4 / 3" };
+    return { "grid-column": "span 2", "aspect-ratio": "1 / 1" };
+  };
+  return (
+    <div class="media-grid" classList={{ three: n() === 3 }}>
+      <For each={media()}>{(a, i) => <GridTile a={a} m={props.m} style={tile(i())} />}</For>
+    </div>
+  );
+}
+
+function GridTile(props: { a: Attachment; m: Msg; style: JSX.CSSProperties }) {
+  const [revealed, setRevealed] = createSignal(!props.a.spoiler);
+  return (
+    <div class="mg-tile" classList={{ spoiled: !revealed() }} style={props.style}>
+      <Show when={props.a.type === "image"} fallback={<video controls preload="metadata" src={props.a.url} poster={props.a.previewUrl} />}>
+        <img src={props.a.previewUrl ?? props.a.url} alt={props.a.name} loading="lazy" onClick={() => (revealed() ? showAll(props.a, props.m) : setRevealed(true))} />
+      </Show>
+      <Show when={!revealed()}><button class="spoil-cover" onClick={() => setRevealed(true)}>Spoiler</button></Show>
+    </div>
+  );
+}
+
+/** A picture from a message, big, with the message's other pictures and videos to swipe through. */
+function showAll(a: Attachment, m?: Msg) {
+  const media = (m?.attachments ?? [a]).filter((x) => x.type === "image" || x.type === "video");
+  openGallery(media.map((x) => ({ url: x.url, name: x.name, spoiler: x.spoiler, video: x.type === "video", preview: x.previewUrl, from: m?.author, at: m?.at })), Math.max(0, media.indexOf(a)));
+}
+
+function AttachmentView(props: { a: Attachment; m?: Msg }) {
   const [revealed, setRevealed] = createSignal(!props.a.spoiler);
   const dims = () => {
     const w = props.a.width ?? 400, h = props.a.height ?? 300;
@@ -65,7 +106,7 @@ function AttachmentView(props: { a: Attachment }) {
     }>
       <div class="media" classList={{ spoiled: !revealed() }} style={dims()}>
         <Show when={props.a.type === "image"} fallback={<video controls preload="metadata" src={props.a.url} poster={props.a.previewUrl} />}>
-          <img src={props.a.previewUrl ?? props.a.url} alt={props.a.name} loading="lazy" onClick={() => (revealed() ? openLightbox(props.a.url, props.a.name) : setRevealed(true))} />
+          <img src={props.a.previewUrl ?? props.a.url} alt={props.a.name} loading="lazy" onClick={() => (revealed() ? showAll(props.a, props.m) : setRevealed(true))} />
         </Show>
         <Show when={!revealed()}><button class="spoil-cover" onClick={() => setRevealed(true)}>Spoiler</button></Show>
       </div>
@@ -368,7 +409,15 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
               <small class="muted desk-only">Escape to <button class="link" onClick={() => props.act.onEdit(null)}>cancel</button>, Enter to <button class="link" onClick={() => void saveEdit()}>save</button></small>
             </div>
           </Show>
-          <Show when={m().attachments?.length}><div class="attachments"><For each={m().attachments}>{(a) => <AttachmentView a={a} />}</For></div></Show>
+          <Show when={m().attachments?.length}>
+            <div class="attachments">
+              {/* Several pictures or videos sit together in one grid, like Discord; one on its own keeps its shape. */}
+              <Show when={mediaOf(m()).length > 1} fallback={<For each={m().attachments}>{(a) => <AttachmentView a={a} m={m()} />}</For>}>
+                <MediaGrid m={m()} />
+                <For each={m().attachments!.filter((a) => !isMediaAtt(a))}>{(a) => <AttachmentView a={a} m={m()} />}</For>
+              </Show>
+            </div>
+          </Show>
           <Show when={invites().length}><div class="embeds"><For each={invites()}>{(c) => <InviteCard code={c} />}</For></div></Show>
           <Show when={ownEmbeds().length}><div class="embeds"><For each={ownEmbeds()}>{(e) => <EmbedView e={e} />}</For></div></Show>
           <Show when={socialLinks().length}><div class="embeds"><For each={socialLinks()}>{(x) => <SocialPreview url={x.url} fallback={x.fallback} />}</For></div></Show>

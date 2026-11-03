@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import type { CategoryInfo, ChannelInfo, Space } from "../lib/backend/types";
+import type { CategoryInfo, ChannelInfo, Person, Space } from "../lib/backend/types";
 import { plain } from "../lib/markdown";
 import { notify } from "../lib/notify";
 import { NotifyPrompt } from "./NotifyPrompt";
@@ -13,13 +13,16 @@ import { AppImagePrompt } from "./AppImagePrompt";
 import { startUpdates, UpdatePrompt, UpdateSplash } from "./updates";
 import { startPerf } from "./perf";
 import { setScreenBack, startBackButton } from "./back";
-import { Avatar } from "./Avatar";
+import { Avatar, createPerson } from "./Avatar";
+import { createAnim } from "./anim";
+import { PlateCanvas } from "./Paint";
 import { CallPanel } from "./call/CallPanel";
 import { CallPreview, previewOuterWidth } from "./call/CallPreview";
 import { MiniCall, PipView } from "./call/MiniCall";
 import { startSoundSync } from "./call/Soundboard";
-import { createPhone, createProfileInfo, narrowLayout, phoneLayout } from "./hooks";
+import { createPhone, createProfileInfo, createSize, narrowLayout, phoneLayout } from "./hooks";
 import { MOBILE_UI } from "./target";
+import { dragToClose } from "./sheetDrag";
 import { phoneVoiceChat, setPhoneVoiceChat } from "./Voice";
 import { ScreenPickerHost } from "./call/ScreenPicker";
 import { call, callBanner, checkLastCall, joinCall, setCallBanner, toggleCall } from "./call/state";
@@ -134,11 +137,12 @@ export function Shell() {
   const me = () => meNow()!;
   /** The call preview (from the mockup): in a call, looking at a different chat, not on a phone, not popped out. */
   const [previewH, setPreviewH] = createSignal(0);
-  // Room for side columns (a tablet held sideways has it; upright it uses the touch layout).
-  const WIDE = MOBILE_UI ? "(min-width: 901px) and (orientation: landscape)" : "(min-width: 901px)";
+  // Room for side columns (members beside the chat): wide screens, tablets held sideways.
+  const WIDE = "(min-width: 901px)";
   const [wide, setWide] = createSignal(matchMedia(WIDE).matches);
   { const mq = matchMedia(WIDE); const f = () => setWide(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); }
-  const showPreview = () => wide() && call.active() && !call.popped() && !!channel() && call.channel()?.id !== channel()?.id && !panel();
+  // Tablets (the mobile build) get the phone's mini view instead of the desktop call preview, like Discord.
+  const showPreview = () => wide() && !MOBILE_UI && call.active() && !call.popped() && !!channel() && call.channel()?.id !== channel()?.id && !panel();
   // The DM partner's banner, blurred behind the call preview so it blends into their profile.
   const peerInfo = createProfileInfo(() => channel()?.peer?.id ?? "", () => !!channel()?.peer && showPreview());
   const peerBanner = () => (channel()?.peer ? peerInfo()?.bannerUrl : undefined);
@@ -153,13 +157,15 @@ export function Shell() {
     // (from recents or anywhere else) leaves you where you were.
     const back = (e: Event) => {
       const d = (e as CustomEvent<{ pip?: boolean; expanded?: boolean } | boolean>).detail;
+      // Full size again: nothing left scrolled from the tiny window.
+      if (typeof d === "object" && d && !d.pip) requestAnimationFrame(() => { scrollTo(0, 0); document.documentElement.scrollLeft = 0; document.body.scrollLeft = 0; });
       if (typeof d === "object" && d && !d.pip && d.expanded && call.active()) { const cc = call.channel(); setPhoneVoiceChat(false); if (cc) openChannelById(cc.id); }
     };
     addEventListener("mustela:pip", back);
     onCleanup(() => { mq.removeEventListener("change", f); removeEventListener("mustela:pip", f); removeEventListener("mustela:pip", back); });
   }
   /** Phones and tablets: the small call tile, whenever the call itself isn't what's on screen. */
-  const showMini = () => !wide() && call.active() && !call.popped() && device().miniCall
+  const showMini = () => (!wide() || MOBILE_UI) && call.active() && !call.popped() && device().miniCall
     && !(view() === "chat" && channel()?.id === call.channel()?.id && !phoneVoiceChat());
   const sideWidth = () => (matchMedia("(max-width: 1100px)").matches ? 214 : 244);
   /** How far the call preview reaches into the chat from the right (it floats there when nothing is open on the right). */
@@ -332,12 +338,14 @@ export function Shell() {
       <button class="chan" classList={{ on: channel()?.id === c.id, big: o.saved, unread: !!c.unread, muted: !!c.muted, dm: c.kind === "dm" || c.kind === "group" }} onClick={() => { setDiscover(false); if (o.onOpen) o.onOpen(); else pick(c); }}
         {...(o.drag ? dragFrom(o.drag) : {})}
         onContextMenu={(e) => (o.fav ? favoriteMenu(e, c, o.fav) : channelMenu(e, c, o.server ?? (space()?.home ? undefined : space()?.id)))}>
+        {/* The open DM shows their nameplate behind it (more than a highlighted name) */}
+        <Show when={c.kind === "dm" && c.peer && channel()?.id === c.id}><DmPlate person={c.peer!} /></Show>
         <Show when={c.kind === "dm" && c.peer} fallback={
           <Show when={c.iconUrl && c.kind === "group"} fallback={<Icon name={c.kind === "voice" ? "speaker" : c.kind === "group" ? "users" : o.saved ? "note" : "hash"} size={c.kind === "group" || o.saved ? 20 : 18} class="chan-ic" />}>
             <img class="chan-icon" src={c.iconUrl} alt="" />
           </Show>
         }>
-          <Avatar person={c.peer!} size={phone() ? 40 : 28} still />
+          <Avatar person={c.peer!} size={phone() ? 38 : 28} still />
         </Show>
         <span class="chan-name">{c.name}<Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
         <Show when={call.active() && call.channel()?.id === c.id}><Icon name="speaker" size={14} class="live-ic" /></Show>
@@ -359,6 +367,8 @@ export function Shell() {
     { label: "New category…", icon: "plus", onSelect: () => newFavGroup() },
     { label: ext().favRail ? (phone() ? "Show as a button in Home instead" : "Show on Home instead") : "Show as a button under Home", icon: "star", onSelect: () => updateExt((s) => ({ ...s, favRail: !s.favRail })) },
   ]);
+  /** Favorites folded out in Home (closed until you open it; remembered). */
+  const favOpen = () => collapsed("\u2605favs-open");
   const favSection = () => {
     const plain = () => favourites().filter((f) => !ext().favIn[f.c.id]);
     const favRow = (f: { c: ChannelInfo; s: Space }, group: string | null) => row(f.c, {
@@ -374,20 +384,27 @@ export function Shell() {
           <Show when={drag()?.kind === "fav" && ext().favGroups.length}><div class="fav-drop" classList={{ "drop-line": dropAt() === "fgrp:" }} {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))}>No category</div></Show>
           <For each={plain()}>{(f) => favRow(f, null)}</For>
         </Show>
+        {/* In Home: a Favorites row like Saved Notes; tap it and they fold out below, laid out like their own page */}
         <Show when={!isFavs()}>
-          <div class="cat pin-cat fav-cat" classList={{ "drop-into": dropAt() === "fgrp:" }} style={{ "--pin": "#f0b232" }} onContextMenu={favMenu}
-            {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))}>
-            <button class="fav-toggle" aria-expanded={!collapsed("\u2605favs")} onClick={() => toggleCat("\u2605favs")}>
-              <Icon name="down" size={12} class={collapsed("\u2605favs") ? "rot" : ""} /><Icon name="star" size={12} />Favorites
+          <div class="chan-wrap fav-home" classList={{ "drop-line": dropAt() === "fgrp:" }} {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))}>
+            <button class="chan big" classList={{ on: favOpen() }} aria-expanded={favOpen()} onClick={() => toggleCat("\u2605favs-open")} onContextMenu={favMenu}>
+              <Icon name="star" size={20} class="chan-ic" /><span class="chan-name">Favorites</span>
+              <Show when={favourites().reduce((n, f) => n + (f.c.mentions ?? 0), 0)}>{(n) => <span class="badge">{n()}</span>}</Show>
+              <Icon name="down" size={16} class={`fav-chev${favOpen() ? "" : " rot"}`} />
             </button>
-            <span class="grow" />
-            <button class="cat-add" title="Favorites options" aria-label="Favorites options" onClick={(e) => favMenu(e)}><Icon name="dots" size={14} /></button>
-            <button class="cat-add" title="New category" aria-label="New favorites category" onClick={() => newFavGroup()}><Icon name="plus" size={14} /></button>
+            <span class="chan-acts">
+              <button class="icon-btn" title="Favorites options" aria-label="Favorites options" onClick={(e) => favMenu(e)}><Icon name="dots" size={15} /></button>
+              <button class="icon-btn" title="New category" aria-label="New favorites category" onClick={() => newFavGroup()}><Icon name="plus" size={15} /></button>
+            </span>
           </div>
-          <Show when={!favourites().length}><p class="empty small">Right-click a channel in any server and pick "Add to Favorites".</p></Show>
-          <For each={plain().filter((f) => !collapsed("\u2605favs") || f.c.unread || f.c.id === channel()?.id)}>{(f) => favRow(f, null)}</For>
+          <Show when={favOpen()}>
+            <div class="fav-fold">
+              <Show when={!favourites().length}><p class="empty small">Right-click a channel in any server (or hold it) and pick "Add to Favorites".</p></Show>
+              <For each={plain()}>{(f) => favRow(f, null)}</For>
+            </div>
+          </Show>
         </Show>
-        <For each={ext().favGroups}>{(g) => {
+        <For each={isFavs() || favOpen() ? ext().favGroups : []}>{(g) => {
           const list = () => favourites().filter((f) => ext().favIn[f.c.id] === g.id);
           const key = `\u2605fav:${g.id}`;
           return (
@@ -457,14 +474,22 @@ export function Shell() {
 
       <aside class="side panel">
         <Show when={space() && !space()!.home && !isFavs()} fallback={
+          <>
           <header class="bar side-bar" onContextMenu={(e) => isFavs() && favMenu(e)}><h2>{isFavs() ? "Favorites" : phone() ? "Messages" : "Home"}</h2>
-            {/* Phones: Home is "Messages", like Discord's app: find a conversation, your friends, a new message */}
-
             <Show when={isFavs()}><span class="grow" />
               <button class="icon-btn" aria-label="New favorites category" title="New category" onClick={() => newFavGroup()}><Icon name="plus" size={18} /></button>
               <button class="icon-btn" aria-label="Favorites options" title="Favorites options" onClick={(e) => favMenu(e)}><Icon name="dots" size={18} /></button>
             </Show>
           </header>
+          {/* Phones: find a conversation, your friends, a new message (like Discord's app); stays put while the list scrolls */}
+          <Show when={phone() && !isFavs()}>
+            <div class="home-actions">
+              <button class="icon-btn" classList={{ on: dmSearch() !== null }} aria-label="Find a conversation" title="Find a conversation" onClick={() => setDmSearch(dmSearch() === null ? "" : null)}><Icon name="search" size={20} /></button>
+              <button class="btn home-friends" onClick={() => { setDiscover(false); setChannelId(undefined); setView("chat"); }}><Icon name="user-plus" size={18} />Friends</button>
+              <button class="icon-btn primary-ic" aria-label="New message" title="New message" onClick={() => setGroupInvite({ id: "", name: "", kind: "dm" })}><Icon name="plus" size={22} /></button>
+            </div>
+          </Show>
+          </>
         }>
           <Show when={space()!.bannerUrl} fallback={
             <header class="bar side-bar" onContextMenu={(e) => serverMenu(e, space()!)}><h2>{space()!.name}</h2><span class="grow" />
@@ -511,12 +536,6 @@ export function Shell() {
             </>
           }>
             <Show when={!phone()} fallback={<>
-              {/* Phones: find a conversation, your friends, a new message (like Discord's app) */}
-              <div class="home-actions">
-                <button class="icon-btn" classList={{ on: dmSearch() !== null }} aria-label="Find a conversation" title="Find a conversation" onClick={() => setDmSearch(dmSearch() === null ? "" : null)}><Icon name="search" size={20} /></button>
-                <button class="btn home-friends" onClick={() => { setDiscover(false); setChannelId(undefined); setView("chat"); }}><Icon name="user-plus" size={18} />Friends</button>
-                <button class="icon-btn primary-ic" aria-label="New message" title="New message" onClick={() => setGroupInvite({ id: "", name: "", kind: "dm" })}><Icon name="plus" size={22} /></button>
-              </div>
               {/* who's around, scrolling sideways; or the box to find a conversation */}
               <Show when={dmSearch() !== null}>
                 <label class="search-box wide dm-find"><Icon name="search" size={16} /><input placeholder="Find a conversation" value={dmSearch() ?? ""} onInput={(e) => setDmSearch(e.currentTarget.value)} autofocus /></label>
@@ -526,19 +545,16 @@ export function Shell() {
               <button class="chan big" classList={{ on: !channel() && !discover() }} onClick={() => { setDiscover(false); setChannelId(undefined); setView("chat"); }}>
                 <Icon name="friends" size={20} class="chan-ic" /><span class="chan-name">Friends</span>
               </button>
-              <button class="chan big" classList={{ on: discover() }} onClick={() => { setDiscover(true); setChannelId(undefined); setView("chat"); }}>
-                <Icon name="compass" size={20} class="chan-ic" /><span class="chan-name">Discover</span>
-              </button>
+              {/* Not on phones and tablets: Stoat doesn't let other apps show Discover inside them */}
+              <Show when={!MOBILE_UI}>
+                <button class="chan big" classList={{ on: discover() }} onClick={() => { setDiscover(true); setChannelId(undefined); setView("chat"); }}>
+                  <Icon name="compass" size={20} class="chan-ic" /><span class="chan-name">Discover</span>
+                </button>
+              </Show>
             </Show>
             <For each={home().saved}>{(c) => row(c, { saved: true })}</For>
             {/* Phones: Favorites is a button in Home that opens them like a server (or sits under Home, if you chose that). */}
-            <Show when={!ext().favRail && phone()}>
-              <button class="chan big" onClick={() => open("favs")} onContextMenu={favMenu}>
-                <Icon name="star" size={20} class="chan-ic" /><span class="chan-name">Favorites</span>
-                <Show when={favourites().reduce((n, f) => n + (f.c.mentions ?? 0), 0)}>{(n) => <span class="badge">{n()}</span>}</Show>
-              </button>
-            </Show>
-            <Show when={!ext().favRail && !phone() && (favourites().length || ext().favGroups.length)}>{favSection()}</Show>
+            <Show when={!ext().favRail}>{favSection()}</Show>
             <For each={home().groups}>{(g) => (
               <>
                 <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `grp:${g.group.id}` }} style={{ "--pin": g.group.color }} aria-expanded={!collapsed(`pin:${g.group.id}`)} onClick={() => toggleCat(`pin:${g.group.id}`)} onContextMenu={(e) => openMenu(e, groupItems(g.group))}
@@ -643,7 +659,7 @@ export function Shell() {
 
       <Show when={sheetMembers() && chanSpace()}>
         <div class="scrim" onClick={() => setSheetMembers(false)}>
-          <div class="modal sheet panel" onClick={(e) => e.stopPropagation()}>
+          <div class="modal sheet panel members-sheet" onClick={(e) => e.stopPropagation()} ref={(el) => { if (MOBILE_UI) queueMicrotask(() => dragToClose(el, () => setSheetMembers(false))); }}>
             <Members spaceId={chanSpace()!.id} onOpen={(p) => { setSheetMembers(false); setProfile(p); }} />
           </div>
         </div>
@@ -674,5 +690,19 @@ export function Shell() {
       <Show when={pip() && call.active()}><PipView /></Show>
     </div>
     </>
+  );
+}
+
+/** Their nameplate, filling the row of the DM you have open. */
+function DmPlate(props: { person: Person }) {
+  const { ref, profile } = createPerson(() => props.person);
+  const [size, sizeRef] = createSize();
+  const anim = createAnim(profile, "plate");
+  return (
+    <span class="dm-plate" aria-hidden="true" ref={(el) => { ref(el); sizeRef(el); }}>
+      <Show when={profile()?.plate.preset && size().w > 0}>
+        <PlateCanvas slot={() => profile()!.plate} w={size().w} h={size().h} animate={anim()} />
+      </Show>
+    </span>
   );
 }

@@ -164,6 +164,10 @@ export class DemoBackend implements ChatBackend {
       ],
       c2: [
         seed("c2", "u2", "Post your best profile setups here. # of the day:", 90, me, { attachments: [IMG2, FILE] }),
+        seed("c2", "u3", "Walk from this weekend", 85, me, { attachments: [
+          { ...IMG, id: "a4" }, { ...IMG2, id: "a5" }, { ...IMG, id: "a6", name: "ridge.png", url: scene(150, 10), previewUrl: scene(150, 10) },
+          { ...IMG2, id: "a7", name: "lake.png", url: scene(210, 260), previewUrl: scene(210, 260) }, { ...IMG, id: "a8", name: "path.png", url: scene(30, 90), previewUrl: scene(30, 90), spoiler: true },
+        ] }),
         seed("c2", "u1", "Mine is **Sakura** nameplate + **Petal Fall** + **Ornate Corners** frame.", 80, me, { reactions: [{ emoji: "😍", users: ["u2"] }] }),
       ],
       c4: [seed("c4", "u3", "gm", 300, me), seed("c4", "u6", "it's 3am but sure, gm", 290, me)],
@@ -491,6 +495,8 @@ export class DemoBackend implements ChatBackend {
     const people = () => [
       { ...this.me, muted: !st.mic, deaf: st.deaf, camera: st.cam, screen: st.screen },
       { ...P("u1"), muted: false }, { ...P("u2"), muted: true, screen: live },
+      // A crowded call, for trying the layout: localStorage "mustela.demoCrowd" = how many more people.
+      ...Array.from({ length: Math.min(40, Number(globalThis.localStorage?.getItem("mustela.demoCrowd")) || 0) }, (_, i) => ({ ...P(["u3", "u4", "u5", "u6", "u7"][i % 5]!), id: `crowd${i}`, name: `Guest ${i + 1}`, muted: i % 3 === 0 })),
     ];
     return {
       auth: { url: "wss://demo", token: "demo" },

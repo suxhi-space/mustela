@@ -11,29 +11,38 @@ pub struct Shell<R: Runtime> {
     pub close_to_tray: AtomicBool,
     in_call: AtomicBool,
     tray: Mutex<Option<TrayIcon<R>>>,
+    /// The picture the app last drew for the tray (icons/tray/tray.svg with the dot in your status colour).
+    drawn: Mutex<Option<Vec<u8>>>,
     mute: Mutex<Option<CheckMenuItem<R>>>,
     deafen: Mutex<Option<CheckMenuItem<R>>>,
     leave: Mutex<Option<MenuItem<R>>>,
 }
 
-// The tray icon, in a light-mode and a dark-mode version (icons/tray/ in the project; the build copies them here).
-const ICON_LIGHT: &[u8] = include_bytes!("../icons/tray-light.png");
-const ICON_DARK: &[u8] = include_bytes!("../icons/tray-dark.png");
-const ICON_CALL_LIGHT: &[u8] = include_bytes!("../icons/tray-call-light.png");
-const ICON_CALL_DARK: &[u8] = include_bytes!("../icons/tray-call-dark.png");
+// The tray icon until the app draws its own (icons/tray/tray.png in the project; the build copies it here). The
+// app then draws icons/tray/tray.svg with the dot in your status colour (and marked while you're in a call). It has
+// its own outline, so one picture works on light and dark taskbars.
+const ICON: &[u8] = include_bytes!("../icons/tray.png");
 
-/// The tray icon that suits the system's light or dark mode, in a call or not.
-fn tray_icon<R: Runtime>(app: &AppHandle<R>, in_call: bool) -> &'static [u8] {
-    let dark = app.get_webview_window("main").and_then(|w| w.theme().ok()).map_or(true, |t| t == tauri::Theme::Dark);
-    match (in_call, dark) { (false, false) => ICON_LIGHT, (false, true) => ICON_DARK, (true, false) => ICON_CALL_LIGHT, (true, true) => ICON_CALL_DARK }
+fn tray_icon<R: Runtime>(s: &Shell<R>) -> Option<Image<'static>> {
+    let drawn = s.drawn.lock().unwrap();
+    drawn.as_deref().and_then(|b| Image::from_bytes(b).ok()).map(|i| i.to_owned()).or_else(|| Image::from_bytes(ICON).ok())
 }
 
-/// The system switched between light and dark mode: swap the tray icon to match.
+/// The system switched between light and dark mode: put the icon back (some desktops reset it).
 pub fn refresh_tray<R: Runtime>(app: &AppHandle<R>) {
     let Some(s) = app.try_state::<Shell<R>>() else { return };
-    let in_call = s.in_call.load(std::sync::atomic::Ordering::Relaxed);
     let tray = s.tray.lock().unwrap();
-    if let Some(t) = tray.as_ref() { let _ = t.set_icon(Image::from_bytes(tray_icon(app, in_call)).ok()); }
+    if let Some(t) = tray.as_ref() { let _ = t.set_icon(tray_icon(&s)); }
+}
+
+/// The app's drawing of the tray icon (a PNG): your status, and whether you're in a call.
+#[tauri::command]
+pub fn tray_image<R: Runtime>(app: AppHandle<R>, png: Vec<u8>) {
+    let Some(s) = app.try_state::<Shell<R>>() else { return };
+    if png.len() > 256 * 1024 || Image::from_bytes(&png).is_err() { return; }
+    *s.drawn.lock().unwrap() = Some(png);
+    let tray = s.tray.lock().unwrap();
+    if let Some(t) = tray.as_ref() { let _ = t.set_icon(tray_icon(&s)); }
 }
 
 pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
@@ -57,7 +66,7 @@ pub fn setup<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
         &PredefinedMenuItem::separator(h)?, &settings, &quit,
     ])?;
     let tray = TrayIconBuilder::with_id("main")
-        .icon(Image::from_bytes(tray_icon(h, false))?)
+        .icon(Image::from_bytes(ICON)?)
         .tooltip("Mustela")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -77,6 +86,7 @@ pub fn setup<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
         close_to_tray: AtomicBool::new(true),
         in_call: AtomicBool::new(false),
         tray: Mutex::new(Some(tray)),
+        drawn: Mutex::new(None),
         mute: Mutex::new(Some(mute)),
         deafen: Mutex::new(Some(deafen)),
         leave: Mutex::new(Some(leave)),
@@ -92,7 +102,6 @@ pub fn tray_state<R: Runtime>(app: AppHandle<R>, in_call: bool, channel: Option<
         let tray = s.tray.lock().unwrap();
         if let Some(t) = tray.as_ref() {
             s.in_call.store(in_call, std::sync::atomic::Ordering::Relaxed);
-            let _ = t.set_icon(Image::from_bytes(tray_icon(&app, in_call)).ok());
             let tip = match (&channel, in_call) { (Some(c), true) => format!("Mustela: in {c}"), _ => "Mustela".to_string() };
             let _ = t.set_tooltip(Some(tip));
         }

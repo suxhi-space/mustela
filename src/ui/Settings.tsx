@@ -65,7 +65,9 @@ const KEYWORDS: Partial<Record<Tab, string>> = {
 export function Settings(props: { onClose(): void; initial?: string }) {
   const [tab, setTab] = createSignal<Tab>((props.initial as Tab) in TITLE && props.initial !== "profile" ? (props.initial as Tab) : "account");
   if (props.initial === "profile") openProfileEditor();
-  const [narrowNav, setNarrowNav] = createSignal(true); // phones: list first, then the page
+  // Phones: the list first, then a page. Opened at a particular page (Voice & video from a call, Soundboard from
+  // the soundboard), that page comes straight up; back goes to the list.
+  const [narrowNav, setNarrowNav] = createSignal(!props.initial || props.initial === "account" || !((props.initial as Tab) in TITLE));
   // Back: from a page to the list of pages (phones), then out of settings.
   useBack(() => (narrowNav() || !phoneLayout() ? props.onClose() : setNarrowNav(true)));
   const demo = () => activeAccount(book())?.kind === "demo";
@@ -85,6 +87,11 @@ export function Settings(props: { onClose(): void; initial?: string }) {
       <div class="settings-card">
       <div class="settings-body">
         <nav class="snav panel" role="tablist" aria-label="Settings sections" ref={(el) => queueMicrotask(() => el.querySelector<HTMLElement>("button.on")?.scrollIntoView({ block: "center" }))}>
+          {/* Phones and narrow screens: the list is a screen of its own, with its own way out */}
+          <div class="snav-top">
+            <button class="icon-btn" onClick={props.onClose} aria-label="Close settings"><Icon name="back" size={22} /></button>
+            <h2>Settings</h2>
+          </div>
           <button class="snav-me" role="tab" aria-selected={tab() === "account"} classList={{ on: tab() === "account" }} onClick={() => go("account")}>
             <Avatar person={me()} size={36} profile={settings().profile} presence={false} />
             <span><small>{me().name}</small><strong>My account</strong></span>

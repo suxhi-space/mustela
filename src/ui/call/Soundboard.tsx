@@ -5,6 +5,8 @@ import { backend, ext, settings, updateExt, updateSettings } from "../store";
 import { Icon } from "../icons";
 import { call, playSoundInCall } from "./state";
 import { openSettings } from "../nav";
+import { MOBILE_UI } from "../target";
+import { dragToClose } from "../sheetDrag";
 import { TextWithEmoji } from "../chat/Markdown";
 import { openEmojiPicker } from "../chat/overlays";
 
@@ -223,10 +225,11 @@ export function Soundboard(props: { win?: Window }) {
       const favs = () => { const f = ext().favSounds; return shown().filter((s) => f.includes(s.id)).sort((x, y) => f.indexOf(x.id) - f.indexOf(y.id)); };
       return (
         <div class="pop-scrim" onClick={close}>
-          <div class="soundboard panel" role="dialog" aria-label="Soundboard" onClick={(e) => e.stopPropagation()}
+          <div ref={(el) => { if (MOBILE_UI) queueMicrotask(() => dragToClose(el, close)); }} class="soundboard panel" role="dialog" aria-label="Soundboard" onClick={(e) => e.stopPropagation()}
             style={{ width: `${W}px`, left: `${Math.max(8, Math.min(a().x - W / 2, innerWidth - W - 8))}px`, ...(a().y > innerHeight / 2 ? { bottom: `${Math.max(8, innerHeight - a().y + 10)}px`, "max-height": `${a().y - 18}px` } : { top: `${a().y + 50}px`, "max-height": `${innerHeight - a().y - 60}px` }) }}>
             <Show when={adding()} fallback={
               <>
+                <h3 class="sb-title">Soundboard</h3>
                 <div class="sb-search">
                   <Icon name="search" size={15} />
                   <input ref={search} type="search" placeholder="Search sounds" value={q()} onInput={(e) => setQ(e.currentTarget.value)} aria-label="Search sounds" />

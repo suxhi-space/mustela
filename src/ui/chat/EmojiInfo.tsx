@@ -26,7 +26,9 @@ export function EmojiInfo() {
 
   onMount(() => {
     const over = (e: MouseEvent) => {
-      const el = (e.target as HTMLElement | null)?.closest?.(".uemoji, .cemoji, .reaction:not(.add)") as HTMLElement | null;
+      let el = (e.target as HTMLElement | null)?.closest?.(".uemoji, .cemoji, .reaction:not(.add)") as HTMLElement | null;
+      // Only emoji in messages and reactions (and the pickers): not your status in the bar, names, lists or cards.
+      if (el && !el.closest(".msg, .reactions, .emoji-pop, .rv-tabs")) el = null;
       if (el === current) return;
       current = el;
       clearTimeout(timer);

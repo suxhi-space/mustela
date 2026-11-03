@@ -112,11 +112,11 @@ export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolea
   };
 }
 
-/** The touch layout: a phone, a tablet held upright (mobile build), or a phone-narrow window. */
-export const PHONE_QUERY = MOBILE_UI ? "(max-width: 700px), (orientation: portrait)" : "(max-width: 700px)";
+/** The phone layout (one screen at a time): a phone, or a phone-narrow window. Tablets get the side-by-side layout. */
+export const PHONE_QUERY = "(max-width: 700px)";
 export const phoneLayout = () => matchMedia(PHONE_QUERY).matches;
-/** No room for the members column (it opens as a sheet instead). */
-export const narrowLayout = () => matchMedia(MOBILE_UI ? "(max-width: 900px), (orientation: portrait)" : "(max-width: 900px)").matches;
+/** No room for the members column (it opens as a sheet instead): phones and tablets held upright. */
+export const narrowLayout = () => matchMedia("(max-width: 900px)").matches;
 
 /** Phone layout (the same breakpoint as the rest of the phone layout), live: turning a tablet switches it. */
 export function createPhone(): Accessor<boolean> {

@@ -37,10 +37,15 @@ class CallService : Service() {
         holdAwake()
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: CallEngine.channelName ?: "Voice call"
         val n = buildNotification(title)
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(NOTIFICATION_ID, n)
+        // Android refuses (and stops the whole app) when a microphone service starts without the permission or from
+        // the background: never let that take Mustela down, the call just goes on without the notification.
+        try {
+            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            else startForeground(NOTIFICATION_ID, n)
+        } catch (e: Exception) {
+            letSleep()
+            stopSelf()
+            return START_NOT_STICKY
         }
         // NOT_STICKY: if the system kills the process the call is gone anyway; restarting an empty service would be misleading.
         return START_NOT_STICKY

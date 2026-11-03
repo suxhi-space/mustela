@@ -254,25 +254,6 @@ export function GifPicker() {
   );
 }
 
-/* ---------- image lightbox ---------- */
+/* ---------- pictures shown big: see Gallery.tsx ---------- */
 
-const [shown, setShown] = createSignal<{ url: string; name: string } | null>(null);
-export const openLightbox = (url: string, name: string) => setShown({ url, name });
-
-export function Lightbox() {
-  const esc = (e: KeyboardEvent) => e.key === "Escape" && setShown(null);
-  onMount(() => addEventListener("keydown", esc));
-  onCleanup(() => removeEventListener("keydown", esc));
-  return (
-    <Show when={shown()}>{(s) => { useBack(() => setShown(null)); return (
-      <div class="lightbox" onClick={() => setShown(null)} role="dialog" aria-label={s().name}>
-        <img src={s().url} alt={s().name} onClick={(e) => e.stopPropagation()} />
-        <div class="lb-bar" onClick={(e) => e.stopPropagation()}>
-          <span>{s().name}</span>
-          <a class="btn small" href={s().url} target="_blank" rel="noopener noreferrer" download={s().name}>Open original</a>
-          <button class="icon-btn" onClick={() => setShown(null)} aria-label="Close"><Icon name="close" size={18} /></button>
-        </div>
-      </div>
-    ); }}</Show>
-  );
-}
+export { Lightbox, openGallery, openLightbox } from "./Gallery";

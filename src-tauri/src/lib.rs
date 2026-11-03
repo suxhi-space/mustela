@@ -445,7 +445,7 @@ pub fn run() {
             #[cfg(target_os = "linux")] call_linux::voice_set_deaf, #[cfg(target_os = "linux")] call_linux::voice_end_call,
             #[cfg(target_os = "linux")] call_linux::voice_call_state,
             #[cfg(desktop)] notify::notify_rich, #[cfg(desktop)] set_start_open, #[cfg(desktop)] open_discover, #[cfg(desktop)] start_open,
-            #[cfg(desktop)] desktop::tray_state, #[cfg(desktop)] desktop::set_close_to_tray,
+            #[cfg(desktop)] desktop::tray_state, #[cfg(desktop)] desktop::tray_image, #[cfg(desktop)] desktop::set_close_to_tray,
             #[cfg(desktop)] desktop::appimage_status, #[cfg(desktop)] desktop::appimage_install, #[cfg(desktop)] desktop::relaunch_installed])
         .run(tauri::generate_context!())
         .expect("error while running Mustela");

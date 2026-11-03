@@ -379,6 +379,18 @@
           "markdownDescription": "Denies the landscape command without any pre-configured scope."
         },
         {
+          "description": "Enables the media_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-media-file",
+          "markdownDescription": "Enables the media_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the media_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-media-file",
+          "markdownDescription": "Denies the media_file command without any pre-configured scope."
+        },
+        {
           "description": "Enables the overlay_allowed command without any pre-configured scope.",
           "type": "string",
           "const": "allow-overlay-allowed",
@@ -511,10 +523,10 @@
           "markdownDescription": "Denies the system_bars command without any pre-configured scope."
         },
         {
-          "description": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`",
+          "description": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`\n- `allow-media-file`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`"
+          "markdownDescription": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`\n- `allow-media-file`"
         }
       ]
     }

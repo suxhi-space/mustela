@@ -1,0 +1,11 @@
+node_modules/
+dist/
+release/
+src-tauri/target/
+src-tauri/gen/
+.signing/
+*.keystore
+.DS_Store
+.env
+.build.json
+src-tauri/tauri.android.conf.json

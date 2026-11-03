@@ -111,7 +111,8 @@ export function PipView() {
   const { stream, person, talking } = callFocus();
   // The picture fills the floating window (leaving room for the name under it).
   const [size, setSize] = createSignal(72);
-  const fit = () => setSize(Math.max(40, Math.round(Math.min(innerWidth, innerHeight - 30) * 0.62)));
+  // In the app's own pixels (App size zooms the app, and the window is measured on screen).
+  const fit = () => { const z = zoomNow(); setSize(Math.max(36, Math.round(Math.min(innerWidth / z, innerHeight / z - 34) * 0.58))); };
   fit(); addEventListener("resize", fit); onCleanup(() => removeEventListener("resize", fit));
   return (
     <div class="pipview" classList={{ talking: talking() && !stream(), stream: !!stream() }} aria-label="Call">

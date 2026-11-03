@@ -242,11 +242,10 @@ function icons() {
     if (npx(["tauri", "icon", mac, "-o", tmp]).ok && existsSync(join(tmp, "icon.icns"))) { copyFileSync(join(tmp, "icon.icns"), join(TAURI, "icons", "icon.icns")); ok("macOS icon from icons/app-icon-macos.png"); }
     rmSync(tmp, { recursive: true, force: true });
   }
-  // Tray icons for light and dark mode (and while in a call): icons/tray/*.png, picked by the system's theme.
-  for (const f of ["tray-light.png", "tray-dark.png", "tray-call-light.png", "tray-call-dark.png"]) {
-    const p = join(ROOT, "icons", "tray", f);
-    if (existsSync(p)) copyFileSync(p, join(TAURI, "icons", f));
-  }
+  // The tray icon: the app draws icons/tray/tray.svg itself with the dot in your status colour; tray.png is what
+  // shows for the moment before it does.
+  const tray = join(ROOT, "icons", "tray", "tray.png");
+  if (existsSync(tray)) copyFileSync(tray, join(TAURI, "icons", "tray.png"));
   // Optional hand-made overrides for platforms that need special shapes.
   const overrides = [
     ["icon.ico", "icon.ico"], ["icon.icns", "icon.icns"], ["32x32.png", "32x32.png"], ["128x128.png", "128x128.png"], ["128x128@2x.png", "128x128@2x.png"],
@@ -285,11 +284,37 @@ function findFiles(dir, re, depth = 6) {
   return out;
 }
 
+/**
+ * macOS 26 and later (27 too): the layered Liquid Glass icon from icons/macos/Mustela.icon (made in Apple's Icon
+ * Composer). Needs Xcode 26 or later for `actool`; without it, or on older macOS, the app keeps the flat icon.icns.
+ * Returns a config file for `tauri build --config`, or null.
+ */
+function macGlassIcon() {
+  const src = join(ROOT, "icons", "macos", "Mustela.icon");
+  if (!existsSync(src)) return null;
+  const out = join(ROOT, "release", ".mac-icon");
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  const r = run("xcrun", ["actool", src, "--compile", out, "--output-format", "human-readable-text", "--notices", "--warnings", "--errors",
+    "--output-partial-info-plist", join(out, "partial.plist"), "--app-icon", "Mustela", "--include-all-app-icons",
+    "--enable-on-demand-resources", "NO", "--development-region", "en", "--target-device", "mac", "--minimum-deployment-target", "11.0", "--platform", "macosx"], { quiet: true });
+  const car = join(out, "Assets.car");
+  if (!r.ok || !existsSync(car)) { warn("Couldn't compile the macOS 26 glass icon (needs Xcode 26 or later); using the flat icon."); return null; }
+  // Info.plist: our usual keys plus the icon's name in the compiled catalogue (older macOS ignores it and uses icon.icns).
+  const plist = readFileSync(join(TAURI, "Info.plist"), "utf8").replace("</dict>", "  <key>CFBundleIconName</key>\n  <string>Mustela</string>\n</dict>");
+  writeFileSync(join(out, "Info.plist"), plist);
+  const conf = join(out, "tauri.mac-icon.json");
+  writeFileSync(conf, JSON.stringify({ bundle: { macOS: { files: { "Resources/Assets.car": car }, infoPlist: join(out, "Info.plist") } } }));
+  ok("macOS 26+ glass icon from icons/macos/Mustela.icon");
+  return conf;
+}
+
 function buildDesktop(platform) {
   const p = PLATFORMS[platform];
   const bundles = opt("bundles") ?? p.bundles;
   const a = ["tauri", "build", "--bundles", bundles];
   if (platform === "macos") a.push("--target", "universal-apple-darwin");
+  if (platform === "macos" && !flag("skip-icons")) { const conf = macGlassIcon(); if (conf) a.push("--config", conf); }
   if (DEBUG) a.push("--debug");
   step(`Building Mustela for ${p.label}${DEBUG ? " (debug)" : ""}`);
   // AppImage tooling needs FUSE unless told to unpack itself; this works everywhere.

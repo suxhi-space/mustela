@@ -4,7 +4,7 @@ import type { ChannelInfo, Msg, Person } from "../lib/backend/types";
 import { Composer, composer } from "./chat/Composer";
 import { MessageRow } from "./chat/Message";
 import { Icon } from "./icons";
-import { backend } from "./store";
+import { backend, platform } from "./store";
 import { backToList, jumpRequest, openChannel, setJumpRequest } from "./nav";
 import { getDraft } from "./drafts";
 
@@ -75,7 +75,9 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   const toBottom = () => { if (list) list.scrollTop = list.scrollHeight; };
   /** "Mark as unread" picked this message: it and everything after stay unread until you leave the chat. */
   const [unreadFrom, setUnreadFrom] = createSignal<string | null>(null);
-  const ack = () => { if (document.hasFocus() && pinned() && !unreadFrom()) b().ack(id()); };
+  // Android's web view doesn't always report focus, so there "on screen" is enough to count as read.
+  const looking = () => document.hasFocus() || (platform === "android" && document.visibilityState === "visible");
+  const ack = () => { if (looking() && pinned() && !unreadFrom()) b().ack(id()); };
 
   const [members] = createResource(() => props.spaceId && props.spaceId !== "home" ? props.spaceId : null, (s) => b().members(s).catch(() => []));
   const people = (): Person[] => {
@@ -113,7 +115,11 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
       const rid = getDraft(cid).reply?.id;
       if (rid) void (page.find((m) => m.id === rid) ? Promise.resolve(page.find((m) => m.id === rid)!) : b().message(cid, rid)).then((m) => { if (alive && m && id() === cid) setReplyTo(m); });
     }).catch(() => alive && setState("error"));
-    onCleanup(() => { alive = false; });
+    onCleanup(() => {
+      alive = false;
+      // Leaving a chat you were reading at the bottom: make sure it's marked read, so it opens there next time.
+      if (state() === "ready" && pinned() && !detached() && !unreadFrom()) b().ack(cid);
+    });
   }));
 
   // "Mark as unread" on a message here: the New line goes right above it.
@@ -183,7 +189,9 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
         setMsgs([...msgs(), e.m]);
         setTypers(typers().filter((p) => p.id !== e.m.author.id));
         if (pinned() || e.m.author.id === b().me.id) queueMicrotask(toBottom);
-        ack();
+        // Stoat only counts the message as unread just after this event, so marking it read right now did nothing
+        // and the chat later reopened at that message. Give it a moment.
+        setTimeout(ack, 400);
       } else if (e.t === "update" && e.m.channelId === cid) {
         setMsgs(msgs().map((m) => (m.id === e.m.id ? e.m : m)));
       } else if (e.t === "delete" && e.channelId === cid) {

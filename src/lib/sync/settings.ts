@@ -25,6 +25,8 @@ export const DEFAULT_PIN_GROUP: PinGroup = { id: "pinned", name: "Pinned", color
 
 export interface MustelaSettings {
   v: 3;
+  /** Phones and tablets' own look, for devices that sync colors only with the same kind of device */
+  lookPhone?: MustelaSettings["look"];
   look: {
     /** A THEMES id, or "custom" to use `seed`. */
     theme: string;
@@ -108,6 +110,8 @@ export function sanitize(raw: unknown): MustelaSettings {
       contrast: (CONTRASTS as readonly unknown[]).includes(l.contrast) ? (l.contrast as number) : d.look.contrast,
       gradient: { on: g.on === true, seed2: hexOr(g.seed2, d.look.gradient.seed2), angle: int(g.angle, 0, 360, d.look.gradient.angle), windows: int(g.windows, 0, 100, d.look.gradient.windows) },
     },
+    // Only written once someone shares colours just between phones, so older versions see nothing new.
+    ...(r.lookPhone && typeof r.lookPhone === "object" ? { lookPhone: sanitize({ look: r.lookPhone }).look } : {}),
     favGifs: Array.isArray(r.favGifs) ? (r.favGifs as any[]).filter((f) => f && typeof f.url === "string" && /^https:\/\//.test(f.url) && typeof f.preview === "string" && /^(https:\/\/|data:image\/)/.test(f.preview))
       .slice(0, 100).map((f) => ({ url: f.url.slice(0, 500), preview: f.preview.slice(0, 4000), still: typeof f.still === "string" && /^https:\/\//.test(f.still) ? f.still.slice(0, 500) : undefined, w: int(f.w, 1, 4096, 0) || undefined, h: int(f.h, 1, 4096, 0) || undefined })) : [],
     sounds: Array.isArray(r.sounds) ? (r.sounds as any[]).filter((x) => x && typeof x.id === "string" && x.id.length < 64 && typeof x.url === "string" && /^https:\/\//.test(x.url) && x.url.length < 600)

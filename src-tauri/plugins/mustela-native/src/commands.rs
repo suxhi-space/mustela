@@ -62,3 +62,7 @@ pub(crate) async fn screen_ack<R: Runtime>(app: AppHandle<R>) -> Result<()> { ap
 
 #[command]
 pub(crate) async fn screen_stop<R: Runtime>(app: AppHandle<R>) -> Result<()> { app.mustela_native().screen_stop() }
+
+/// Phones: save a picture or video to Downloads (share false), or hand its link to the share sheet (share true).
+#[command]
+pub(crate) async fn media_file<R: Runtime>(app: AppHandle<R>, payload: MediaFile) -> Result<()> { app.mustela_native().media_file(payload) }

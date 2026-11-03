@@ -1,4 +1,5 @@
 import { setTimePrefs } from "../lib/time";
+import { MOBILE_UI } from "./target";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
 import type { ChatBackend, StoredSession } from "../lib/backend/types";
 import { DemoBackend } from "../lib/backend/mock";
@@ -114,20 +115,34 @@ export function updateExt(fn: (s: ExtSettings) => ExtSettings) {
 
 /** Colours and theme in use: your account's, or this device's own when "Sync appearance" is off. */
 export type Look = MustelaSettings["look"];
+/** Phones and tablets that sync colors only with each other keep them in their own synced slot (lookPhone). */
+const phoneSlot = () => MOBILE_UI && device().syncLook && device().lookKind;
 export function look(): Look {
   const d = device();
-  return d.syncLook || !d.localLook ? settings().look : sanitize({ look: d.localLook }).look;
+  if (!d.syncLook && d.localLook) return sanitize({ look: d.localLook }).look;
+  return phoneSlot() ? settings().lookPhone ?? settings().look : settings().look;
 }
-/** Changes colours and theme where they live (account, or this device). */
+/** Changes colours and theme where they live (account, your phones', or this device). */
 export function updateLook(patch: Partial<Look>) {
-  if (device().syncLook) updateSettings((s) => ({ ...s, look: { ...s.look, ...patch } }));
-  else updateDevice({ localLook: { ...look(), ...patch } });
+  if (!device().syncLook) return updateDevice({ localLook: { ...look(), ...patch } });
+  if (phoneSlot()) updateSettings((s) => ({ ...s, lookPhone: { ...(s.lookPhone ?? s.look), ...patch } }));
+  else updateSettings((s) => ({ ...s, look: { ...s.look, ...patch } }));
+}
+/**
+ * Where this device's colors sync: "all" your devices, the same "kind" (phones and tablets, or computers), or
+ * "none" (this device only). Switching starts from what you have now.
+ */
+export type LookSync = "all" | "kind" | "none";
+export const lookSync = (): LookSync => (!device().syncLook ? "none" : device().lookKind ? "kind" : "all");
+export function setLookSync(to: LookSync) {
+  const now = look();
+  if (to === "none") return updateDevice({ syncLook: false, lookKind: false, localLook: { ...now } });
+  updateDevice({ syncLook: true, lookKind: to === "kind", localLook: null });
+  // Phones starting their own synced look begin from the colors they have now.
+  if (to === "kind" && MOBILE_UI && !settings().lookPhone) updateSettings((s) => ({ ...s, lookPhone: { ...now } }));
 }
 /** Turns appearance sync on or off for this device; turning it off starts from what you have now. */
-export function setSyncLook(on: boolean) {
-  if (on) updateDevice({ syncLook: true, localLook: null });
-  else updateDevice({ syncLook: false, localLook: { ...settings().look } });
-}
+export function setSyncLook(on: boolean) { setLookSync(on ? "all" : "none"); }
 
 export function updateDevice(patch: Partial<DeviceSettings>) {
   const next = sanitizeDevice({ ...device(), ...patch });

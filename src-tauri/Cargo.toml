@@ -1,6 +1,6 @@
 [package]
 name = "mustela"
-version = "0.1.5-build1"
+version = "0.1.5-build2"
 description = "A compact chat client for Stoat"
 edition = "2021"
 

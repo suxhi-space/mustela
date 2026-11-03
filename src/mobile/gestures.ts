@@ -10,7 +10,7 @@ import { backToChat, backToList, openMembersSheet } from "../ui/nav";
  * Only sideways swipes count (scrolling up and down is left alone), and never when they start on something that
  * moves sideways itself (a slider, a code block, the message box, a call, an open sheet or menu).
  */
-const IGNORE = "input, textarea, [contenteditable], .cm-editor, pre, code, input[type=range], .cstage, .reactions, .emoji-pop, .gif-pop, .soundboard, .scrim, .pop-scrim, .menu-scrim, .settings, .modal, .cp-scrim, .em-frame, video, .lightbox, [data-no-swipe]";
+const IGNORE = "input, textarea, [contenteditable], .cm-editor, pre, code, input[type=range], .cstage, .reactions, .emoji-pop, .gif-pop, .soundboard, .scrim, .pop-scrim, .menu-scrim, .settings, .modal, .cp-scrim, .em-frame, video, .lightbox, .gallery-view, [data-no-swipe]";
 
 export function installGestures() {
   let start: { x: number; y: number; t: number; view: string } | null = null;

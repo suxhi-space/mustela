@@ -4,7 +4,7 @@ import { Icon } from "./icons";
 import { inboxBadge, inboxOpen, location, setInboxOpen } from "./nav";
 import { phase } from "./store";
 import { platform } from "./store";
-import logo from "../../icons/app-icon.png";
+import logo from "../../icons/app-icon.svg";
 
 /**
  * A thin title bar like Discord's: where you are in the middle, the inbox on

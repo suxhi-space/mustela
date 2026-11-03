@@ -1,5 +1,6 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { createPhone, phoneLayout } from "./hooks";
+import { phoneCall, setTabletFull } from "./call/tablet";
 import type { ChannelInfo, Person, VoiceMember } from "../lib/backend/types";
 import { Avatar, NameText } from "./Avatar";
 import { CallStage, callMemberMenu } from "./call/CallStage";
@@ -46,7 +47,10 @@ export const [phoneVoiceChat, setPhoneVoiceChat] = createSignal(false);
 
 /** A voice channel: the call fills the view, with the channel's text chat beside it (or, on a phone, instead of it). */
 export function Voice(props: { channel: ChannelInfo; spaceId?: string; onProfile(p: Person): void; onOpenChannel(id: string): void }) {
-  const phone = createPhone();
+  // Tablets: upright like phones (the call or its chat); sideways the desktop look, phone-like in full screen.
+  const phoneWidth = createPhone();
+  const phone = () => phoneCall(phoneWidth());
+  onCleanup(() => setTabletFull(false));
   const chatOpen = () => (phone() ? phoneVoiceChat() : device().voiceChat);
   const toggle = () => (phone() ? setPhoneVoiceChat(!phoneVoiceChat()) : updateDevice({ voiceChat: !device().voiceChat }));
   return (

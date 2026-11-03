@@ -9,6 +9,7 @@ import { backToList, currentServer, setProfileOpen, setSettingsOpen } from "../n
 import { channelMenu } from "../menus";
 import { backend, device, platform, updateDevice } from "../store";
 import { inTauri } from "../../lib/platform";
+import { landscapeTablet, phoneCall, setTabletFull, tabletFull } from "./tablet";
 import { createPhone } from "../hooks";
 import { openSoundboard } from "./Soundboard";
 import { applyVoicePrefs, call, canPip, closePopout, enterPip, joinCall, leaveCall, openPopout, screenButton, toggleCall } from "./state";
@@ -124,6 +125,50 @@ function holdToOpen() {
 type Tile = { key: string; person: VoiceMember; kind: "person" | "stream"; ended?: boolean };
 
 /**
+ * Lays the call's tiles out like Discord: every tile the same shape (16:9, or nearly square on a phone), as big as
+ * they can be while all of them fit, centred. When there are so many that they'd get too small, they stay at a
+ * readable size and the grid scrolls instead. Phones with one or two people keep their full-height tiles.
+ */
+function fitTiles(el: HTMLElement, count: () => number, phone: () => boolean) {
+  const lay = () => {
+    const n = count(), p = phone();
+    if (!n || (p && n <= 2)) { el.removeAttribute("data-fit"); el.removeAttribute("data-scroll"); return; }
+    const cs = getComputedStyle(el);
+    const W = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const H = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (W <= 0 || H <= 0) return;
+    const gap = parseFloat(cs.columnGap) || 8;
+    const aspect = p ? 1 : 16 / 9;
+    const minW = p ? 140 : matchMedia("(pointer: coarse)").matches ? 220 : 190;
+    const minCols = p ? 2 : 1;
+    const fits = Array.from({ length: Math.max(1, n - minCols + 1) }, (_, i) => {
+      const cols = minCols + i, rows = Math.ceil(n / cols);
+      return { cols, w: Math.min((W - gap * (cols - 1)) / cols, ((H - gap * (rows - 1)) / rows) * aspect) };
+    });
+    // The biggest tiles win; when another layout is nearly as big, the one closer to a square grid looks better.
+    const top = Math.max(...fits.map((f) => f.w));
+    const square = (cols: number) => Math.abs(cols - Math.ceil(n / cols));
+    let best = fits.filter((f) => f.w >= top * 0.9).sort((a, b) => square(a.cols) - square(b.cols) || b.w - a.w)[0]!;
+    let scroll = false;
+    if (best.w < minW) {
+      // Too crowded to fit: keep them readable and scroll.
+      const cols = Math.max(minCols, Math.floor((W + gap) / (minW + gap)));
+      best = { cols, w: (W - gap * (cols - 1)) / cols };
+      scroll = Math.ceil(n / cols) * (best.w / aspect + gap) - gap > H + 1;
+    }
+    el.dataset.fit = "";
+    el.toggleAttribute("data-scroll", scroll);
+    el.style.setProperty("--fit-cols", String(best.cols));
+    el.style.setProperty("--fit-w", `${Math.floor(best.w)}px`);
+    el.style.setProperty("--fit-h", `${Math.floor(best.w / aspect)}px`);
+  };
+  const ro = new ResizeObserver(lay);
+  ro.observe(el);
+  createEffect(() => { count(); phone(); lay(); });
+  onCleanup(() => ro.disconnect());
+}
+
+/**
  * The call, Discord-style: a dark stage with everyone as tiles (cameras and
  * shared screens as video), click a tile to focus it, full screen, reactions,
  * and the controls along the bottom. Used in voice channels, DM calls and the
@@ -132,27 +177,33 @@ type Tile = { key: string; person: VoiceMember; kind: "person" | "stream"; ended
 export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chatOpen?: boolean; onToggleChat?(): void; header?: JSX.Element; /** Drawn in the pop-out window */ popout?: boolean }) {
   let stage!: HTMLElement;
   const here = () => call.active() && call.channel()?.id === props.channel.id;
-  const phone = createPhone();
+  // The phone call screen on phones and upright tablets; sideways tablets get it in full screen (see tablet.ts).
+  const phoneWidth = createPhone();
+  const phone = () => phoneCall(phoneWidth());
   const elsewhere = () => call.active() && !here();
   const [focus, setFocus] = createSignal<string | null>(null);
   // Phones, in the call itself: the controls (and the top bar) step aside after a few seconds so the call
   // or a stream gets the whole screen. A tap brings them back.
   const [chrome, setChrome] = createSignal(true);
   // A phone held either way (sideways it's wider than the phone layout, but still a phone).
-  const touchPhone = (() => { const mq = matchMedia("(max-width: 700px), (pointer: coarse) and (max-height: 500px)"); const [m, setM] = createSignal(mq.matches); const f = () => setM(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); return m; })();
+  const touchPhoneMq = (() => { const mq = matchMedia("(max-width: 700px), (pointer: coarse) and (max-height: 500px)"); const [m, setM] = createSignal(mq.matches); const f = () => setM(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); return m; })();
+  const touchPhone = () => touchPhoneMq() || phone();
   let chromeTimer: ReturnType<typeof setTimeout> | undefined;
   let swallow = false; // the tap that brings the controls back doesn't also press what's under it
   onMount(() => stage.addEventListener("click", (e) => { if (swallow) { swallow = false; e.stopPropagation(); } }, true));
   const wake = () => {
     setChrome(true); clearTimeout(chromeTimer);
-    // Only while a tile is enlarged (like Discord): in the grid the controls stay put.
-    if (touchPhone() && here() && !props.popout && (!props.chatOpen || !phone()) && focused()) chromeTimer = setTimeout(() => { if (!document.querySelector(".call-sheet.open, .ctx-sheet, .soundboard")) setChrome(false); else wake(); }, 4000);
+    // The controls step aside after a few seconds (a tap brings them back); this never enlarges anything by itself.
+    if (touchPhone() && here() && !props.popout && (!props.chatOpen || !phone())) chromeTimer = setTimeout(() => { if (!document.querySelector(".call-sheet.open, .ctx-sheet, .soundboard")) setChrome(false); else wake(); }, 4000);
   };
   createEffect(() => { touchPhone(); here(); props.chatOpen; untrack(wake); });
   createEffect(() => document.documentElement.classList.toggle("call-immersive", touchPhone() && here() && (!props.chatOpen || !phone()) && !chrome()));
   // Phones in the call: its own bar on top replaces the channel's.
   createEffect(() => document.documentElement.classList.toggle("call-top-on", phone() && here() && !props.popout && !props.chatOpen));
   onCleanup(() => document.documentElement.classList.remove("call-top-on"));
+  // A tablet using the phone call screen: its own styles (mobile.css), which a sideways tablet's desktop look skips.
+  createEffect(() => document.documentElement.classList.toggle("call-phone", phone() && !phoneWidth() && !props.popout));
+  onCleanup(() => document.documentElement.classList.remove("call-phone"));
   // Watching a stream on a phone: let it turn sideways, like a video (back to normal when you stop watching).
   // Only someone else's stream: yours is just a "You're sharing your screen!" card on phones.
   createEffect(on(() => touchPhone() && here() && !props.popout && !!focused() && focused()!.startsWith("s:") && focused() !== `s:${backend()?.me.id}` && platform === "android" && inTauri(), (wide) => {
@@ -171,8 +222,12 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   // The stage's own window: the main one, or the pop-out.
   const doc = () => stage?.ownerDocument ?? document;
   const sync = () => setFull(doc().fullscreenElement === stage);
+  // A sideways tablet's full screen is the phone call screen across the whole tablet, not the browser's full screen.
+  const tabletMode = () => landscapeTablet() && !props.popout && here();
   onMount(() => { const d = doc(); d.addEventListener("fullscreenchange", sync); onCleanup(() => d.removeEventListener("fullscreenchange", sync)); });
-  const toggleFull = () => (doc().fullscreenElement ? void doc().exitFullscreen() : void stage.requestFullscreen?.().catch(() => {}));
+  const toggleFull = () => (tabletMode() ? setTabletFull(!tabletFull())
+    : doc().fullscreenElement ? void doc().exitFullscreen() : void stage.requestFullscreen?.().catch(() => {}));
+  const isFull = () => (tabletMode() ? tabletFull() : full());
 
   /** Someone has a camera on or is streaming: only then is there anything for "only video" to keep. */
   const anyVideo = createMemo(() => call.people().some((p) => p.camera || p.screen));
@@ -319,13 +374,15 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
       }>
         <div class="cstage-main" classList={{ focused: !!focused() }}>
           <Show when={focused()} fallback={
-            <div class="cgrid" data-n={Math.min(keys().length, 16)} style={{ "--n": String(Math.min(keys().length, 16)) }}>
+            <div class="cgrid" data-n={Math.min(keys().length, 16)} style={{ "--n": String(Math.min(keys().length, 16)) }}
+              ref={(el) => fitTiles(el, () => keys().length, phoneWidth)}>
               <For each={keys()}>{(k) => <TileView k={k} />}</For>
             </div>
           }>{(f) => (
             <>
               <div class="cfocus"><TileView k={f()} big /></div>
-              <Show when={others().length}><div class="cstrip"><For each={others()}>{(k) => <TileView k={k} />}</For></div></Show>
+              {/* Phones: an enlarged stream is all you see (the others come back when you shrink it) */}
+              <Show when={others().length && !(phone() && f().startsWith("s:"))}><div class="cstrip"><For each={others()}>{(k) => <TileView k={k} />}</For></div></Show>
             </>
           )}</Show>
         </div>
@@ -333,7 +390,9 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
         {/* Phones: a simple bar on top, like other apps' call screens: minimise, the channel, sound, chat, people */}
         <Show when={phone() && !props.popout}>
           <header class="call-top">
-            <button class="ct-btn" aria-label="Minimise the call" onClick={() => backToList()}><Icon name="down" size={22} /></button>
+            <Show when={tabletFull() && tabletMode()} fallback={<button class="ct-btn" aria-label="Minimise the call" onClick={() => backToList()}><Icon name="down" size={22} /></button>}>
+              <button class="ct-btn" aria-label="Exit full screen" onClick={() => setTabletFull(false)}><Icon name="fullscreen-exit" size={22} /></button>
+            </Show>
             {/* The channel's menu card (like holding it in the list); the chat has its own button next to it. */}
             <button class="ct-name" aria-label={`${props.channel.name}, channel options`} onClick={(e) => channelMenu(e, props.channel, props.channel.kind === "voice" ? currentServer() ?? undefined : undefined)}>
               <Icon name="speaker" size={16} /><span>{props.channel.name}</span><Icon name="down" size={14} />
@@ -341,11 +400,11 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
             <span class="grow" />
             <button class="ct-btn" classList={{ on: !call.on().deaf }} aria-label="Sound: where it plays and how loud" onClick={(e) => void openOutputSheet(e.currentTarget)}>
               <Icon name={call.on().deaf ? "headphones-off" : "volume-up"} size={20} /></button>
-            <Show when={props.onToggleChat}><button class="ct-btn" aria-label="Open the chat" onClick={() => props.onToggleChat?.()}><Icon name="chat" size={20} /></button></Show>
+            <Show when={props.onToggleChat}><button class="ct-btn" aria-label="Open the chat" onClick={() => (tabletFull() && tabletMode() ? setTabletFull(false) : props.onToggleChat?.())}><Icon name="chat" size={20} /></button></Show>
           </header>
         </Show>
         <Show when={phone() && !props.popout}>
-          <CallSheet chatOpen={props.chatOpen} onToggleChat={props.onToggleChat} full={full()} toggleFull={toggleFull} />
+          <CallSheet chatOpen={props.chatOpen} onToggleChat={tabletFull() && tabletMode() ? () => setTabletFull(false) : props.onToggleChat} full={isFull()} toggleFull={toggleFull} />
         </Show>
         <div class="cbar" classList={{ "has-sheet": phone() && !props.popout }} role="toolbar" aria-label="Call controls">
           <span class="cbar-side">
@@ -363,7 +422,7 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
             {/* Phones: the rest in one menu, so the bar fits */}
             <button class="cbtn ghost phone-only" title="More" aria-label="More call options" onClick={(e) => openMenu(e.currentTarget, [
               { label: device().hideNoVideo ? "Show everyone" : "Hide people without video", icon: "video-off", disabled: !anyVideo(), onSelect: () => updateDevice({ hideNoVideo: !device().hideNoVideo }) },
-              { label: full() ? "Exit full screen" : "Full screen", icon: full() ? "fullscreen-exit" : "fullscreen", onSelect: toggleFull },
+              { label: isFull() ? "Exit full screen" : "Full screen", icon: isFull() ? "fullscreen-exit" : "fullscreen", onSelect: toggleFull },
             ])}><Icon name="dots" size={20} /></button>
           </span>
           <span class="cbar-side right desk-only">
@@ -372,7 +431,7 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
                 <button class="cbtn ghost" title="Bring the call back" aria-label="Bring the call back" onClick={() => void closePopout()}><Icon name="back" size={18} /></button>
               </Show>
             </Show>
-            <button class="cbtn ghost" title={full() ? "Exit full screen" : "Full screen"} onClick={toggleFull}><Icon name={full() ? "fullscreen-exit" : "fullscreen"} size={18} /></button>
+            <button class="cbtn ghost" title={isFull() ? "Exit full screen" : "Full screen"} onClick={toggleFull}><Icon name={isFull() ? "fullscreen-exit" : "fullscreen"} size={18} /></button>
           </span>
         </div>
       </Show>

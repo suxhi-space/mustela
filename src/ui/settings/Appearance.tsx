@@ -13,7 +13,8 @@ const VARIANT_INFO: { id: Variant; label: string }[] = [
 import { inTauri } from "../../lib/platform";
 import { openColorPicker } from "../ColorPicker";
 import { ColorInput, Group, Row, Seg, Select, Slider, Switch } from "../controls";
-import { backdropImage, device, ext, look, pictureSeed, setSyncLook, updateLook, materials, platform, setBackdropImage, settings, systemSeed, updateDevice, updateExt, updateSettings } from "../store";
+import { backdropImage, device, ext, look, pictureSeed, lookSync, setLookSync, type LookSync, updateLook, materials, platform, setBackdropImage, settings, systemSeed, updateDevice, updateExt, updateSettings } from "../store";
+import { MOBILE_UI } from "../target";
 
 const PACKS: { id: EmojiPack; label: string }[] = [
   { id: "fluent-3d", label: "Fluent 3D" }, { id: "fluent-color", label: "Fluent Color" }, { id: "fluent-flat", label: "Fluent Flat" },
@@ -73,9 +74,10 @@ export function Appearance() {
 
   return (
     <div class="page">
-      <Group title="Colors" hint={device().syncLook ? "Colors follow your account to every device. Style, layout and window settings stay on this one." : "This device keeps its own colors. Your profile, favorites and everything else still sync."}>
-        <Row label="Sync with my other devices" hint="Off: this device keeps its own colors and theme.">
-          <Switch label="Sync colors with my other devices" on={device().syncLook} onChange={setSyncLook} />
+      <Group title="Colors" hint={lookSync() === "all" ? "Colors follow your account to every device. Style, layout and window settings stay on this one." : lookSync() === "kind" ? `Colors are shared with your other ${MOBILE_UI ? "phones and tablets" : "computers"} only. Your profile, favorites and everything else still sync everywhere.` : "This device keeps its own colors. Your profile, favorites and everything else still sync."}>
+        <Row label="Sync colors with">
+          <Select label="Sync colors with" value={lookSync()} onChange={(v) => setLookSync(v as LookSync)}
+            options={[{ v: "all", label: "All my devices" }, { v: "kind", label: MOBILE_UI ? "My phones and tablets" : "My computers" }, { v: "none", label: "This device only" }]} />
         </Row>
         <Row label="Mode">
           <Seg label="Mode" value={look().mode} onChange={(mode) => setLook({ mode })} options={[{ v: "light", label: "Light" }, { v: "dark", label: "Dark" }, { v: "auto", label: "System" }]} />

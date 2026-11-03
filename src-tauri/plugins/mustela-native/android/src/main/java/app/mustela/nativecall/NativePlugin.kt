@@ -12,6 +12,7 @@ import android.media.AudioDeviceInfo
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
+import androidx.core.content.ContextCompat
 import android.provider.Settings
 import android.util.Rational
 import android.webkit.WebView
@@ -63,6 +64,13 @@ class MicArgs {
 class OverlayArgs {
     var on: Boolean = false
     var muted: Boolean = false
+}
+
+@InvokeArg
+class MediaArgs {
+    var url: String = ""
+    var name: String = "file"
+    var share: Boolean = false
 }
 
 @InvokeArg
@@ -385,7 +393,10 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
             if (Build.VERSION.SDK_INT >= 26) runCatching { web?.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, !args.on) }
             // The Web engine (video) gets the same background service as the voice engine: the call keeps
             // going when you leave the app or swipe it away, with a notification to come back or leave.
-            if (!CallEngine.active()) runCatching {
+            // Only once the microphone is allowed: Android stops any app that starts a microphone service without it
+            // (joining calls into call mode before the permission prompt, so this runs again once you're in).
+            val micAllowed = ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!CallEngine.active() && (micAllowed || !args.on)) runCatching {
                 if (args.on) {
                     CallService.onLeave = { activity.runOnUiThread { val e = JSObject(); e.put("action", "leave"); trigger("bubble", e) } }
                     CallService.start(activity.applicationContext, "Voice call")
@@ -523,5 +534,31 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         ScreenService.listener = null
         ScreenService.stop(activity)
         invoke.resolve()
+    }
+
+    /* ---------- pictures and videos from the gallery: save or share ---------- */
+
+    @Command
+    fun mediaFile(invoke: Invoke) {
+        val args = invoke.parseArgs(MediaArgs::class.java)
+        val uri = Uri.parse(args.url)
+        if (uri.scheme != "https" && uri.scheme != "http") { invoke.reject("not a web link"); return }
+        try {
+            if (args.share) {
+                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, args.url) }
+                activity.startActivity(Intent.createChooser(send, null))
+            } else {
+                // Downloads, with the phone's own "download complete" notification.
+                val name = args.name.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(120).ifBlank { "file" }
+                val req = android.app.DownloadManager.Request(uri)
+                    .setTitle(name)
+                    .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, name)
+                (activity.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager).enqueue(req)
+            }
+            invoke.resolve()
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "couldn't save")
+        }
     }
 }

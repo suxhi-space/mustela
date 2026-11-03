@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createRoot, createSignal } from "solid-js";
+import { createEffect, createMemo, createRoot, createSignal, on as whenChanged } from "solid-js";
 import type { ChannelInfo, Person, VoiceHandle, VoiceMember } from "../../lib/backend/types";
 import { inTauri } from "../../lib/platform";
 import { playSfx } from "../../lib/sfx";
@@ -353,9 +353,11 @@ createRoot(() => {
     if (!android()) return;
     const inCall = handle() !== null;
     void nativeCmd("set_call_overlay", { payload: { on: inCall && bubble(), muted: !on().mic } });
-    pipWide(); // reshape the floating window when a stream starts or stops
-    void pip(false, inCall && !bubble());
   });
+  // The floating window's settings only when they change (square or wide, on or off). Sending them on every call
+  // update (several a second while people talk) made Android snap the window back, so it couldn't be resized.
+  const pipShape = createMemo(() => (android() ? `${handle() !== null && !bubble()}:${pipWide()}` : ""));
+  createEffect(whenChanged(pipShape, (k) => { if (k) void pip(false, handle() !== null && !bubble()); }));
 });
 
 /* ---------- pop-out (desktop) ---------- */

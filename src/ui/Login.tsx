@@ -1,5 +1,5 @@
 import { createSignal, Show } from "solid-js";
-import logo from "../../icons/app-icon.png";
+import logo from "../../icons/app-icon.svg";
 import { beginLogin, finishMfa } from "../lib/backend/login";
 import { addStoatAccount, book, enterDemo, setAddingAccount } from "./store";
 

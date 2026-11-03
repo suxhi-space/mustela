@@ -45,8 +45,8 @@
 .since-bar .sb-act { font-size: 0; gap: 0; }
 .since-bar .sb-read { font-size: 0; gap: 0; padding: 7px 14px; }
 
-/* ---------- a tablet held sideways keeps the desktop layout, clear of the status bar and nav buttons ---------- */
-@media (min-width: 701px) and (orientation: landscape) {
+/* ---------- tablets (either way up) use the side-by-side layout, clear of the status bar and nav buttons ---------- */
+@media (min-width: 701px) {
   .app { padding: calc(var(--gapx) + var(--sa-top)) calc(var(--gapx) + var(--sa-right)) calc(var(--gapx) + var(--sa-bottom)) var(--sa-left); }
   .userpanel { left: calc(8px + var(--sa-left)); }
 }
@@ -75,7 +75,7 @@
   background: rgba(255, 255, 255, .6); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
 
 /* ---------- in a call: the voice bar sits on the profile bar as one card, with bigger buttons ---------- */
-@media (max-width: 700px), (orientation: portrait) {
+@media (max-width: 700px) {
   .callpanel { left: 10px; width: calc(100% - 20px); height: 60px; bottom: calc(10px + var(--sa-bottom) + 62px); padding: 8px 10px 6px 16px; gap: 6px;
     border-radius: 18px 18px 0 0; box-shadow: inset 0 -1px 0 var(--edge); }
   .callpanel .icon-btn { width: 42px; height: 42px; border-radius: 12px; }
@@ -90,7 +90,7 @@
 @keyframes m-in-right { from { transform: translateX(28%); opacity: .4; } }
 @keyframes m-in-left { from { transform: translateX(-12%); opacity: .5; } }
 @keyframes m-fade-up { from { transform: translateY(10px); opacity: 0; } }
-@media (max-width: 700px), (orientation: portrait) {
+@media (max-width: 700px) {
   /* Into a chat from the list, and back */
   :root:not([data-reduce-motion]) .app[data-view="chat"]:not(.swiping) .main { animation: m-in-right .24s cubic-bezier(.2, .8, .2, 1); }
   :root:not([data-reduce-motion]) .app[data-view="nav"]:not(.swiping) .side { animation: m-in-left .2s cubic-bezier(.2, .8, .2, 1); }
@@ -126,7 +126,9 @@
 .mp-search { height: 46px !important; border-radius: 14px; }
 .mp-search input { font-size: 16px; }
 .mp-tabs button { min-height: 40px; padding: 8px 16px; font-size: 14px; }
-.mp-filters .select, .mp-filters select { min-height: 44px; }
+.mp-filters .select, .mp-filters select, .mp-date { min-height: 44px; }
+.mp-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.mp-filters > * { flex: 0 0 auto !important; }
 /* Text fields and dropdowns */
 .text-input, .select, select, .search-box input { font-size: 16px; }
 .text-input, .select, select { min-height: 44px; }
@@ -151,6 +153,98 @@
 .reply-ref { min-height: 32px; }
 .emoji-rail button { width: 42px; height: 42px; }
 /* DMs: the bigger pictures get the room they need (rows were squashed together) */
-.chans .chan.dm { min-height: 58px; gap: 12px; padding-top: 7px; padding-bottom: 7px; }
+.chans .chan.dm { min-height: 52px; gap: 11px; padding-top: 4px; padding-bottom: 4px; }
 .chans .chan.dm .chan-name { line-height: 1.25; }
-.chans .chan.dm .chan-sub { font-size: 12.5px; margin-top: 2px; }
+.chans .chan.dm .chan-sub { font-size: 12.5px; margin-top: 1px; }
+
+/* ---------- the soundboard: a sheet from the bottom like Discord's, three big tiles a row ---------- */
+.pop-scrim:has(> .soundboard) { background: rgba(0, 0, 0, .45); }
+.soundboard { left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important; width: auto !important; max-width: 640px; margin: 0 auto;
+  max-height: calc(100% - var(--sa-top) - 40px) !important; padding: 18px 14px calc(14px + var(--sa-bottom)); border-radius: 24px 24px 0 0;
+  animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+.soundboard::before { content: ""; position: absolute; top: 7px; left: 50%; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px; background: rgba(255, 255, 255, .5); }
+.sb-title { display: block; margin: 2px 0 2px; text-align: center; font-size: 19px; }
+.soundboard .sb-search { min-height: 46px; border-radius: 14px; }
+.soundboard .sb-search input { font-size: 16px; }
+.soundboard .sb-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.soundboard .sb-sound { height: 86px; flex-direction: column; gap: 6px; padding: 8px 6px; border-radius: 16px; }
+.soundboard .sb-emoji { font-size: 30px; }
+.soundboard .sb-emoji .uemoji-img, .soundboard .sb-emoji .cemoji { width: 32px; height: 32px; }
+.soundboard .sb-name { font-size: 14px; max-width: 100%; }
+.soundboard .sb-mini { top: 6px; translate: none; }
+.soundboard .sb-sec { font-size: 13px; margin-top: 8px; }
+
+/* ---------- every card from the bottom grows to full height when pulled up or scrolled (sheetDrag.ts) ---------- */
+.sheet-tall { max-height: calc(100% - var(--sa-top) - 6px) !important; transition: max-height .22s cubic-bezier(.2, .8, .2, 1); }
+.ctx.ctx-sheet.sheet-tall, .soundboard.sheet-tall, .members-sheet.sheet-tall, .mecard.sheet-tall { height: calc(100% - var(--sa-top) - 6px); }
+.profile-pop:has(.sheet-tall) { padding-top: calc(var(--sa-top) + 6px); }
+.profile-pop .pp-sheet.sheet-tall { height: 100%; max-height: 100% !important; }
+
+/* ---------- the member list in a server: a card from the bottom like the others ---------- */
+.scrim:has(> .members-sheet) { place-items: end center; padding: 0; background: rgba(0, 0, 0, .45); }
+.members-sheet { position: relative; width: min(600px, 100%) !important; max-width: none; max-height: calc(100% - var(--sa-top) - 40px); margin: 0;
+  border-radius: 24px 24px 0 0 !important; padding: 18px 8px calc(10px + var(--sa-bottom)) !important; overflow-y: auto; overscroll-behavior: contain;
+  animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+.members-sheet::before { content: ""; position: sticky; top: -10px; display: block; width: 40px; height: 5px; margin: -10px auto 8px; border-radius: 3px; background: rgba(255, 255, 255, .5); }
+
+/* Search media: three across, like a phone gallery. */
+.mp-list.gallery { grid-template-columns: repeat(3, 1fr); gap: 3px; padding-inline: 4px; }
+.mp-tile { border-radius: 6px; }
+
+/* ---------- Tablets in a call: the phone's call screen ----------
+   Upright, and sideways once you tap full screen (a sideways tablet otherwise keeps the desktop look, with the
+   chat beside the call). The call takes the whole screen, the controls step aside after a few seconds, and leaving
+   it shows the mini view, like Discord's tablet app. The same rules as phones (styles.css), for wider screens;
+   CallStage sets .call-phone. */
+@media (min-width: 701px) {
+  :root.call-phone.call-top-on .app[data-view="chat"]:has(.cstage) { grid-template-columns: minmax(0, 1fr); padding: 0; gap: 0; }
+  :root.call-phone.call-top-on .app[data-view="chat"]:has(.cstage) :is(.rail, .side, .userpanel, .callpanel, .members-col) { display: none !important; }
+  :root.call-phone.call-top-on .app[data-view="chat"]:has(.cstage) .main { border-radius: 0; box-shadow: none; padding-top: var(--sa-top); padding-bottom: 0; }
+  :root.call-phone.call-top-on .app[data-view="chat"] .main-bar { display: none; }
+
+  :root.call-phone .cstage .phone-only, :root.call-phone .callpanel .phone-only { display: grid !important; }
+  :root.call-phone .cstage :is(.desk-only, .not-phone) { display: none !important; }
+  :root.call-phone .voice-view { flex-direction: column; }
+  :root.call-phone .cstage-main { padding: 8px 12px 0; }
+  :root.call-phone .cbar { margin: 8px auto calc(10px + var(--sa-bottom)); padding: 8px 10px; border-radius: 22px; justify-content: center; max-width: 560px;
+    background: color-mix(in srgb, #fff 7%, #0d0f12); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), inset 0 0 0 1px rgba(255,255,255,.07), 0 10px 28px -12px rgba(0,0,0,.8); }
+  :root.call-phone .cbar-side { flex: none; }
+  :root.call-phone .cbar-mid { gap: 6px; }
+  :root.call-phone .voice-view.phone-chat .voice-chat { width: auto; flex: 1; box-shadow: none; }
+
+  /* the controls and top bar step aside; a stream you tap fills the screen */
+  :root.call-phone .cstage .call-sheet, :root.call-phone .cstage .sheet-chat { transition: transform .26s cubic-bezier(.2,.8,.2,1), opacity .2s; }
+  :root.call-phone .cstage.chrome-off .call-sheet:not(.open) { transform: translateY(110%) !important; }
+  :root.call-phone .cstage.chrome-off .sheet-chat { opacity: 0; pointer-events: none; }
+  :root.call-phone .cstage.chrome-off .cstage-main { padding-bottom: calc(8px + var(--sa-bottom)); }
+  :root.call-phone.call-immersive .app[data-view="chat"] .main-bar { display: none; }
+  :root.call-phone .cstage .cfocus .ctile.stream { border-radius: 14px; }
+  :root.call-phone .cstage.chrome-off .cfocus { flex: 1; }
+  :root.call-phone .cstage.chrome-off .cstrip { display: none; }
+  /* more room than a phone: three across */
+  :root.call-phone .cgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(170px, 1fr); gap: 10px; align-content: stretch; }
+  :root.call-phone .cgrid .ctile { border-radius: 20px; }
+  :root.call-phone .cgrid[data-n="1"] { grid-template-columns: 1fr; }
+  :root.call-phone .cgrid[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :root.call-phone .cgrid .ctile.stream { grid-column: span 2; grid-row: span 2; }
+
+  /* its own bar on top: minimise, the channel, sound, chat */
+  :root.call-phone .call-top { display: flex; order: -1; align-items: center; gap: 8px; padding: 8px 12px 4px; flex: none; color: #fff; }
+  :root.call-phone .ct-btn { width: 44px; height: 44px; border-radius: 14px; border: 0; display: grid; place-items: center; background: rgba(255,255,255,.08); color: #fff; }
+  :root.call-phone .ct-btn.on { background: #fff; color: #111; }
+  :root.call-phone .ct-name { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 55%; height: 44px; padding: 0 12px; border-radius: 14px; border: 0; background: rgba(255,255,255,.08); color: #fff; font-size: 17px; font-weight: 850; }
+  :root.call-phone .ct-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :root.call-phone .cstage .sheet-chat { display: none; }
+  :root.call-phone .cstage.chrome-off .call-top { display: none; }
+  :root.call-phone .cgrid .ctile .ctile-name { left: 50%; right: auto; transform: translateX(-50%); bottom: 12px; padding: 5px 12px; border-radius: 12px; font-size: 16px; background: rgba(0,0,0,.55); max-width: calc(100% - 24px); }
+  :root.call-phone .cgrid .ctile:not(.video) .av { transform: scale(1.35); }
+  :root.call-phone .sheet-main .cbtn.leave { border-radius: 16px; width: 64px; }
+  :root.call-phone .call-sheet { border-radius: 22px 22px 0 0; max-width: 620px; margin: 0 auto; left: 0; right: 0; }
+}
+
+/* Bigger tablets held sideways, in the desktop-look call: the same, made for fingers. */
+@media (min-width: 901px) {
+  :root:not(.call-phone) .cstage .cbtn { width: 50px; height: 50px; }
+  :root:not(.call-phone) .cstage .cbar { gap: 8px; padding: 10px 12px; }
+  :root:not(.call-phone) .cstage .cbar-mid { gap: 8px; }
+}

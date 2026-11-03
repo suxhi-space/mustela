@@ -1,0 +1,109 @@
+{
+  "features" : [
+    "specular-location"
+  ],
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.36471,0.69412,0.08627,1.00000",
+      "display-p3:0.80784,0.75294,0.16863,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "blur-material" : null,
+      "hidden" : false,
+      "layers" : [
+        {
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "Layer 13 Copy.PNG",
+          "name" : "Layer 13 Copy"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.20784,0.20784,0.20784,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.96863,0.97647,0.85490,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Layer 11 Copy.svg",
+          "name" : "Layer 11 Copy",
+          "position" : {
+            "scale" : 0.85,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.96863,0.97647,0.85490,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : "system-dark"
+            }
+          ],
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Layer 4 Copy.svg",
+          "name" : "Layer 4 Copy",
+          "position" : {
+            "scale" : 0.85,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "fill" : {
+            "solid" : "srgb:0.96863,0.97647,0.85490,1.00000"
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Layer 7 Copy.svg",
+          "name" : "Layer 7 Copy",
+          "position" : {
+            "scale" : 0.85,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "refractivity" : {
+        "depth" : 0.43999999999999995,
+        "enabled" : false,
+        "strength" : -0.03
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.25
+      },
+      "specular" : "inside",
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.45
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

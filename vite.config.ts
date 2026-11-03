@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import { readFileSync } from "node:fs";
 
@@ -12,24 +12,9 @@ const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), 
 const tauriPlatform = process.env.TAURI_ENV_PLATFORM;
 const uiFor = (mode: string) => process.env.MUSTELA_UI ?? (mode === "mobile" || mode === "desktop" ? mode : null) ?? (tauriPlatform === "android" || tauriPlatform === "ios" ? "mobile" : tauriPlatform ? "desktop" : "auto");
 
-/**
- * In the mobile build a tablet held upright gets the touch layout like a phone; held sideways it keeps the desktop
- * layout (src/ui/target.ts has the same rule for code). So the "narrow screen" rules also apply in portrait.
- */
-const touchLayout = (): Plugin => ({
-  name: "mustela-touch-layout",
-  enforce: "pre",
-  transform(code, id) {
-    if (!id.endsWith(".css")) return null;
-    return code
-      .replace(/@media \(max-width: (700|900)px\)/g, "@media (max-width: $1px), (orientation: portrait)")
-      .replace(/@media \(min-width: 701px\)/g, "@media (min-width: 701px) and (orientation: landscape)");
-  },
-});
-
 // Tauri expects a fixed dev port and no screen clearing.
 export default defineConfig(({ mode }) => ({
-  plugins: [solid(), ...(uiFor(mode) === "mobile" ? [touchLayout()] : [])],
+  plugins: [solid()],
   define: { __APP_VERSION__: JSON.stringify(pkg.version), __UI__: JSON.stringify(uiFor(mode)) },
   clearScreen: false,
   // The Rust build folder is huge and changes constantly: watching it can crash the dev server.
