@@ -61,12 +61,14 @@ export function UserPanel() {
   const talking = () => call.active() && call.speaking().includes(me().id);
   const sound = () => call.active() && call.soundboard().includes(me().id);
   // Outside a call the buttons set how you'll join, like Discord.
-  const micOff = () => (call.active() ? !call.on().mic : device().voice.joinMuted);
+  // Like Discord: deafened means muted too, but undeafening gives you back your own mute choice.
+  const micOff = () => (call.active() ? !call.on().mic : device().voice.joinMuted || device().voice.joinDeafened);
   const deaf = () => (call.active() ? call.on().deaf : device().voice.joinDeafened);
   const toggle = (k: "mic" | "deaf") => {
     if (call.active()) return void toggleCall(k);
     const v = device().voice;
-    updateDevice({ voice: k === "mic" ? { ...v, joinMuted: !v.joinMuted, joinDeafened: v.joinMuted ? false : v.joinDeafened } : { ...v, joinDeafened: !v.joinDeafened, joinMuted: !v.joinDeafened ? true : v.joinMuted } });
+    // Unmuting while deafened undeafens too.
+    updateDevice({ voice: k === "mic" ? (v.joinDeafened ? { ...v, joinMuted: false, joinDeafened: false } : { ...v, joinMuted: !v.joinMuted }) : { ...v, joinDeafened: !v.joinDeafened } });
   };
   const sub = () => me().status || LABEL[me().online ? me().presence ?? "online" : "invisible"];
   return (
@@ -121,7 +123,7 @@ function MeCard(props: { onClose(): void }) {
   };
   // Phones and tablets: a sheet from the bottom; pull it down to close.
   let card!: HTMLDivElement;
-  onMount(() => { if (MOBILE_UI) dragToClose(card, props.onClose); });
+  onMount(() => { if (MOBILE_UI) dragToClose(card, props.onClose, { full: true }); });
   return (
     <div class="pop-scrim clear" onClick={props.onClose}>
       <div ref={card} class="mecard" role="dialog" aria-label="Your profile" onClick={(e) => { e.stopPropagation(); edit(e); }}>

@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import { readFileSync } from "node:fs";
+import { adaptCss } from "./src/lib/tabletQueries";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
@@ -14,7 +15,11 @@ const uiFor = (mode: string) => process.env.MUSTELA_UI ?? (mode === "mobile" || 
 
 // Tauri expects a fixed dev port and no screen clearing.
 export default defineConfig(({ mode }) => ({
-  plugins: [solid()],
+  plugins: [
+    solid(),
+    // Phones and tablets: a tablet held upright gets the phone layout (src/lib/tabletQueries.ts).
+    ...(uiFor(mode) === "mobile" ? [{ name: "mustela-tablet-queries", enforce: "pre" as const, transform: (code: string, id: string) => (/\.css($|\?)/.test(id) && !id.includes("node_modules") ? { code: adaptCss(code), map: null } : null) }] : []),
+  ],
   define: { __APP_VERSION__: JSON.stringify(pkg.version), __UI__: JSON.stringify(uiFor(mode)) },
   clearScreen: false,
   // The Rust build folder is huge and changes constantly: watching it can crash the dev server.

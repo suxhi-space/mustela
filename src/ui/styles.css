@@ -129,7 +129,7 @@ body, .settings, .scrim.full, .popout { background: var(--world); }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 /* The app never scrolls as a page (only lists inside it do); a tiny window (picture-in-picture) left it scrolled sideways */
-html { overflow: hidden; overscroll-behavior: none; }
+html { overflow: hidden; overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { overflow: hidden; -webkit-font-smoothing: antialiased; }
 button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 button { cursor: pointer; border: 0; background: none; padding: 0; text-align: inherit; }
@@ -1898,8 +1898,10 @@ button.select:focus-visible { box-shadow: inset 0 0 0 2px var(--pri); }
   background: linear-gradient(180deg, color-mix(in srgb, #fff 8%, #15181d), #0d0f12); }
 .pipview.stream { background: #000; }
 .pipview > video, .pipview .vid-fill { width: 100%; height: 100%; }
-.pip-person { display: flex; flex-direction: column; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; }
-.pip-person small { max-width: 90vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.pip-person { display: flex; flex-direction: column; align-items: center; gap: min(8px, 3vh); max-width: 92vw; font-weight: 800; }
+/* The name fits the floating window: smaller as the window gets smaller, cut with "…" when it's long */
+.pip-person small { max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(9px, 9vh, 13px); line-height: 1.2;
+  padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.45); }
 .pipview.talking .av { box-shadow: 0 0 0 3px #3ba55d; border-radius: 50%; }
 .pip-muted { position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: #d83a3a; }
 
@@ -1987,13 +1989,19 @@ button.select:focus-visible { box-shadow: inset 0 0 0 2px var(--pri); }
 button.mp-item { display: block; width: 100%; text-align: left; border: 0; color: inherit; font: inherit; cursor: pointer; }
 button.mp-item:hover { background: color-mix(in srgb, var(--fg) 6%, var(--well)); }
 .mp-thumbs { display: flex; gap: 4px; margin-top: 6px; }
-.mp-thumbs img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: var(--s3); }
-.mp-list.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 4px; align-content: start; }
+.mp-list.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); grid-auto-rows: auto; gap: 4px; align-content: start; }
 .mp-list.gallery > .empty, .mp-list.gallery > .loading-row { grid-column: 1 / -1; }
-.mp-tile { position: relative; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--s3); cursor: pointer; aspect-ratio: 1; }
-.mp-tile .mp-by { position: absolute; top: 6px; right: 6px; pointer-events: none; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
+/* Every tile the same square; the picture fills it and can never push it bigger or spill over its neighbours. */
+.mp-tile { position: relative; display: block; width: 100%; height: auto; aspect-ratio: 1; min-height: 0; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--s3); cursor: pointer; isolation: isolate; }
+.mp-tile > img, .mp-tile > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s ease, filter .2s; }
+.mp-tile:hover > img, .mp-tile:hover > video { transform: scale(1.04); }
+.mp-tile .mp-by { position: absolute; left: 5px; bottom: 5px; z-index: 2; pointer-events: none; line-height: 0; border-radius: 50%; box-shadow: 0 0 0 2px rgba(0,0,0,.45); }
 .mp-tile .mp-vid { position: absolute; inset: 0; display: grid; place-items: center; }
-.mp-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mp-play { position: absolute; top: 6px; right: 6px; z-index: 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(0,0,0,.55); pointer-events: none; }
+.mp-tile .mp-spoiler { position: absolute; inset: 0; margin: auto; z-index: 2; width: fit-content; height: fit-content; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; color: #fff; background: rgba(0,0,0,.6); pointer-events: none; }
+.mp-thumb { position: relative; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; background: var(--s3); flex: none; }
+.mp-thumb > img, .mp-thumb > video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mp-thumb.spoiled > * { filter: blur(14px) brightness(.6); transform: scale(1.2); }
 .mp-vid { display: grid; place-items: center; width: 100%; height: 100%; color: var(--fg2); }
 .mp-link { display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
 .mp-link-main { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: var(--fg); text-decoration: none; min-width: 0; }
@@ -2135,7 +2143,8 @@ img.mini-orb.tiny { object-fit: cover; }
 :root[data-no-role-colors] :is(.member-name, .msg-head .name, .vm-name, .rr-name, .pc-name) { color: var(--fg) !important; }
 :root[data-no-role-colors] :is(.member-name, .msg-head .name, .vm-name, .rr-name) [style*="background-image"] { background-image: none !important; -webkit-text-fill-color: currentColor; color: var(--fg) !important; }
 :root[data-readable] :is(.msg-text, .md) { font-weight: 550; letter-spacing: .015em; word-spacing: .05em; line-height: 1.55; }
-.bar-peer { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: default; }
+.bar-peer { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 2px 8px 2px 2px; margin-left: -2px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.bar-peer:hover { background: color-mix(in srgb, var(--fg) 7%, transparent); }
 .bar-peer h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 700px) { .bar-peer { cursor: pointer; } }
 
@@ -2358,7 +2367,7 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 .gv-more svg { transform: rotate(90deg); }
 
 /* spoilers: blurred in search and the gallery strip until opened */
-.mp-tile.spoiled img { filter: blur(22px) brightness(.6); transform: scale(1.15); }
+.mp-tile.spoiled > :is(img, video) { filter: blur(22px) brightness(.6); transform: scale(1.15); }
 .mp-spoiler { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .mp-spoiler > svg { box-sizing: content-box; padding: 10px; border-radius: 12px; background: rgba(0,0,0,.55); color: #fff; }
 .gv-thumb.spoiled img { filter: blur(8px) brightness(.6); }
@@ -2518,3 +2527,56 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 .stamp-list button.on { background: color-mix(in srgb, var(--pri) 20%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pri) 55%, transparent); }
 .discover-host { flex: 1; position: relative; min-width: 0; min-height: 0; margin: 0 8px 8px; border-radius: 14px; overflow: hidden; background: color-mix(in srgb, #000 22%, transparent); }
 .discover-host .loading-row { position: absolute; inset: 0; display: grid; place-items: center; }
+/* The search bar's suggestions float above everything (nothing in the chat can draw over them) */
+.ss-pop.ss-floating { z-index: 96; right: auto; }
+/* Finished filters as boxes in the search bar, like Discord */
+.top-search { cursor: text; min-width: 0; }
+.top-search.has-chips, .top-search.has-chips:focus-within { width: min(440px, 46vw); }
+.top-search input { min-width: 40px; }
+.sq-chip { flex: none; display: inline-flex; align-items: center; gap: 3px; max-width: 170px; height: 22px; padding: 0 3px 0 6px; border-radius: 6px; font-size: 12.5px; font-weight: 650; color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 13%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sq-chip b { font-weight: 850; margin-right: 1px; }
+.sq-chip button { flex: none; width: 16px; height: 16px; display: grid; place-items: center; border: 0; border-radius: 4px; padding: 0; background: none; color: var(--fg2); cursor: pointer; }
+.sq-chip button:hover { background: color-mix(in srgb, var(--fg) 15%, transparent); color: var(--fg); }
+/* Media inside link cards: never wider than the card, and not towering over the chat (portrait videos, tall posts). */
+.embed :is(.vid-box, .em-player) { max-width: 100%; width: fit-content; }
+.embed .em-video { width: auto; max-width: 100%; max-height: min(360px, 55vh); }
+.embed .em-img, .social-embed .em-img { width: auto; max-width: 100%; max-height: min(320px, 50vh); object-fit: contain; background: color-mix(in srgb, #000 25%, transparent); }
+.embeds > .embed-wrap, .embeds > .embed { max-width: min(440px, 100%); }
+/* Computers: the member list a little wider and more compact, like Discord's */
+@media (hover: hover) and (min-width: 901px) {
+  .members-col:not(.panel-col) { width: 264px; padding-inline: 2px; }
+  .member { gap: 9px; min-height: 42px; padding: 1px 8px; border-radius: 8px; }
+  .member-name { font-size: 14.5px; }
+  .members-col .member .member-sub, .members-col .member small { font-size: 12px; }
+}
+@media (hover: hover) and (min-width: 901px) and (max-width: 1100px) { .members-col:not(.panel-col) { width: 236px; } }
+.role-chip .rc-icon { width: 14px; height: 14px; object-fit: contain; flex: none; }
+
+/* ---------- Computers: Settings is a full page of the window, like Discord (not a card over a dimmed app) ---------- */
+/* Wide windows keep the card; the title bar dims with the app behind it instead of staying bright. */
+:root:not([data-ui="mobile"]) .titlebar.on-settings { background: color-mix(in srgb, #03050c 55%, var(--world, #000)); }
+@media (min-width: 701px) and (max-aspect-ratio: 4/3) {
+  :root:not([data-ui="mobile"]) .settings, :root:not([data-ui="mobile"])[data-material] .settings {
+    top: var(--tb); padding: 0; display: flex; background: var(--s1) !important; -webkit-backdrop-filter: none; backdrop-filter: none; animation: settings-page .18s ease-out; }
+  :root:not([data-ui="mobile"])[data-mode="dark"] .settings { background: color-mix(in srgb, var(--s1) 94%, #000) !important; }
+  :root:not([data-ui="mobile"]) .settings-card { width: 100%; height: 100%; border-radius: 0; box-shadow: none; animation: none; }
+  /* The title bar joins the page instead of floating bright above it */
+  :root:not([data-ui="mobile"]) .titlebar.on-settings { background: color-mix(in srgb, var(--s1) 94%, #000); box-shadow: inset 0 -1px 0 var(--edge); }
+}
+@keyframes settings-page { from { opacity: 0; transform: scale(1.015); } }
+/* Mustela's tooltips */
+.m-tip { position: fixed; z-index: 400; max-width: 260px; padding: 6px 10px; border-radius: 9px; pointer-events: none; font-size: 13px; font-weight: 750; line-height: 1.3;
+  color: var(--fg); background: var(--md-surface-container-highest, var(--s3)); box-shadow: inset 0 0 0 1px var(--edge), 0 8px 22px -8px rgba(0,0,0,.6);
+  opacity: 0; transform: translateY(3px) scale(.97); transition: opacity .12s ease, transform .12s ease; }
+.m-tip.below { transform: translateY(-3px) scale(.97); }
+.m-tip.on { opacity: 1; transform: none; }
+.m-tip::after { content: ""; position: absolute; left: var(--arrow, 50%); top: 100%; margin-left: -6px; border: 6px solid transparent; border-top-color: var(--md-surface-container-highest, var(--s3)); }
+.m-tip.below::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--md-surface-container-highest, var(--s3)); }
+
+/* Things that float over the app (menus, pickers, suggestions, dialogs, cards from the bottom) are always solid, whatever
+   "Panel opacity" is: text behind them never shows through what you're reading. (Panels that are part of the layout
+   still follow the setting.) */
+:is(.ctx, .menu, .emoji-pop, .gif-pop, .ss-pop, .fmt-bar, .soundboard, .suggest, .modal, .inbox, .members-sheet, .m-tip, .sched-tip, .gv-menu) {
+  background-color: var(--md-surface-container-high, var(--s2)) !important; }
+:root[data-mode="dark"] :is(.emoji-pop, .gif-pop) { background-color: var(--md-surface-container-high, var(--s2)) !important; }

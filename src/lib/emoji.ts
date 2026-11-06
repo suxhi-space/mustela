@@ -1,3 +1,4 @@
+import { createSignal } from "solid-js";
 import { inTauri } from "./platform";
 import { EMOJI_DATA } from "./emoji-data";
 
@@ -45,8 +46,6 @@ export function searchEmoji(q: string, limit = 40): EmojiEntry[] {
   return [...starts, ...contains].slice(0, limit);
 }
 
-export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"];
-
 const BY_CHAR = new Map<string, string>(SHORT);
 for (const g of EMOJI_GROUPS) for (const e of g.items) { const k = e.char.replace(/\uFE0F/g, ""); if (!BY_CHAR.has(k)) BY_CHAR.set(k, e.name); }
 /** Shortcode for a unicode emoji ("🔥" → "fire"), if it's one we know. */
@@ -84,6 +83,21 @@ const loading = new Map<string, Promise<boolean>>();
 /** Whether this emoji picture is already loaded (it can be drawn straight away, with no flash). */
 export const emojiReady = (url: string) => loaded.has(url);
 
+/**
+ * Pictures that failed (no connection yet, the server busy) are tried again: bumping this makes every emoji still
+ * showing the system glyph ask once more. Bumped when the connection comes back, when you return to the app, and
+ * every 30 s while any failed (so a bad moment at start-up doesn't last until Mustela is restarted).
+ */
+const [retryTick, setRetryTick] = createSignal(0);
+export const emojiRetry = retryTick;
+let failedSome = false;
+if (typeof window !== "undefined") {
+  const again = () => { if (failedSome) { failedSome = false; setRetryTick((n) => n + 1); } };
+  addEventListener("online", again);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") again(); });
+  setInterval(again, 30_000);
+}
+
 /** Load an emoji picture once; every later use draws it from memory. Resolves false if it doesn't exist. */
 export function loadEmoji(url: string): Promise<boolean> {
   if (loaded.has(url)) return Promise.resolve(true);
@@ -93,7 +107,7 @@ export function loadEmoji(url: string): Promise<boolean> {
       const img = new Image();
       img.decoding = "async";
       img.onload = () => { loaded.add(url); loading.delete(url); done(true); };
-      img.onerror = () => { loading.delete(url); done(false); };
+      img.onerror = () => { loading.delete(url); failedSome = true; done(false); };
       img.src = url;
     });
     loading.set(url, p);

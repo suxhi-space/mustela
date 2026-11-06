@@ -102,7 +102,6 @@ export function setGates(g: Partial<Gates>) {
   Object.assign(gates, g);
   wake();
 }
-export const currentGates = (): Readonly<Gates> => gates;
 /** The desktop shell reports window focus (more reliable than the page's own focus events). */
 export function setWindowFocused(f: boolean) { focused = f; if (f) wake(); }
 

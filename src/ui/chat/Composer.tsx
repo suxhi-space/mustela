@@ -453,13 +453,14 @@ export function Composer(props: {
             <button type="button" class="icon-btn" aria-label="Insert timestamp" title="Insert timestamp" onClick={() => setStampOpen(true)}><Icon name="calendar" size={22} /></button>
           </Show>
           <Show when={props.sendGif && !phone()}>
-            <button type="button" class="icon-btn" aria-label="GIF" title="GIF" onClick={(e) => openGifPicker(e.currentTarget, (url) => void props.sendGif!(url), { emoji: ({ text: x }) => ed?.insertAtCaret(x) })}><Icon name="gif" size={22} /></button>
+            <button type="button" class="icon-btn" aria-label="GIF" title="GIF" onClick={(e) => openGifPicker(e.currentTarget, (url) => void props.sendGif!(url), { emoji: ({ text: x }) => { ed?.insertAtCaret(x); if (MOBILE_UI && !phone()) ed?.focus(); } })}><Icon name="gif" size={22} /></button>
           </Show>
           {/* Phones, like Discord: one button for emoji and GIFs; while their card is open it's a keyboard, to type again. */}
           <Show when={phone() && exprOpen()} fallback={
             <button type="button" class="icon-btn" aria-label={phone() ? "Emoji and GIFs" : "Emoji"} title="Emoji" onClick={(e) => {
               if (phone()) (document.activeElement as HTMLElement | null)?.blur?.(); // the card takes the keyboard's place
-              openEmojiPicker(e.currentTarget, ({ text: x }) => ed?.insertAtCaret(x), props.sendGif ? { gif: (url) => void props.sendGif!(url) } : {});
+              // Tablets: the keyboard comes back with the emoji; phones keep the card open for more instead.
+              openEmojiPicker(e.currentTarget, ({ text: x }) => { ed?.insertAtCaret(x); if (MOBILE_UI && !phone()) ed?.focus(); }, { ...(props.sendGif ? { gif: (url: string) => void props.sendGif!(url) } : {}), stay: phone() });
             }}><Icon name="smile" size={22} /></button>
           }>
             <button type="button" class="icon-btn" aria-label="Keyboard" title="Keyboard" onClick={() => { closeExpr(); ed?.focus(); }}><Icon name="keyboard" size={22} /></button>

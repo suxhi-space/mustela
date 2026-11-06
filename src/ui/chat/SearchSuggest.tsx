@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { Portal } from "solid-js/web";
 import type { Person } from "../../lib/backend/types";
 import { filterValue, typingFilter } from "../../lib/searchQuery";
 import { Avatar } from "../Avatar";
@@ -49,6 +50,16 @@ export function SearchSuggest(props: { input: () => HTMLInputElement | undefined
     if (t.key === "authortype") return ["user", "bot"].filter((x) => x.startsWith(v)).map((x) => ({ key: x, text: `authorType:${x}`, label: <><Icon name={x === "bot" ? "bot" : "user"} size={16} /><span>{x}</span></> }));
     return ["today", "yesterday"].filter((x) => x.startsWith(v)).map((x) => ({ key: x, text: `${t.key}:${x}`, label: <><Icon name="clock" size={16} /><span>{x}</span></> }));
   });
+  /** Where the list goes: under the search box, kept inside the window. Drawn above everything else in the app. */
+  const [tick, setTick] = createSignal(0);
+  const place = () => {
+    tick();
+    const r = props.input()?.closest("form")?.getBoundingClientRect();
+    if (!r) return {};
+    const w = Math.min(Math.max(r.width, 340), innerWidth - 16);
+    return { position: "fixed", top: `${r.bottom + 6}px`, left: `${Math.max(8, Math.min(r.right - w, innerWidth - w - 8))}px`, width: `${w}px`, "max-height": `${Math.max(200, innerHeight - r.bottom - 24)}px` } as JSX.CSSProperties;
+  };
+  onMount(() => { const f = () => setTick((t) => t + 1); addEventListener("resize", f); onCleanup(() => removeEventListener("resize", f)); });
   const isDate = () => { const k = typing()?.key; return k === "before" || k === "after" || k === "during" || k === "on"; };
 
   /** Put a suggestion in the box: a whole filter replaces the one being typed; a bare "from:" starts one. */
@@ -61,6 +72,8 @@ export function SearchSuggest(props: { input: () => HTMLInputElement | undefined
     props.setValue(`${base}${done}`);
     setActive(-1);
     setPickDate(false);
+    // A finished filter (a person, a kind, a day) searches straight away, like Discord; "from:" alone waits for its value.
+    if (!done.endsWith(":") && props.onSearch) { setOpen(false); props.onSearch(`${base}${done}`); return; }
     const el = props.input();
     if (el) { el.focus(); queueMicrotask(() => { el.selectionStart = el.selectionEnd = el.value.length; }); }
   };
@@ -71,6 +84,8 @@ export function SearchSuggest(props: { input: () => HTMLInputElement | undefined
     if (!el) return;
     const focus = () => setOpen(true);
     const blur = () => setTimeout(() => { if (document.activeElement !== el && !document.activeElement?.closest(".ss-pop")) setOpen(false); }, 120);
+    const focusTick = () => setTick((t) => t + 1);
+    el.addEventListener("focus", focusTick);
     const key = (e: KeyboardEvent) => {
       if (!open()) return;
       const n = items().length;
@@ -93,7 +108,8 @@ export function SearchSuggest(props: { input: () => HTMLInputElement | undefined
 
   return (
     <Show when={open() && (items().length || isDate())}>
-      <div class="ss-pop panel" role="listbox" onMouseDown={(e) => e.preventDefault()}>
+      <Portal>
+      <div class="ss-pop panel ss-floating" role="listbox" style={place()} onMouseDown={(e) => e.preventDefault()}>
         <Show when={typing()}><p class="ss-title">{isDate() ? "Pick a day" : TITLES[typing()!.key] ?? `${typing()!.key}:`}</p></Show>
         <For each={items()}>{(it, i) => (<>
           <Show when={it.section && it.section !== items()[i() - 1]?.section}>
@@ -110,6 +126,7 @@ export function SearchSuggest(props: { input: () => HTMLInputElement | undefined
           </Show>
         </Show>
       </div>
+      </Portal>
     </Show>
   );
 }

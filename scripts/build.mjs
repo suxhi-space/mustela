@@ -8,7 +8,8 @@
  * Platforms: windows, macos, linux, android, web
  * Options:
  *   --version 1.2.3    the version to stamp on this build (asked if not given)
- *   --repo owner/repo  the GitHub repository the app checks for updates (a github.com link works too; "none" turns it off)
+ *   --repo owner/repo  the GitHub repository the app checks for updates (default suxhi-space/mustela; a github.com link
+ *                      works too; "none" turns it off)
  *   --package a.b.c    Android only: the app's package name (asked if not given; default app.mustela.client)
  *   --debug            debug build (faster to compile, slower to run)
  *   --bundles a,b      desktop installer types (default per platform, see below)
@@ -34,6 +35,8 @@ const TAURI = join(ROOT, "src-tauri");
 const OUT = join(ROOT, "release");
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 let VERSION = pkg.version;
+/** Mustela's own releases: where updates come from unless --repo, MUSTELA_UPDATE_REPO or the prompt says otherwise. */
+const DEFAULT_REPO = "suxhi-space/mustela";
 /** "owner/repo" whose GitHub releases the app checks for updates; empty means update checks are off. */
 let UPDATE_REPO = "";
 const IS_WIN = process.platform === "win32";
@@ -132,7 +135,7 @@ async function askRelease() {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     if (version === undefined) version = (await rl.question(`\nVersion for this build [${VERSION}]: `)).trim() || VERSION;
     if (repo === undefined) {
-      const def = prefs.repo ?? "";
+      const def = prefs.repo ?? DEFAULT_REPO;
       console.log(dim("  The app checks this repository's GitHub releases for updates. Type none to turn update checks off."));
       repo = (await rl.question(`GitHub repository or link${def ? ` [${def}]` : ""}: `)).trim() || def;
     }
@@ -151,7 +154,7 @@ async function askRelease() {
   version = version || VERSION;
   if (!SEMVER.test(version)) fail(`"${version}" isn't a version number.`, "Use three numbers like 0.2.0, optionally with a suffix like 0.2.0-beta.1 or 0.2.0-build.2 (four numbers like 0.1.3.7 aren't allowed).");
   if (!msiVersion(version)) fail(`"${version}" is too big for a Windows installer.`, "The first two numbers can be at most 255 and the third at most 65535.");
-  const parsed = parseRepo(repo ?? prefs.repo ?? "");
+  const parsed = parseRepo(repo ?? prefs.repo ?? DEFAULT_REPO);
   if (parsed === null) fail(`"${repo}" isn't a GitHub repository.`, "Use owner/repo or a link like https://github.com/owner/repo/releases/latest");
   VERSION = version;
   UPDATE_REPO = parsed;
@@ -256,10 +259,19 @@ async function androidIcon() {
       const fg = await sharp({ create: { width: canvas, height: canvas, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
         .composite([{ input: await sharp(src).resize(face, face).png().toBuffer(), left: off, top: off }]).png().toBuffer();
       writeFileSync(join(dir, "ic_launcher_foreground.png"), fg);
+      // Android 13+ themed icons (the one-colour icons when "Themed icons" is on): the face's light part only, like the
+      // status-bar icon, drawn sharp from the tray's vector. Android tints it to match the wallpaper.
+      const mono = await monoFace(sharp, Math.round(56 * k));
+      if (mono) {
+        const m = Math.round((canvas - Math.round(56 * k)) / 2);
+        writeFileSync(join(dir, "ic_launcher_monochrome.png"), await sharp({ create: { width: canvas, height: canvas, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+          .composite([{ input: mono, left: m, top: m }]).png().toBuffer());
+      }
     }
     const any = join(root, "mipmap-anydpi-v26");
     mkdirSync(any, { recursive: true });
-    const xml = `<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n  <background android:drawable="@color/ic_launcher_background" />\n  <foreground android:drawable="@mipmap/ic_launcher_foreground" />\n</adaptive-icon>\n`;
+    const monoLine = existsSync(join(root, "mipmap-mdpi", "ic_launcher_monochrome.png")) ? `  <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />\n` : "";
+    const xml = `<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n  <background android:drawable="@color/ic_launcher_background" />\n  <foreground android:drawable="@mipmap/ic_launcher_foreground" />\n${monoLine}</adaptive-icon>\n`;
     writeFileSync(join(any, "ic_launcher.xml"), xml);
     writeFileSync(join(any, "ic_launcher_round.xml"), xml);
     const values = join(root, "values");
@@ -267,6 +279,55 @@ async function androidIcon() {
     writeFileSync(join(values, "ic_launcher_background.xml"), `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <color name="ic_launcher_background">#00000000</color>\n</resources>\n`);
   }
   ok("Android launcher uses the free-standing face (adaptive, nothing cropped)");
+}
+
+/**
+ * The face as one colour for Android's themed icons, from the main icon's vector without the chat bubble behind it:
+ * white where the face is light, see-through for its dark lines and features. `size` px square; null without a source.
+ */
+async function monoFace(sharp, size) {
+  const svgPath = join(ROOT, "icons", "app-icon.svg");
+  if (!existsSync(svgPath)) return null;
+  const src = readFileSync(svgPath, "utf8");
+  const paths = [...src.matchAll(/<path\b[^>]*>/g)].map((m) => m[0]);
+  // The face's light fill and its dark lines (the bubble and its edge are left out).
+  const light = paths.find((p) => /fill:#f7f9da/i.test(p)), dark = paths.find((p) => /fill:#353535/i.test(p));
+  if (!light || !dark) return null;
+  const head = src.slice(0, src.indexOf(">", src.indexOf("<svg")) + 1);
+  // Light parts white, dark parts red, so the two can be told apart.
+  const face = `${head}${light.replace(/style="[^"]*"/, 'style="fill:#fff"')}${dark.replace(/style="[^"]*"/, 'style="fill:#f00;stroke:#f00;stroke-width:0.5px"')}</svg>`;
+  const N = 512;
+  const { data } = await sharp(Buffer.from(face), { density: 300 }).resize(N, N).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  // The dark outline joins the outside and is part of the shape; dark marks inside it (eyes, nose, inner ears) are cut out.
+  const solid = (i) => data[i * 4 + 3] > 96;
+  const darkPx = (i) => solid(i) && data[i * 4 + 1] < 128;
+  const outline = new Uint8Array(N * N), stack = [];
+  for (let i = 0; i < N * N; i++) {
+    if (!darkPx(i)) continue;
+    const x = i % N, y = (i / N) | 0;
+    const nearOutside = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const X = x + dx, Y = y + dy; return X < 0 || Y < 0 || X >= N || Y >= N || !solid(Y * N + X); });
+    if (nearOutside) { outline[i] = 1; stack.push(i); }
+  }
+  while (stack.length) {
+    const i = stack.pop(), x = i % N, y = (i / N) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const X = x + dx, Y = y + dy, j = Y * N + X;
+      if (X >= 0 && Y >= 0 && X < N && Y < N && !outline[j] && darkPx(j)) { outline[j] = 1; stack.push(j); }
+    }
+  }
+  const out = Buffer.alloc(N * N * 4);
+  for (let i = 0; i < N * N; i++) {
+    const keep = solid(i) && (!darkPx(i) || outline[i]);
+    out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = 255;
+    out[i * 4 + 3] = keep ? data[i * 4 + 3] : 0;
+  }
+  // The face centred in a square with a little room around it, then the size asked for.
+  const trimmed = await sharp(out, { raw: { width: N, height: N, channels: 4 } }).png().trim().toBuffer({ resolveWithObject: true });
+  const side = Math.round(Math.max(trimmed.info.width, trimmed.info.height) * 1.06);
+  const px = (side - trimmed.info.width) / 2, py = (side - trimmed.info.height) / 2;
+  // (Two steps: sharp resizes before it pads within one pipeline, which squeezed the face and cut its sides.)
+  const square = await sharp(trimmed.data).extend({ top: Math.floor(py), bottom: Math.ceil(py), left: Math.floor(px), right: Math.ceil(px), background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
+  return sharp(square).resize(size, size).png().toBuffer();
 }
 
 /** Tablets were stuck at the desktop window's 360×520 minimum inside picture-in-picture. */

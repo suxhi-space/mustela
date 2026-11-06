@@ -85,7 +85,3 @@ export async function installAppImage(desktopShortcut: boolean): Promise<string>
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke("appimage_install", { desktopShortcut });
 }
-export async function relaunchInstalled() {
-  const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("relaunch_installed");
-}

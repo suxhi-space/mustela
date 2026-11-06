@@ -1,3 +1,4 @@
+import { friendNick } from "./nicks";
 import { createMemo, createSignal, Show } from "solid-js";
 import { TextWithEmoji } from "./chat/EmojiText";
 import type { Person } from "../lib/backend/types";
@@ -58,5 +59,7 @@ export function NameText(props: { person: Person; profile?: ProfileConfig | null
   // name styles only ever appeared inside their profile card.
   const { profile, ref } = createPerson(() => props.person, () => props.profile);
   const css = createMemo(() => nameCss(profile()?.name ?? null, surfaceInt(), !!props.fontOnly));
-  return <span ref={ref} class={`name ${props.class ?? ""} ${css().class}`} style={css().style}><TextWithEmoji v={props.person.name} /></span>;
+  // A nickname you gave this friend shows instead (their own name on hover).
+  const nick = () => friendNick(props.person.id);
+  return <span ref={ref} class={`name ${props.class ?? ""} ${css().class}`} style={css().style} title={nick() ? props.person.name : undefined}><TextWithEmoji v={nick() ?? props.person.name} /></span>;
 }

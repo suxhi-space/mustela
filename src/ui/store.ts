@@ -9,7 +9,7 @@ import { DEFAULT_DEVICE, DENSITY_VARS, sanitizeDevice, type DeviceSettings } fro
 import { detectPlatform, inTauri } from "../lib/platform";
 import {
   activeAccount, addAccount, demoAccountId, loadBook, normalizeBase, removeAccount, saveBook, setActive,
-  stoatAccountId, updateAccount, type Account, type Book,
+  stoatAccountId, type Account, type Book,
 } from "../lib/session/book";
 import { revokeSession } from "../lib/session/revoke";
 import { DEFAULT_SETTINGS, parseRemote, resolve, sanitize, type MustelaSettings } from "../lib/sync/settings";
@@ -141,8 +141,6 @@ export function setLookSync(to: LookSync) {
   // Phones starting their own synced look begin from the colors they have now.
   if (to === "kind" && MOBILE_UI && !settings().lookPhone) updateSettings((s) => ({ ...s, lookPhone: { ...now } }));
 }
-/** Turns appearance sync on or off for this device; turning it off starts from what you have now. */
-export function setSyncLook(on: boolean) { setLookSync(on ? "all" : "none"); }
 
 export function updateDevice(patch: Partial<DeviceSettings>) {
   const next = sanitizeDevice({ ...device(), ...patch });
@@ -261,11 +259,6 @@ export async function removeAccountById(id: string) {
   else { cur?.dispose(); batch(() => { setBackend(null); setSettings(structuredClone(DEFAULT_SETTINGS)); setPhase("login"); }); }
 }
 
-export function refreshAccountCard() {
-  const a = activeAccount(book()), b = backend();
-  if (a && b) commitBook(updateAccount(book(), a.id, { name: b.me.name }));
-}
-
 export async function boot() {
   if (inTauri()) {
     try {
@@ -278,13 +271,6 @@ export async function boot() {
   const acc = activeAccount(book());
   if (!acc) { setPhase("login"); return; }
   await openAccount(acc);
-}
-
-/** Pop-out window only: read the active account's saved look so it matches the main window. */
-export function loadLocalAppearance() {
-  const a = activeAccount(book());
-  const raw = a ? safeJson(kv.getItem(settingsKey(a.id))) : null;
-  if (raw) setSettings(sanitize(raw));
 }
 
 export async function refreshSystemSeed() { setSystemSeed(await getSystemSeed()); }

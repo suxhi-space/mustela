@@ -4,6 +4,7 @@ import { Icon } from "./icons";
 import { toast } from "./menu";
 import { backend } from "./store";
 import { inTauri } from "../lib/platform";
+import { zoomNow } from "./appSize";
 
 const ORIGIN = "https://stt.gg";
 
@@ -50,11 +51,16 @@ export function Discover(props: { onBack(): void; onJoined(serverId: string): vo
         queued = false;
         if (!host || failed()) return;
         const r = host.getBoundingClientRect();
-        // Text size zooms Mustela's page; the web view is placed in window units.
-        const ref = document.querySelector(".app")?.getBoundingClientRect().height || innerHeight;
-        const k = innerHeight / ref;
+        // Text size zooms Mustela's page (CSS zoom); the web view is placed in window units. A 100px probe says how
+        // this web view reports sizes under that zoom, so the view lands exactly on this space.
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:fixed;left:0;top:0;width:100px;height:100px;visibility:hidden;pointer-events:none";
+        document.body.appendChild(probe);
+        const pw = probe.getBoundingClientRect().width || 100;
+        probe.remove();
+        const k = (100 * zoomNow()) / pw;
         const show = !covered() && r.width > 20 && r.height > 20;
-        const args = { x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k), show, close: false };
+        const args = { x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.floor(Math.min(r.width * k, innerWidth - r.left * k)), h: Math.floor(Math.min(r.height * k, innerHeight - r.top * k)), show, close: false };
         const key = JSON.stringify(args);
         if (key !== last) { last = key; void call(args); }
       });

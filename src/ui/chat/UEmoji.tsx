@@ -1,5 +1,5 @@
 import { createEffect, createSignal, on, Show } from "solid-js";
-import { emojiReady, emojiUrl, loadEmoji, PACK_PUA } from "../../lib/emoji";
+import { emojiReady, emojiRetry, emojiUrl, loadEmoji, PACK_PUA } from "../../lib/emoji";
 import { settings } from "../store";
 
 /**
@@ -18,7 +18,7 @@ export function UEmoji(props: { e: string; class?: string; pack?: string }) {
   const urls = () => { const a = emojiUrl(pack(), char()), b = emojiUrl(pack(), char().replace(/️/g, "")); return a === b ? [a] : [a, b]; };
   const firstReady = () => urls().find(emojiReady) ?? null;
   const [src, setSrc] = createSignal<string | null>(pack() === "system" ? null : firstReady());
-  createEffect(on([pack, char], () => {
+  createEffect(on([pack, char, emojiRetry], () => {
     if (pack() === "system") { setSrc(null); return; }
     const now = firstReady();
     setSrc(now);

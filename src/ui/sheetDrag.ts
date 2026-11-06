@@ -4,13 +4,13 @@ import { zoomNow } from "./appSize";
  * are scrolled to the top (or by the top edge) and pull down. Let go past a third of its height, or flick it, and it
  * slides away; otherwise it springs back. Pulling it up (or scrolling it) grows it to full height first.
  */
-export function dragToClose(card: HTMLElement, close: () => void) {
+export function dragToClose(card: HTMLElement, close: () => void, opts: { full?: boolean } = {}) {
   let y0 = 0, t0 = 0, dy = 0, dragging = false, armed = false;
   // Only when the contents are taller than the card. A short card stays its own height (no empty
   // space under the text). A tall one eases up to just under the status bar, and you can still
-  // scroll to the top of what's in it.
+  // scroll to the top of what's in it. `full` (your own card, like Discord's): pulling up always opens it full height.
   const overflowing = () => card.scrollHeight > card.clientHeight + 12;
-  const grow = () => { if (overflowing()) card.classList.add("sheet-tall"); };
+  const grow = () => { if (opts.full) card.classList.add("sheet-full"); else if (overflowing()) card.classList.add("sheet-tall"); };
   card.addEventListener("scroll", () => { if (card.scrollTop > 4) grow(); }, { passive: true });
   const watch = new ResizeObserver(() => grow());
   watch.observe(card);
@@ -23,7 +23,9 @@ export function dragToClose(card: HTMLElement, close: () => void) {
     armed = e.touches[0]!.clientY - top < 48 || scroller().scrollTop <= 0;
     y0 = e.touches[0]!.clientY; t0 = Date.now(); dy = 0; dragging = false;
   }, { passive: true });
-  card.addEventListener("touchmove", (e) => {
+  // The move and the lift are watched on the window: what's under the finger can be redrawn mid-drag, and a
+  // touch on something no longer in the page doesn't reach the card any more.
+  const move = (e: TouchEvent) => {
     if (!armed) return;
     const d = e.touches[0]!.clientY - y0;
     if (!dragging) {
@@ -34,7 +36,8 @@ export function dragToClose(card: HTMLElement, close: () => void) {
     dy = Math.max(0, d);
     card.style.transform = `translateY(${dy / zoomNow()}px)`; // in the app's own (zoomed) pixels
     if (e.cancelable) e.preventDefault(); // the card moves, the page behind it doesn't scroll
-  }, { passive: false });
+  };
+  addEventListener("touchmove", move, { passive: false });
   const end = () => {
     if (!dragging) { armed = false; return; }
     const fast = dy / Math.max(1, Date.now() - t0) > 0.6;
@@ -45,6 +48,9 @@ export function dragToClose(card: HTMLElement, close: () => void) {
     if (go) setTimeout(close, 170);
     else setTimeout(() => { card.style.transition = ""; }, 200);
   };
-  card.addEventListener("touchend", end);
-  card.addEventListener("touchcancel", end);
+  addEventListener("touchend", end);
+  addEventListener("touchcancel", end);
+  // Gone with the card: stop listening.
+  const gone = new MutationObserver(() => { if (!card.isConnected) { removeEventListener("touchmove", move); removeEventListener("touchend", end); removeEventListener("touchcancel", end); gone.disconnect(); watch.disconnect(); } });
+  gone.observe(document.body, { childList: true, subtree: true });
 }

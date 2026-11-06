@@ -1,5 +1,4 @@
 import type { Layer } from "./spec";
-import { createLoop } from "../render/loop";
 
 /**
  * Canvas renderer. Framework-free so it can be reused anywhere.
@@ -24,9 +23,6 @@ export interface RenderOptions {
 }
 
 export type { Renderer } from "../render/loop";
-import type { Renderer } from "../render/loop";
-
-const STATIC_T = 1.35; // seconds; a pleasant-looking still moment
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -214,16 +210,4 @@ export function drawFrame(
       }
     }
   }
-}
-
-export function createRenderer(canvas: HTMLCanvasElement, layers: Layer[], opts: RenderOptions): Renderer {
-  const particles = new Map<Layer, Particle[]>();
-  return createLoop(canvas, {
-    width: opts.size,
-    height: opts.size,
-    staticOnly: opts.staticOnly,
-    staticT: STATIC_T,
-    maxDpr: 2,
-    draw: (ctx, t) => drawFrame(ctx, layers, t, opts.size, particles),
-  });
 }

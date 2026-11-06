@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { inTauri } from "../lib/platform";
 import { Icon } from "./icons";
-import { inboxBadge, inboxOpen, location, setInboxOpen } from "./nav";
+import { inboxBadge, inboxOpen, location, setInboxOpen, settingsOpen } from "./nav";
 import { phase } from "./store";
 import { platform } from "./store";
 import logo from "../../icons/app-icon.svg";
@@ -40,10 +40,12 @@ export function TitleBar() {
     onCleanup(off);
   });
   return (
-    <header class="titlebar" data-tauri-drag-region onDblClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; void win?.toggleMaximize(); }}>
+    <header class="titlebar" classList={{ "on-settings": !!settingsOpen() }} data-tauri-drag-region onDblClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; void win?.toggleMaximize(); }}>
       <span class="tb-mid" data-tauri-drag-region>
-        <Show when={location().icon} fallback={<img src={logo} alt="" class="tb-icon" />}><img src={location().icon} alt="" class="tb-icon round" /></Show>
-        <span data-tauri-drag-region>{location().text}</span>
+        <Show when={!settingsOpen()} fallback={<><img src={logo} alt="" class="tb-icon" /><span data-tauri-drag-region>Settings</span></>}>
+          <Show when={location().icon} fallback={<img src={logo} alt="" class="tb-icon" />}><img src={location().icon} alt="" class="tb-icon round" /></Show>
+          <span data-tauri-drag-region>{location().text}</span>
+        </Show>
       </span>
       <span class="tb-right">
         <Show when={phase() === "ready"}>

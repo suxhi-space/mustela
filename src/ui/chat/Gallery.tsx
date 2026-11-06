@@ -83,6 +83,11 @@ export function Lightbox() {
 function GalleryView() {
   useBack(close);
   const [chrome, setChrome] = createSignal(true);
+  // Phones: tapping the picture hides the bars, the phone's status bar included (like the gallery apps), and closing
+  // the viewer always brings it back.
+  const bars = (on: boolean) => { if (platform === "android") void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|system_bars", { payload: { on } })).catch(() => {}); };
+  createEffect(on(chrome, (c) => bars(c), { defer: true }));
+  onCleanup(() => bars(true));
   const [menu, setMenu] = createSignal(false);
   // Zoom of the picture in view, and how far it's moved (app pixels).
   const [scale, setScale] = createSignal(1);

@@ -14,6 +14,7 @@ import { ytEmbed } from "./videoFull";
 import { MOBILE_UI } from "../target";
 import { parseSearch, searchText, type SearchFilters } from "../../lib/searchQuery";
 import { openMenu } from "../menu";
+import { embedFor, isSocial, linksIn } from "../../lib/social";
 import { rememberSearch, searchDraft, setSearchDraft, setSearchPeople } from "./searchState";
 
 export type Panel = { kind: "search"; q: string; /** open the Filters window */ filters?: boolean } | { kind: "pins" };
@@ -23,14 +24,20 @@ type Has = "" | "media" | "link" | "file";
 type When = "" | "on" | "before" | "after";
 type Kind = "" | "people" | "bots";
 
-const URL_RE = /https?:\/\/[^\s<>()]+[^\s<>().,!?:;'"]/g;
+const URL_RE = /https?:\/\/[^\s<>()|]+[^\s<>()|.,!?:;'"]/g;
 const isMedia = (a: Attachment) => a.type === "image" || a.type === "video";
 /** A picture, video, GIF or YouTube card in the message, not a normal link preview. */
-const embedIsMedia = (e: Embed) =>
-  !!(e.video?.url || e.gif || e.kind === "image" || e.kind === "video" || (e.special?.type === "YouTube" && e.special.id));
+/**
+ * A picture or video in the message's previews, as Discord's Media tab counts them: videos, YouTube, pictures, and the
+ * big picture of a post or page (a Fur Affinity drawing, a tweet's photo). GIFs aren't media here, and nor are small
+ * site icons.
+ */
+const embedIsMedia = (e: Embed) => !e.gif && !!(e.video?.url || e.kind === "image" || e.kind === "video" || (e.special?.type === "YouTube" && e.special.id)
+  || (e.kind === "website" && e.image?.url && ((e.image.width ?? 0) >= 280 || (e.url && isSocial(e.url)))));
 const linksOf = (m: Msg) => [...new Set([...(m.text.match(URL_RE) ?? []), ...(m.embeds ?? []).flatMap((e) => (e.url && !e.gif ? [e.url] : []))])];
+const isGifFile = (a: Attachment) => /\.gif$/i.test(a.name) || /\.gif(\?|$)/i.test(a.url);
 const has = (m: Msg, h: Has) =>
-  !h || (h === "media" ? !!(m.attachments?.some(isMedia) || m.embeds?.some(embedIsMedia)) : h === "file" ? !!m.attachments?.some((a) => !isMedia(a)) : linksOf(m).length > 0);
+  !h || (h === "media" ? !!(m.attachments?.some((a) => isMedia(a) && !isGifFile(a)) || m.embeds?.some(embedIsMedia)) : h === "file" ? !!m.attachments?.some((a) => !isMedia(a)) : linksOf(m).length > 0);
 
 /** Highlight the searched words in a result (whole-word starts, any case), like Discord. Text only. */
 function markWords(el: HTMLElement, words: string[]) {
@@ -118,7 +125,7 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
   // A new search from the channel's own search box while this is open.
   createEffect(on(() => props.panel, (p) => {
     if (p.kind === "search" && p.filters) setFiltersOpen(true);
-    if (p.kind === "search" && p.q) { setDraft(p.q); apply(p.q); setTab("messages"); setPreview(null); }
+    if (p.kind === "search" && p.q) { setDraft(MOBILE_UI ? p.q : `${p.q.trim()} `); apply(p.q); setTab("messages"); setPreview(null); }
   }, { defer: true }));
   // The first search, once the people it might name are known.
   if (props.panel.kind === "search" && props.panel.q) { setQ(""); queueMicrotask(() => apply(draft())); }
@@ -152,7 +159,19 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
       if (id === runId) setSearchErr((e as Error)?.message || "Search didn't work. Try again.");
     } finally { if (id === runId) setSearching(false); }
   }
-  createEffect(on(() => [q(), sort(), props.channel.id, pins()] as const, ([, , , p]) => { setPage(0); if (!p) void loadBatch(true); }));
+  /**
+   * The total, like Discord's "812 results": Stoat doesn't say how many there are, so the rest are fetched quietly in
+   * the background, a batch at a time with a pause between (gentle on Stoat's rate limit), up to 2,000 messages.
+   */
+  async function countAll() {
+    const id = runId;
+    while (id === runId && more() && hits().length < 2000) {
+      await new Promise((r) => setTimeout(r, 650));
+      if (id !== runId || searching()) continue;
+      await loadBatch(false);
+    }
+  }
+  createEffect(on(() => [q(), sort(), props.channel.id, pins()] as const, ([, , , p]) => { setPage(0); if (!p) void loadBatch(true).then(countAll); }));
 
   // History is only read when it's needed: the Media, Links and Files tabs, and filters with no words (Stoat's
   // search needs words). Reading it alongside a search used to hold the search up behind Stoat's rate limit.
@@ -224,21 +243,23 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
   /** The searched words, for highlighting in the results. */
   const terms = () => q().split(/\s+/).map((w) => w.replace(/^["']+|["']+$/g, "")).filter((w) => w.length > 1);
 
-  type Hit = { m: Msg; url: string; name: string; preview?: string; video: boolean; spoiler?: boolean; frame?: string };
+  type Hit = { m: Msg; url: string; name: string; preview?: string; video: boolean; spoiler?: boolean; frame?: string; previewBroken?: boolean };
   const fromAttachment = (m: Msg, a: Attachment): Hit => ({ m, url: a.url, name: a.name, preview: a.previewUrl, video: a.type !== "image", spoiler: a.spoiler });
   const fromEmbed = (m: Msg, e: Embed): Hit | null => {
+    // A ||spoilered|| link's picture stays covered here too.
+    const spoiler = !!e.url && linksIn(m.text).some((l) => l.spoiler && embedFor(e.url!, l.url));
     if (e.special?.type === "YouTube" && e.special.id) {
       const id = e.special.id.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 20);
       const thumb = e.image?.url ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-      return { m, url: thumb, name: e.title || "YouTube", preview: thumb, video: true, frame: ytEmbed(id, !MOBILE_UI) };
+      return { m, url: thumb, name: e.title || "YouTube", preview: thumb, video: true, frame: ytEmbed(id, !MOBILE_UI), spoiler };
     }
-    if (e.video?.url) return { m, url: e.video.url, name: e.title || e.siteName || "Video", preview: e.image?.url, video: true };
-    if (e.image?.url && (e.kind === "image" || e.kind === "video" || e.gif)) return { m, url: e.image.url, name: e.title || (e.gif ? "GIF" : "Image"), preview: e.image.url, video: false };
+    if (e.video?.url) return { m, url: e.video.url, name: e.title || e.siteName || "Video", preview: e.image?.url, video: true, spoiler };
+    if (e.image?.url) return { m, url: e.image.url, name: e.title || e.siteName || "Image", preview: e.image.url, video: false, spoiler };
     return null;
   };
   // A memo, so the tile you tap is the same object the gallery looks up (a fresh list never contained it).
   const media = createMemo((): Hit[] => byFrom(hist() ?? []).flatMap((m) => [
-    ...(m.attachments ?? []).filter(isMedia).map((a) => fromAttachment(m, a)),
+    ...(m.attachments ?? []).filter((a) => isMedia(a) && !isGifFile(a)).map((a) => fromAttachment(m, a)),
     ...(m.embeds ?? []).filter(embedIsMedia).map((e) => fromEmbed(m, e)).filter((x): x is Hit => !!x),
   ]));
   const files = () => byFrom(hist() ?? []).flatMap((m) => (m.attachments ?? []).filter((a) => !isMedia(a)).map((a) => ({ m, a })));
@@ -332,14 +353,16 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
         {/* Computers, like Discord: filters are typed in the box (from:, has:… suggested as you type) or picked in the
             Filters window; this bar shows how many results, the Filters button and the sort. Phones and tablets pick
             them from the menus below instead. */}
-        <Show when={!MOBILE_UI && tab() === "messages" && (q() || filtering())}>
+        <Show when={tab() === "messages" && (q() || filtering())}>
           <div class="mp-resbar">
-            <span class="mp-count">{searching() && !hits().length ? "Searching…" : (() => { const n = results().length; return n === 1 && !more() ? "1 result" : `${n}${more() && q() ? "+" : ""} results`; })()}</span>
+            <span class="mp-count" title={more() && q() ? "Still counting…" : undefined}>{searching() && !hits().length ? "Searching…" : (() => { const n = results().length; return n === 1 && !more() ? "1 result" : `${n.toLocaleString()}${more() && q() ? "+" : ""} results`; })()}</span>
             <span class="grow" />
+            <Show when={!MOBILE_UI}>
             <button class="btn small" onClick={() => setFiltersOpen(true)}><Icon name="gear" size={14} />Filters{filterCount() ? ` (${filterCount()})` : ""}</button>
             <button class="btn small" onClick={(e) => openMenu(e.currentTarget, (q() ? ["Latest", "Oldest", "Relevance"] : ["Latest", "Oldest"]).map((k) => ({
               label: k === "Latest" ? "Newest first" : k === "Oldest" ? "Oldest first" : "Best match", checked: sort() === k, onSelect: () => setSort(k as SearchSort) })))}>
               <Icon name="swap" size={14} />Sort</button>
+            </Show>
           </div>
         </Show>
         <Show when={filtersOpen()}><FiltersDialog /></Show>
@@ -374,7 +397,9 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
                       </header>
                       <Show when={m.text} fallback={<em class="muted">{m.attachments?.length ? `${m.attachments.length} attachment${m.attachments.length > 1 ? "s" : ""}` : "Empty message"}</em>}><div class="mp-text-wrap" ref={(el) => queueMicrotask(() => markWords(el, terms()))}><Markdown text={m.text} class="mp-text" /></div></Show>
                       <Show when={m.attachments?.some(isMedia)}>
-                        <span class="mp-thumbs"><For each={m.attachments!.filter(isMedia).slice(0, 4)}>{(a) => <img src={a.previewUrl ?? a.url} alt="" loading="lazy" />}</For></span>
+                        <span class="mp-thumbs"><For each={m.attachments!.filter(isMedia).slice(0, 4)}>{(a) => (
+                          <span class="mp-thumb" classList={{ spoiled: !!a.spoiler }}><Show when={a.type === "image"} fallback={<video src={`${a.url}#t=0.1`} muted playsinline preload="metadata" />}><img src={a.previewUrl ?? a.url} alt="" loading="lazy" /></Show></span>
+                        )}</For></span>
                       </Show>
                     </button>
                   )}</For>
@@ -386,10 +411,13 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
           <Match when={tab() === "media"}>
             <For each={media()} fallback={<p class="empty">No pictures or videos in recent messages.</p>}>{(hit, i) => (
               <button class="mp-tile" classList={{ spoiled: !!hit.spoiler }} onClick={() => openFromSearch(hit, i())} aria-label={`${hit.name}, from ${hit.m.author.name}`}>
-                <Show when={!hit.video || hit.preview} fallback={<span class="mp-vid"><Icon name="video" size={22} /></span>}><img src={hit.preview ?? hit.url} alt="" loading="lazy" /></Show>
-                <Show when={hit.video && (hit.preview || hit.frame)}><span class="mp-vid"><Icon name="play" size={26} /></span></Show>
-                <Show when={hit.spoiler}><span class="mp-spoiler"><Icon name="eye" size={26} /></span></Show>
-                <span class="mp-by"><Avatar person={hit.m.author} size={26} presence={false} still /></span>
+                {/* A video with no picture of its own shows its first frame. */}
+                <Show when={hit.preview && !hit.previewBroken} fallback={<Show when={hit.video && !hit.frame} fallback={<span class="mp-vid"><Icon name="image" size={22} /></span>}><video src={`${hit.url}#t=0.1`} muted playsinline preload="metadata" /></Show>}>
+                  <img src={hit.preview} alt="" loading="lazy" onError={(e) => { if (hit.video && !hit.frame) { hit.previewBroken = true; e.currentTarget.replaceWith(Object.assign(document.createElement("video"), { src: `${hit.url}#t=0.1`, muted: true, playsInline: true, preload: "metadata" })); } }} />
+                </Show>
+                <Show when={hit.video}><span class="mp-play"><Icon name="play" size={18} /></span></Show>
+                <Show when={hit.spoiler}><span class="mp-spoiler">Spoiler</span></Show>
+                <span class="mp-by"><Avatar person={hit.m.author} size={20} presence={false} still /></span>
               </button>
             )}</For>
           </Match>

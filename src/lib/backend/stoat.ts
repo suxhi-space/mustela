@@ -647,7 +647,7 @@ export class StoatBackend implements ChatBackend {
   }
   roles(id: string): Role[] {
     const s: any = this.client.servers.get(id);
-    return ((s?.orderedRoles ?? []) as any[]).map((r) => ({ id: r.id, name: r.name, colour: r.colour ?? undefined, hoist: !!r.hoist, rank: r.rank ?? 0, iconUrl: this.fileUrl(r.icon) }));
+    return ((s?.orderedRoles ?? []) as any[]).map((r) => ({ id: r.id, name: r.name, colour: r.colour ?? undefined, hoist: !!r.hoist, rank: r.rank ?? 0, iconUrl: r.icon?.createFileURL?.() ?? this.fileUrl(r.icon) }));
   }
   createRole(id: string, name: string) { return this.wrap(async () => void (await this.server(id).createRole(name)), "create the role"); }
   editRole(id: string, rid: string, p: { name?: string; colour?: string | null; hoist?: boolean; icon?: File | null }) {

@@ -7,6 +7,7 @@ import type { ChannelInfo, Msg, NotifyLevel, Person, Space } from "../lib/backen
 import { attempt, closeMenu, confirmDialog, copy, openMenu, promptDialog, toast, type MenuItem } from "./menu";
 import { openChannel, setChannelSettings, setProfileOpen, setServerSettings } from "./nav";
 import { openEmojiPicker } from "./chat/overlays";
+import { editFriendNick, friendNick } from "./nicks";
 import { backend, ext } from "./store";
 import { channelPinItems, favGroupOf, newFavGroup, pinItems, setFavGroup, setFavourite } from "./pins";
 import { UEmoji } from "./chat/UEmoji";
@@ -218,7 +219,16 @@ export async function voiceChannelOf(serverId: string, userId: string): Promise<
  */
 export async function voiceModItems(p: Person, serverId: string | undefined, inChannel?: string): Promise<MenuItem[]> {
   const be = b();
-  if (!serverId || serverId === "home" || p.id === be.me.id || !be.moderateVoice) return [];
+  if (!serverId || serverId === "home") return [];
+  // Yourself: "Move to" switches you to another voice channel here, like dragging yourself in Discord.
+  if (p.id === be.me.id) {
+    const where = inChannel ?? (await voiceChannelOf(serverId, p.id));
+    if (!where) return [];
+    const sp = (await be.spaces().catch(() => [])).find((x) => x.id === serverId);
+    const others = (sp?.channels ?? []).filter((c) => c.kind === "voice" && c.id !== where);
+    return others.length ? [{ sep: true }, { label: "Move to", icon: "speaker", sub: others.map((c) => ({ label: c.name, icon: "speaker", onSelect: () => void import("./call/state").then((m) => m.joinCall(c)) })) }] : [];
+  }
+  if (!be.moderateVoice) return [];
   const perms = be.serverInfo(serverId)?.perms;
   if (!perms || !(perms.moveMembers || perms.muteMembers || perms.deafenMembers)) return [];
   const where = inChannel ?? (await voiceChannelOf(serverId, p.id));
@@ -244,6 +254,7 @@ export function friendItems(p: Person): MenuItem[] {
   if (rel === "none") out.push({ label: "Add friend", icon: "user-plus", onSelect: act("add", "Friend request sent") });
   if (rel === "incoming") out.push({ label: "Accept friend request", icon: "user-plus", onSelect: act("accept", "You're now friends") });
   if (rel === "outgoing") out.push({ label: "Cancel friend request", icon: "user-x", onSelect: act("remove", "Request cancelled") });
+  if (rel === "friend") out.push({ label: friendNick(p.id) ? "Change friend nickname" : "Add friend nickname", icon: "pencil", onSelect: () => void editFriendNick(p) });
   if (rel === "friend") out.push({ label: "Remove friend", icon: "user-x", danger: true, onSelect: async () => { if (await confirmDialog(`Remove ${p.name}?`, "You can add them again later.", "Remove friend", true)) await act("remove", "Removed")(); } });
   out.push(rel === "blocked"
     ? { label: "Unblock", icon: "ban", onSelect: act("unblock", "Unblocked") }

@@ -12,8 +12,11 @@ export interface CropRequest { file: File; aspect: number; outW: number; title: 
 /** The picture part of a published banner: 960×448, above the profile strip (see backend saveProfile). */
 const BANNER_ASPECT = 960 / 448;
 const [req, setReq] = createSignal<CropRequest | null>(null);
-export function cropImage(file: File, kind: "avatar" | "banner"): Promise<File | null> {
-  return new Promise((resolve) => setReq({ file, aspect: kind === "avatar" ? 1 : BANNER_ASPECT, outW: kind === "avatar" ? 512 : 960, title: kind === "avatar" ? "Crop your avatar" : "Crop your banner", resolve }));
+export function cropImage(file: File, kind: "avatar" | "banner" | "icon", title?: string): Promise<File | null> {
+  // Role (and other small) icons: square, kept small, like Stoat shows them.
+  const square = kind !== "banner";
+  return new Promise((resolve) => setReq({ file, aspect: square ? 1 : BANNER_ASPECT, outW: kind === "avatar" ? 512 : kind === "icon" ? 128 : 960,
+    title: title ?? (kind === "avatar" ? "Crop your avatar" : kind === "icon" ? "Crop the icon" : "Crop your banner"), resolve }));
 }
 
 export function CropperHost() {

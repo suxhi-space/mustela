@@ -1,3 +1,4 @@
+import { cropImage } from "./Cropper";
 import { createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch as Pick, type JSX } from "solid-js";
 import { dragSort, moved } from "./dragSort";
 import { useBack } from "./back";
@@ -226,7 +227,7 @@ function Roles(props: { info: ServerInfo }) {
               <Icon name="image" size={16} />
               <input type="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden onChange={(e) => {
                 const f = e.currentTarget.files?.[0]; e.currentTarget.value = "";
-                if (f) void attempt(() => b().editRole(props.info.id, r.id, { icon: f }), "Icon saved").then(later);
+                if (f) void cropImage(f, "icon", `Crop ${r.name}'s icon`).then((c) => c && attempt(() => b().editRole(props.info.id, r.id, { icon: c }), "Icon saved").then(later));
               }} />
             </label>
             <Show when={r.iconUrl}><button class="icon-btn" aria-label={`Remove ${r.name}'s icon`} title="Remove icon" onClick={() => void attempt(() => b().editRole(props.info.id, r.id, { icon: null }), "Icon removed").then(later)}><Icon name="close" size={14} /></button></Show>

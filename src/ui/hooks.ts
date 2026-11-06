@@ -3,6 +3,7 @@ import type { ProfileInfo } from "../lib/backend/types";
 import { backend, ext, settings } from "./store";
 import { currentServer } from "./nav";
 import { MOBILE_UI } from "./target";
+import { adaptMedia } from "../lib/tabletQueries";
 import { cachedProfile, saveProfile } from "../lib/profileCache";
 
 /** True once the element has been on screen. Used to avoid fetching profiles for rows nobody sees. */
@@ -121,10 +122,11 @@ export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolea
 }
 
 /** The phone layout (one screen at a time): a phone, or a phone-narrow window. Tablets get the side-by-side layout. */
-export const PHONE_QUERY = "(max-width: 700px)";
+// The phones-and-tablets build also counts an upright tablet as phone layout (lib/tabletQueries.ts).
+export const PHONE_QUERY = __UI__ === "mobile" ? adaptMedia("(max-width: 700px)") : "(max-width: 700px)";
 export const phoneLayout = () => matchMedia(PHONE_QUERY).matches;
 /** No room for the members column (it opens as a sheet instead): phones and tablets held upright. */
-export const narrowLayout = () => matchMedia("(max-width: 900px)").matches;
+export const narrowLayout = () => matchMedia(__UI__ === "mobile" ? adaptMedia("(max-width: 900px)") : "(max-width: 900px)").matches;
 
 /** Phone layout (the same breakpoint as the rest of the phone layout), live: turning a tablet switches it. */
 export function createPhone(): Accessor<boolean> {

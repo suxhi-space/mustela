@@ -1,8 +1,8 @@
 import { createEffect, createMemo, createRoot, createSignal, on as whenChanged } from "solid-js";
-import type { ChannelInfo, Person, VoiceHandle, VoiceMember } from "../../lib/backend/types";
+import type { ChannelInfo, VoiceHandle, VoiceMember } from "../../lib/backend/types";
 import { inTauri } from "../../lib/platform";
 import { playSfx } from "../../lib/sfx";
-import { backend, device, platform, ext } from "../store";
+import { backend, device, platform, ext, updateDevice } from "../store";
 import { pickScreen } from "./ScreenPicker";
 import { openMenu } from "../menu";
 
@@ -30,7 +30,14 @@ export const call = {
   channel, busy, error: err, popped, on, reactions,
   active: () => handle() !== null,
   handle,
-  people: createMemo<VoiceMember[]>(() => (tick(), handle()?.participants() ?? [])),
+  // Someone switching devices drops out for a moment and comes straight back: they're held in the list meanwhile
+  // (see attach), so their tile doesn't blink out and back.
+  people: createMemo<VoiceMember[]>(() => {
+    tick();
+    const now = handle()?.participants() ?? [];
+    const held = [...switching.values()].filter((m) => !now.some((p) => p.id === m.id));
+    return held.length ? [...now, ...held] : now;
+  }),
   speaking: createMemo<string[]>(() => (tick(), handle()?.speaking() ?? [])),
   streams: createMemo(() => (tick(), handle()?.streams?.() ?? [])),
   /** Streams you were watching that ended, until you close them */
@@ -71,18 +78,19 @@ export async function joinCall(c: ChannelInfo, opts: { rejoin?: boolean } = {}) 
   if (android()) await nativeCmd("call_audio", { payload: { on: true } });
   try {
     let h: VoiceHandle;
-    try { h = await backend()!.joinVoice(c.id, useNative() ? "native" : "web", device().voice); }
+    try { h = await backend()!.joinVoice(c.id, useNative() ? "native" : "web", joinPrefs()); }
     catch (e) {
       // Stoat may still think we're in the call we just left (or dropped from); one retry clears that up.
-      if (e instanceof Error && /already/i.test(e.message)) { await new Promise((r) => setTimeout(r, 1500)); h = await backend()!.joinVoice(c.id, useNative() ? "native" : "web", device().voice); }
+      if (e instanceof Error && /already/i.test(e.message)) { await new Promise((r) => setTimeout(r, 1500)); h = await backend()!.joinVoice(c.id, useNative() ? "native" : "web", joinPrefs()); }
       else throw e;
     }
     attach(h, c);
     setCallBanner(null);
     rememberCall(c);
-    if (device().voice.joinDeafened && h.setDeaf) { await h.setDeaf(true); setOn(h.state?.() ?? on()); }
+    if (device().voice.joinDeafened && h.setDeaf) { micBeforeDeaf = !device().voice.joinMuted; await h.setDeaf(true); setOn(h.state?.() ?? on()); }
     if (!moving && !opts.rejoin) void playEntrySound(h);
-    if (device().sounds.call) playSfx("join");
+    // Always for a call taken over from another device of yours, so you know the switch worked.
+    if (device().sounds.call || moving) playSfx("join");
   } catch (e) {
     setErr(e instanceof Error && e.message ? e.message : "Couldn't join voice. Check your connection and that you have permission.");
     if (android() && !handle()) void nativeCmd("call_audio", { payload: { on: false } });
@@ -114,15 +122,36 @@ export function checkLastCall(find: (id: string) => ChannelInfo | undefined) {
 /** Channels we've just rejoined after a drop (once a minute at most, so a broken call doesn't loop). */
 const rejoined = new Set<string>();
 
+/** People who just dropped out of the call, held for 2 s in case they're only switching devices (see attach). */
+const switching = new Map<string, VoiceMember>();
+const switchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 function attach(h: VoiceHandle, c: ChannelInfo) {
+  for (const t of switchTimers.values()) clearTimeout(t);
+  switching.clear(); switchTimers.clear();
   // Who's here and who's streaming, to play a sound when that changes (by id, so a swap still counts).
   const snap = () => { const ps = h.participants(); return { ids: new Set(ps.map((p) => p.id)), live: new Set(ps.filter((p) => p.screen).map((p) => p.id)) }; };
   let was = snap();
+  let lastPeople = h.participants();
   h.onChange(() => {
     setTick((t) => t + 1); const s = h.state?.(); if (s) setOn(s);
     const now = snap();
-    const joined = [...now.ids].some((id) => !was.ids.has(id)), left = [...was.ids].some((id) => !now.ids.has(id));
-    if (device().sounds.call) { if (left) playSfx("leave"); else if (joined) playSfx("join"); }
+    // Someone switching their call to another device leaves and is back within moments: that's not a leave and a
+    // join, so it plays nothing and they stay in the list. A leave only counts once they've been gone 2 seconds.
+    const back = [...now.ids].filter((id) => switching.has(id));
+    for (const id of back) { clearTimeout(switchTimers.get(id)); switchTimers.delete(id); switching.delete(id); }
+    const joined = [...now.ids].some((id) => !was.ids.has(id) && !back.includes(id));
+    for (const id of [...was.ids].filter((x) => !now.ids.has(x))) {
+      const m = lastPeople.find((p) => p.id === id);
+      if (!m) continue;
+      switching.set(id, m);
+      switchTimers.set(id, setTimeout(() => {
+        switching.delete(id); switchTimers.delete(id);
+        if (handle() === h) { setTick((t) => t + 1); if (device().sounds.call) playSfx("leave"); }
+      }, 2000));
+    }
+    lastPeople = h.participants();
+    if (device().sounds.call && joined) playSfx("join");
     if (device().sounds.streams) {
       // Someone who just left took their stream with them; the leave sound covers that.
       if ([...now.live].some((id) => !was.live.has(id))) playSfx("streamStart");
@@ -133,7 +162,12 @@ function attach(h: VoiceHandle, c: ChannelInfo) {
   h.onEnd((reason) => {
     if (handle() !== h) return;
     // Joined from somewhere else with this account: let it go (no rejoining, which would kick the other device).
-    if (reason === "moved") { setHandle(null); setTick((t) => t + 1); rememberCall(null); setCallBanner({ kind: "moved", channel: c }); return; }
+    // You answered on another device: this one says so with the leave sound (only you hear it; the call goes on).
+    // Some call engines (Linux's own) don't say why a call ended: if Stoat still has you in this call, it carries on
+    // on another of your devices, so it moved (rejoining here would pull it back from there).
+    // (Only when there's no reason at all: right after a real drop Stoat can still list you, and that must rejoin.)
+    if (reason === undefined && backend()?.voiceOf(backend()!.me.id)?.channelId === c.id) reason = "moved";
+    if (reason === "moved") { setHandle(null); setTick((t) => t + 1); rememberCall(null); setCallBanner({ kind: "moved", channel: c }); playSfx("leave"); return; }
     dropped();
   });
   // A call can die quietly: a phone that slept or an app left in the background stops the connection without
@@ -213,6 +247,8 @@ export function screenButton(anchor: Element) {
 }
 
 let micBeforeDeaf = false;
+/** Joining deafened means joining muted too (without changing your own mute choice). */
+const joinPrefs = () => { const v = device().voice; return { ...v, joinMuted: v.joinMuted || v.joinDeafened }; };
 export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
   const h = handle(); if (!h) return;
   const next = !on()[k];
@@ -222,7 +258,11 @@ export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
       // Like Discord: deafening mutes you, and undeafening turns your microphone back on if it was on before.
       if (next) micBeforeDeaf = on().mic;
       await h.setDeaf?.(next);
-      if (!next && micBeforeDeaf && !(h.state?.() ?? on()).mic) await h.setMic(true).catch(() => {});
+      if (!next && micBeforeDeaf) {
+        // Give the call a moment to reopen the sound before asking for the microphone again.
+        let st = h.state?.() ?? on();
+        for (let i = 0; i < 3 && !st.mic; i++) { await h.setMic(true).catch(() => {}); st = h.state?.() ?? on(); if (!st.mic) await new Promise((r) => setTimeout(r, 250)); }
+      }
       if (!next) micBeforeDeaf = false;
     }
     else {
@@ -253,6 +293,10 @@ export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
       } else await (k === "cam" ? h.setCamera(next) : h.setScreen(next, { quality: allowedQuality() }));
     }
     setOn(h.state?.() ?? { ...on(), [k]: next }); setErr(""); setTick((t) => t + 1);
+    if (k === "mic" || k === "deaf") {
+      const v = device().voice, now = on();
+      updateDevice({ voice: { ...v, joinDeafened: now.deaf, joinMuted: k === "mic" ? !now.mic : v.joinMuted } });
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.name + " " + e.message : String(e);
     if (k === "screen" && /NotAllowed|Abort|cancel/i.test(msg) && !/Permission denied by system/i.test(msg)) { setErr(""); return; } // you closed the picker
@@ -294,10 +338,6 @@ export async function playSoundInCall(data: ArrayBuffer, volume = 1) {
   const h = handle();
   if (!h?.playSound) { setErr("The soundboard needs the web call engine."); return; }
   try { await h.playSound(data, volume * device().voice.soundboardVolume / 100); } catch { setErr("Couldn't play that sound."); }
-}
-
-export function sendReaction(emoji: string) {
-  handle()?.react?.(emoji);
 }
 
 /** Your entry sound, played for everyone right after you join. */

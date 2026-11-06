@@ -1,3 +1,4 @@
+import { PHONE_QUERY } from "../hooks";
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js";
 import type { ChannelInfo, Person, VoiceMember, VoicePrefs } from "../../lib/backend/types";
 import { Select, Slider, Switch } from "../controls";
@@ -79,7 +80,7 @@ export async function callMemberMenu(e: MouseEvent, p: Person, opts: { focus?():
   const serverId = opts.serverId ?? (channelId ? be.serverOfChannel?.(channelId) : undefined);
   const person = be.person(p.id) ?? p;
   // Phones: a card from the bottom with their picture, instead of a little menu.
-  const sheet = matchMedia("(max-width: 700px), (pointer: coarse) and (orientation: portrait)").matches;
+  const sheet = matchMedia(PHONE_QUERY + ", (pointer: coarse) and (orientation: portrait)").matches;
   const items: MenuItem[] = sheet ? [] : [{ header: p.name }];
   // Profiles open in the main window, so the pop-out leaves this out.
   if ((e.target as Node | null)?.ownerDocument === document) items.push({ label: "Profile", icon: "user", onSelect: () => setProfileOpen(person) });
@@ -180,8 +181,9 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   // or a stream gets the whole screen. A tap brings them back.
   const [chrome, setChrome] = createSignal(true);
   // A phone held either way (sideways it's wider than the phone layout, but still a phone).
-  const touchPhoneMq = (() => { const mq = matchMedia("(max-width: 700px), (pointer: coarse) and (max-height: 500px)"); const [m, setM] = createSignal(mq.matches); const f = () => setM(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); return m; })();
+  const touchPhoneMq = (() => { const mq = matchMedia(PHONE_QUERY + ", (pointer: coarse) and (max-height: 500px)"); const [m, setM] = createSignal(mq.matches); const f = () => setM(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); return m; })();
   const touchPhone = () => touchPhoneMq() || phone();
+  let swipe: { x: number; y: number } | null = null;
   let chromeTimer: ReturnType<typeof setTimeout> | undefined;
   let swallow = false; // the tap that brings the controls back doesn't also press what's under it
   onMount(() => stage.addEventListener("click", (e) => { if (swallow) { swallow = false; e.stopPropagation(); } }, true));
@@ -356,6 +358,14 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
 
   return (
     <section ref={stage} class="cstage" classList={{ "has-sheet": phone() && !props.popout && here() && (!call.popped() || !!props.popout), compact: !!props.compact, full: full() || fill(), "stage-fill": fill(), "chrome-off": !chrome() }} aria-label="Call"
+      onTouchStart={(e) => { const t = e.touches[0]; swipe = t && !(e.target as Element).closest(".call-sheet, .ctx, .soundboard, input, textarea") ? { x: t.clientX, y: t.clientY } : null; }}
+      onTouchEnd={(e) => {
+        // Phones: swipe up on the call to bring up all the controls (swipe down puts them away), like Discord.
+        const t = e.changedTouches[0], s0 = swipe; swipe = null;
+        if (!s0 || !t || !phone()) return;
+        const dx = t.clientX - s0.x, dy = t.clientY - s0.y;
+        if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx) * 1.5) { wake(); dispatchEvent(new CustomEvent("mustela:call-sheet", { detail: dy < 0 })); }
+      }}
       onPointerDown={(e) => {
         const t = e.target as Element | null;
         if (t?.closest("button, a, input, textarea, .call-sheet, .call-top, .cbar, .ctx, .soundboard")) { wake(); return; }
@@ -499,6 +509,10 @@ function CallSheet(props: { chatOpen?: boolean; onToggleChat?(): void; full: boo
   };
   const offset = () => (open() ? 0 : extra()) + drag();
   const act = (f: () => void) => () => { f(); setOpen(false); };
+  // A swipe up anywhere on the call screen pulls the sheet up too (the stage tells it, below).
+  const fromStage = (e: Event) => { const v = (e as CustomEvent<boolean>).detail; setOpen(v); };
+  addEventListener("mustela:call-sheet", fromStage);
+  onCleanup(() => removeEventListener("mustela:call-sheet", fromStage));
   return (
     <>
       <Show when={open()}><div class="sheet-scrim" onClick={() => setOpen(false)} /></Show>

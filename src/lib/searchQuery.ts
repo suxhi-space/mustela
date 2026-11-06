@@ -94,3 +94,22 @@ export function searchText(words: string, f: SearchFilters, nameOf: (id: string)
   if (f.kind) parts.push(`authorType:${f.kind === "bots" ? "bot" : "user"}`);
   return parts.filter(Boolean).join(" ");
 }
+
+/** A finished filter shown as a box in the search bar (like Discord's), and the text it stands for. */
+export interface SearchChip { key: string; value: string; raw: string }
+
+/**
+ * The search bar's text split for showing: finished filters (a value and then a space) become boxes; the rest (words,
+ * and a filter still being typed) stays as text. `joinChips` puts them back together.
+ */
+export function splitChips(text: string): { chips: SearchChip[]; rest: string } {
+  const chips: SearchChip[] = [];
+  const re = /(^|\s)(from|mentions|has|before|after|during|on|authortype):(?:"([^"]+)"|([^\s"]+))(?=\s)/gi;
+  const rest = text.replace(re, (_all, lead: string, key: string, quoted: string | undefined, bare: string | undefined) => {
+    const value = (quoted ?? bare ?? "").trim();
+    chips.push({ key: key.toLowerCase(), value, raw: `${key.toLowerCase()}:${quoted !== undefined ? `"${quoted}"` : bare}` });
+    return lead;
+  });
+  return { chips, rest: rest.replace(/^\s+/, "").replace(/\s{2,}/g, " ") };
+}
+export const joinChips = (chips: SearchChip[], rest: string) => [...chips.map((c) => c.raw), rest].filter((x, i, a) => x || i === a.length - 1).join(" ").replace(/^\s+/, "");

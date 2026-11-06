@@ -456,13 +456,3 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
     onChange: (cb) => (subs.add(cb), () => void subs.delete(cb)),
   };
 }
-
-/** Lists microphones, speakers and cameras. Labels only appear once mic/camera permission has been granted. */
-export async function listDevices(): Promise<{ input: MediaDeviceInfo[]; output: MediaDeviceInfo[]; video: MediaDeviceInfo[] }> {
-  try {
-    const all = await navigator.mediaDevices.enumerateDevices();
-    return { input: all.filter((d) => d.kind === "audioinput"), output: all.filter((d) => d.kind === "audiooutput"), video: all.filter((d) => d.kind === "videoinput") };
-  } catch {
-    return { input: [], output: [], video: [] };
-  }
-}

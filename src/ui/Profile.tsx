@@ -170,7 +170,7 @@ function ServerSection(props: { person: Person; serverId: string }) {
           <div class="pc-roles">
             <For each={has()}>{(r) => (
               <span class="role-chip" style={{ "--role": r.colour && !/gradient/.test(r.colour) ? r.colour : undefined }}>
-                <Show when={can()} fallback={<i />}><button class="rc-x" aria-label={`Remove ${r.name}`} title={`Remove ${r.name}`} onClick={() => setRoles((mine() ?? []).filter((x) => x !== r.id))}><i /></button></Show>{r.name}
+                <Show when={can()} fallback={<i />}><button class="rc-x" aria-label={`Remove ${r.name}`} title={`Remove ${r.name}`} onClick={() => setRoles((mine() ?? []).filter((x) => x !== r.id))}><i /></button></Show><Show when={r.iconUrl}>{(src) => <img class="rc-icon" src={src()} alt="" />}</Show>{r.name}
               </span>
             )}</For>
             <Show when={can() && roles().length > has().length}><button class="role-chip add" aria-label="Add role" title="Add role" onClick={(e) => addMenu(e)}><Icon name="plus" size={13} /></button></Show>

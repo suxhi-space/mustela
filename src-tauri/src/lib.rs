@@ -87,6 +87,36 @@ async fn fetch_image(url: String) -> Result<Response, String> {
     Ok(Response::new(fetch::fetch_capped(&url).await?))
 }
 
+/// This computer's name, for naming Mustela's session (Settings > Sessions), like Stoat does.
+#[cfg(desktop)]
+#[tauri::command]
+fn device_name() -> String {
+    #[cfg(target_os = "windows")]
+    { return std::env::var("COMPUTERNAME").unwrap_or_default(); }
+    #[cfg(target_os = "macos")]
+    { return std::process::Command::new("scutil").args(["--get", "ComputerName"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default(); }
+    #[cfg(target_os = "linux")]
+    { return std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()).or_else(|_| std::env::var("HOSTNAME")).unwrap_or_default(); }
+    #[allow(unreachable_code)]
+    String::new()
+}
+
+/// "Save image as…": the system's save window, then the picture (https only, size-capped) written where you chose.
+#[cfg(desktop)]
+#[tauri::command]
+async fn save_image(app: tauri::AppHandle, url: String, name: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let bytes = fetch::fetch_capped(&url).await?;
+    let clean: String = name.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) || c.is_control() { '_' } else { c }).take(120).collect();
+    let file = if clean.trim().is_empty() { "image.png".to_string() } else { clean };
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().set_file_name(&file).save_file(move |p| { let _ = tx.send(p); });
+    let Some(path) = rx.await.map_err(|e| e.to_string())? else { return Ok(false) };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, bytes).map_err(|e| format!("Couldn't save it: {e}"))?;
+    Ok(true)
+}
+
 /// Downloads a soundboard clip from a direct link or a soundboard page (MyInstants and similar).
 #[tauri::command]
 async fn fetch_audio(url: String) -> Result<Response, String> {
@@ -317,7 +347,18 @@ async fn discover_embed(app: tauri::AppHandle, x: f64, y: f64, w: f64, h: f64, s
     let window = app.get_window("main").ok_or("Mustela's window isn't open.")?;
     let url: tauri::Url = "https://stt.gg/discover/servers?embedded=true".parse().map_err(|e: url::ParseError| e.to_string())?;
     let (nav, popup) = (app.clone(), app.clone());
+    // In embedded mode Stoat's page tells the page around it what was clicked ("navigate" to an invite or bot); a web
+    // view of its own has nothing around it, so that message comes back to itself. Turn it into a normal link, which
+    // on_navigation then hands to Mustela.
+    const BRIDGE: &str = r#"(function(){
+      var go = function(u){ try { location.href = new URL(u, "https://stoat.chat").href; } catch (e) {} };
+      window.addEventListener("message", function(e){
+        var d = e.data; if (typeof d === "string") { try { d = JSON.parse(d); } catch (x) { return; } }
+        if (d && d.source === "discover" && (d.type === "navigate" || d.type === "open") && typeof (d.url || d.path) === "string") go(d.url || d.path);
+      }, true);
+    })();"#;
     let builder = tauri::webview::WebviewBuilder::new(LABEL, tauri::WebviewUrl::External(url))
+        .initialization_script(BRIDGE)
         .on_navigation(move |u| { if discover_link(u) { let _ = nav.emit("mustela:discover-link", u.to_string()); false } else { true } })
         .on_new_window(move |u, _| {
             if discover_link(&u) { let _ = popup.emit("mustela:discover-link", u.to_string()); }
@@ -479,6 +520,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_mustela_native::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| {
@@ -506,7 +548,7 @@ pub fn run() {
             #[cfg(target_os = "linux")] call_linux::voice_start_call, #[cfg(target_os = "linux")] call_linux::voice_set_mic,
             #[cfg(target_os = "linux")] call_linux::voice_set_deaf, #[cfg(target_os = "linux")] call_linux::voice_end_call,
             #[cfg(target_os = "linux")] call_linux::voice_call_state,
-            #[cfg(desktop)] notify::notify_rich, #[cfg(desktop)] set_start_open, #[cfg(desktop)] open_discover, #[cfg(desktop)] discover_embed, #[cfg(desktop)] start_open,
+            #[cfg(desktop)] notify::notify_rich, #[cfg(desktop)] set_start_open, #[cfg(desktop)] open_discover, #[cfg(desktop)] discover_embed, #[cfg(desktop)] save_image, #[cfg(desktop)] device_name, #[cfg(desktop)] start_open,
             #[cfg(desktop)] desktop::tray_state, #[cfg(desktop)] desktop::tray_image, #[cfg(desktop)] desktop::set_close_to_tray,
             #[cfg(desktop)] desktop::appimage_status, #[cfg(desktop)] desktop::appimage_install, #[cfg(desktop)] desktop::relaunch_installed])
         .run(tauri::generate_context!())

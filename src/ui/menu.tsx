@@ -233,6 +233,38 @@ export function Dialogs() {
  * Text fields keep the native menu so cut/copy/paste and spellcheck work.
  * Elements with their own menus stop the event before it gets here.
  */
+/** The picture's bytes, through the app when it can (no cross-site limits there), else the web. */
+async function imageBlob(url: string): Promise<Blob> {
+  if ("__TAURI_INTERNALS__" in globalThis) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const buf = await invoke<ArrayBuffer>("fetch_image", { url });
+    return new Blob([buf]);
+  }
+  return (await fetch(url)).blob();
+}
+
+/** Copy image: the picture itself on the clipboard (as PNG, which every app pastes). */
+async function copyImage(url: string) {
+  try {
+    const bmp = await createImageBitmap(await imageBlob(url));
+    const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+    c.getContext("2d")!.drawImage(bmp, 0, 0);
+    const png = await new Promise<Blob>((ok, no) => c.toBlob((b) => (b ? ok(b) : no(new Error("no image"))), "image/png"));
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+    toast("Image copied");
+  } catch { toast("Couldn't copy that picture.", true); }
+}
+
+/** Save image as…: the system's save window on computers; Downloads on Android. */
+async function saveImage(url: string, name: string) {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    if (/Android/i.test(navigator.userAgent)) { await invoke("plugin:mustela-native|media_file", { payload: { url, name, share: false } }); toast("Saving to Downloads…"); return; }
+    if ("__TAURI_INTERNALS__" in globalThis) { if (await invoke<boolean>("save_image", { url, name })) toast("Saved"); return; }
+  } catch (e) { toast(String((e as Error)?.message ?? e) || "Couldn't save it.", true); return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(await imageBlob(url)); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
 /** `w`: the window to cover (the call pop-out installs it too). */
 export function installGlobalContextMenu(w: Window = window) {
   w.addEventListener("contextmenu", (e) => {
@@ -250,8 +282,12 @@ export function installGlobalContextMenu(w: Window = window) {
     }
     const src = img && ((img as HTMLImageElement).currentSrc || img.src);
     if (src && /^https?:/i.test(src)) {
-      items.push({ label: "Open image", icon: "popout", onSelect: () => { const l = document.createElement("a"); l.href = src; l.target = "_blank"; l.rel = "noopener noreferrer"; l.click(); } },
-        { label: "Copy image link", icon: "copy", onSelect: () => copy(src, "Link copied") });
+      const isImg = img instanceof HTMLImageElement;
+      const name = (() => { try { return decodeURIComponent(new URL(src).pathname.split("/").pop() || "") || "image"; } catch { return "image"; } })();
+      if (isImg && !/Android/i.test(navigator.userAgent)) items.push({ label: "Copy image", icon: "copy", onSelect: () => void copyImage(src) });
+      if (isImg) items.push({ label: /Android/i.test(navigator.userAgent) ? "Save image" : "Save image as…", icon: "download", onSelect: () => void saveImage(src, /\.\w{2,5}$/.test(name) ? name : `${name}.png`) });
+      items.push({ label: "Copy image link", icon: "link", onSelect: () => copy(src, "Link copied") },
+        { label: "Open image link", icon: "popout", onSelect: () => { const l = document.createElement("a"); l.href = src; l.target = "_blank"; l.rel = "noopener noreferrer"; l.click(); } });
     }
     if (items.length) openMenu(e, items);
   });

@@ -117,6 +117,7 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         // page's base size (--font-scale) a little.
         val fontScale = activity.resources.configuration.fontScale
         lockPageScale(webView)
+        activity.runOnUiThread { clearBarScrims() }
         webView.post { webView.evaluateJavascript("document.documentElement.style.setProperty('--font-scale','${fontScale.coerceIn(0.85f, 1.3f)}')", null) }
         val density = activity.resources.displayMetrics.density
         ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
@@ -174,6 +175,19 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         webView.settings.setSupportZoom(false)
         webView.settings.builtInZoomControls = false
         webView.settings.displayZoomControls = false
+        // No "font boosting" (Android enlarging text it thinks is too small, which made the app come back fat after
+        // the home screen or picture-in-picture) and no zoomed-out overview layout: the page is sized by its own rules.
+        @Suppress("DEPRECATION")
+        webView.settings.layoutAlgorithm = android.webkit.WebSettings.LayoutAlgorithm.NORMAL
+        webView.settings.loadWithOverviewMode = false
+    }
+
+    /** The app is drawn behind the status and navigation bars: no grey strip from Android behind the gesture bar. */
+    private fun clearBarScrims() {
+        val w = activity.window
+        if (Build.VERSION.SDK_INT >= 29) { w.isNavigationBarContrastEnforced = false; w.isStatusBarContrastEnforced = false }
+        @Suppress("DEPRECATION")
+        if (Build.VERSION.SDK_INT < 35) w.navigationBarColor = android.graphics.Color.TRANSPARENT
     }
 
     private fun refit() {

@@ -1,7 +1,7 @@
 import type { SlotConfig } from "../decor/spec";
 import { NONE_SLOT } from "../decor/spec";
 import { snap } from "../color";
-import { getSlotPreset, NAME_EFFECTS, NAME_FONTS, slotFromPreset, type SlotKind } from "./presets";
+import { getSlotPreset, NAME_EFFECTS, NAME_FONTS, type SlotKind } from "./presets";
 
 export interface NameStyle {
   font: number;
@@ -86,8 +86,6 @@ export function sanitizeProfile(raw: unknown): ProfileConfig {
     name: sanitizeName(r.name),
   };
 }
-
-export const profilesEqual = (a: ProfileConfig, b: ProfileConfig) => JSON.stringify(a) === JSON.stringify(b);
 
 /** True if the profile has anything worth fetching/rendering beyond defaults. */
 export function isPlain(p: ProfileConfig): boolean {

@@ -34,7 +34,7 @@ export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string
     <ul class="voice-members">
       <For each={props.members}>{(m) => (
         <li classList={{ talking: call.speaking().includes(m.id) && !call.soundboard().includes(m.id), sound: call.soundboard().includes(m.id) }} {...holdToOpen()}
-          draggable={!MOBILE_UI && !!props.canMove && m.id !== backend()?.me.id}
+          draggable={!MOBILE_UI && (!!props.canMove || m.id === backend()?.me.id)}
           onDragStart={(e) => { e.dataTransfer!.setData(VOICE_MIME, `${m.id}|${props.channelId ?? ""}`); e.dataTransfer!.effectAllowed = "move"; }} onContextMenu={(e) => { markHeld(); callMemberMenu(e, m, { serverId: props.serverId, channelId: props.channelId }); }}>
           {/* Their profile, like Discord: beside the list on desktop, the usual card on phones. */}
           <button class="vm-who" aria-label={`${m.name}'s profile`}

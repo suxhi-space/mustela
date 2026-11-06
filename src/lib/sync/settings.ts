@@ -58,6 +58,8 @@ export interface MustelaSettings {
   pins: { groups: PinGroup[]; items: { channel: string; group: string }[] };
   /** How unicode emoji are drawn: a Stoat emoji pack, or the system font. */
   emojiPack: EmojiPack;
+  /** Nicknames you gave friends (only you see them), by user id. Written only once you set one. */
+  friendNicks?: Record<string, string>;
   /** ms since epoch of last local change; drives last-write-wins. */
   updatedAt: number;
 }
@@ -129,6 +131,8 @@ export function sanitize(raw: unknown): MustelaSettings {
     maxRating: RATING_ORDER.includes(r.maxRating) ? r.maxRating : d.maxRating,
     pins: sanitizePins(r.pins),
     emojiPack: (EMOJI_PACKS as readonly unknown[]).includes(r.emojiPack) ? r.emojiPack : d.emojiPack,
+    ...(r.friendNicks && typeof r.friendNicks === "object" ? { friendNicks: Object.fromEntries(Object.entries(r.friendNicks as Record<string, unknown>)
+      .filter(([k, v]) => /^[0-9A-HJKMNP-TV-Z]{26}$/.test(k) && typeof v === "string" && v.trim().length > 0).slice(0, 500).map(([k, v]) => [k, (v as string).trim().slice(0, 32)])) } : {}),
     updatedAt: int(r.updatedAt, 0, Number.MAX_SAFE_INTEGER, 0),
   };
 }

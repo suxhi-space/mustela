@@ -50,3 +50,15 @@ describe("filters back into text", () => {
     expect(back.filters).toMatchObject({ from: "u2", has: "file", when: "before", day: "2026-10-01", kind: "bots" });
   });
 });
+
+import { joinChips, splitChips } from "./searchQuery";
+describe("search bar boxes", () => {
+  it("turns finished filters into boxes and keeps the rest as text", () => {
+    const { chips, rest } = splitChips('from:"Reimei れいめい" has:image hello from:mi');
+    expect(chips.map((c) => `${c.key}=${c.value}`)).toEqual(["from=Reimei れいめい", "has=image"]);
+    expect(rest).toBe("hello from:mi");
+    expect(joinChips(chips, rest)).toBe('from:"Reimei れいめい" has:image hello from:mi');
+    expect(splitChips("from:abc").chips).toEqual([]);
+    expect(joinChips(splitChips("has:link ").chips, "")).toBe("has:link ");
+  });
+});

@@ -1,3 +1,4 @@
+import { adaptMedia } from "../../lib/tabletQueries";
 import { createSignal } from "solid-js";
 import { MOBILE_UI } from "../target";
 
@@ -12,7 +13,7 @@ import { MOBILE_UI } from "../target";
  */
 // Small tablets (about 7 inches, under ~640px tall sideways) feel more like a big phone: they keep the phone call
 // screen sideways too, rather than the desktop look squeezed in.
-const mq = typeof matchMedia === "function" ? matchMedia("(min-width: 901px) and (min-height: 641px)") : null;
+const mq = typeof matchMedia === "function" ? matchMedia(adaptMedia("(min-width: 901px) and (min-height: 641px)")) : null;
 const [sideways, setSideways] = createSignal(!!mq?.matches);
 mq?.addEventListener("change", () => { setSideways(mq.matches); if (!mq.matches) setTabletFull(false); });
 

@@ -9,8 +9,6 @@ import { inviteFromLink } from "../lib/invite";
  */
 const [code, setCode] = createSignal<string | null>(null);
 
-export const openInvite = (c: string) => setCode(c);
-
 export function InviteDialogHost() {
   // Links handed over by the Android app (see NativePlugin.kt): one waiting from launch, then any later ones.
   const w = window as unknown as { __mustelaLink?: string; __mustelaLinkDone?: string };

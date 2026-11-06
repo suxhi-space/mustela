@@ -30,8 +30,6 @@ export function fmtDate(d: Date) {
   return fmt("d", {}).format(d);
 }
 
-export const fmtDateTime = (d: Date) => `${fmtDate(d)} ${fmtTime(d)}`;
-
 /** "Today at 3:04 PM", "Yesterday at…", or the date. */
 export function fmtStamp(d: Date) {
   const today = new Date(), y = new Date(Date.now() - 86_400_000);

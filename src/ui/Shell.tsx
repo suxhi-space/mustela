@@ -42,7 +42,7 @@ import { CallStage } from "./call/CallStage";
 import { favGroupItems, groupItems, movePin, newFavGroup, newPinGroup, reorderPinned, setChannelPinned, setFavGroup, setPin } from "./pins";
 import { moveCategory, moveChannel } from "../lib/channelOrder";
 import { hasTitleBar } from "./TitleBar";
-import { attempt, openMenu } from "./menu";
+import { attempt, openMenu, toast } from "./menu";
 import { Settings } from "./Settings";
 import { backend, book, bumpMe, device, ext, meNow, platform, settings, updateDevice, updateExt } from "./store";
 import { activeAccount } from "../lib/session/book";
@@ -55,6 +55,8 @@ import { ProfileEditorHost } from "./ProfileEditor";
 import { EmojiInfo } from "./chat/EmojiInfo";
 import { MessagePanel, type Panel } from "./chat/MessagePanel";
 import { HeaderSearch } from "./chat/HeaderSearch";
+import { shownName } from "./nicks";
+import { sessionName } from "../lib/deviceName";
 import { channelSettings, setChannelSettings, setCurrentServer, setProfileView, inboxBadge, inboxOpen, setInboxOpen, setInboxBadge, setLocation, profileOpen, registerNav, serverSettings, setProfileOpen, setServerSettings, setSettingsOpen, settingsOpen } from "./nav";
 import { ServerSettings } from "./ServerSettings";
 import { ChannelSettings } from "./ChannelSettings";
@@ -242,6 +244,16 @@ export function Shell() {
   // Unread badges and notifications.
   // Scheduled messages (schedule.ts): sent from here when they come due; this account's list.
   startScheduler();
+  // Sessions from before Mustela named them by device ("Mustela") get this device's name, once.
+  setTimeout(() => {
+    const b = backend();
+    if (!b?.session() || localStorage.getItem("mustela.sessionNamed") === b.me.id) return;
+    void b.account.sessions().then(async (list) => {
+      const cur = list.find((x) => x.current);
+      if (cur && cur.name === "Mustela") await b.account.renameSession(cur.id, await sessionName());
+      try { localStorage.setItem("mustela.sessionNamed", b.me.id); } catch { /* storage off */ }
+    }).catch(() => {});
+  }, 8000);
   createEffect(on(() => backend()?.me.id, () => refreshScheduled()));
   // Emoji you're likely to see load in the background a few seconds after start-up (and again after picking a
   // new style), so they show in your style straight away instead of loading one by one.
@@ -365,7 +377,8 @@ export function Shell() {
   type RowOpts = { fav?: () => void; saved?: boolean; drag?: Drag; drop?: ReturnType<typeof dropTo>; key?: string; sub?: string; onOpen?: () => void; server?: string };
   /** A voice channel takes someone dragged from another one (computers, with Move Members): moves them there. */
   const [voiceDropAt, setVoiceDropAt] = createSignal<string | null>(null);
-  const voiceDrop = (c: ChannelInfo) => (c.kind !== "voice" || !serverPerms()?.moveMembers ? {} : {
+  // Your own entry can always be dragged: dropping it on another voice channel moves you there (like Discord).
+  const voiceDrop = (c: ChannelInfo) => (c.kind !== "voice" || MOBILE_UI ? {} : {
     onDragOver: (e: DragEvent) => { if (!e.dataTransfer?.types.includes(VOICE_MIME)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setVoiceDropAt(c.id); },
     onDragLeave: () => { if (voiceDropAt() === c.id) setVoiceDropAt(null); },
     onDrop: (e: DragEvent) => {
@@ -376,6 +389,8 @@ export function Shell() {
       const [uid, from] = v.split("|");
       const sid = space()?.id;
       if (!uid || from === c.id || !sid) return;
+      if (uid === backend()!.me.id) { void joinCall(c); return; }
+      if (!serverPerms()?.moveMembers) { toast("You need the Move Members permission to move people.", true); return; }
       void attempt(() => backend()!.moderateVoice!(sid, uid, { channel: c.id }), `Moved to ${c.name}`).then(() => refetch());
     },
   });
@@ -395,7 +410,7 @@ export function Shell() {
         }>
           <Avatar person={c.peer!} size={phone() ? 38 : 28} still />
         </Show>
-        <span class="chan-name"><TextWithEmoji v={c.name} /><Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
+        <span class="chan-name"><TextWithEmoji v={c.kind === "dm" && c.peer ? shownName(c.peer) : c.name} /><Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
         <Show when={call.active() && call.channel()?.id === c.id}><Icon name="speaker" size={14} class="live-ic" /></Show>
         {/* DMs count every unread message (like the orbs above the server list); channels count mentions. */}
         <Show when={(c.kind === "dm" || c.kind === "group") && c.unread && !c.muted ? Math.max(c.mentions ?? 0, backend()!.unreadCount(c.id)) : c.mentions}>{(n) => <span class="badge">{n() > 99 ? "99+" : n()}</span>}</Show>
@@ -642,8 +657,8 @@ export function Shell() {
                 <button class="icon-btn back" onClick={() => setView("nav")} aria-label="Back"><Icon name="back" size={20} /></button>
                 <Show when={c().kind === "dm" && c().peer} fallback={<><Icon name={c().kind === "voice" ? "speaker" : c().kind === "group" ? "users" : "hash"} size={20} class="muted" /><h2><TextWithEmoji v={c().name} /></h2></>}>
                   {/* Their picture and name: on phones, tap them for their card (instead of a separate button) */}
-                  <button class="bar-peer" aria-label={`${c().name}'s profile`} onClick={() => phone() && setProfileView({ person: c().peer!, full: false, x: 0, y: 0 })}>
-                    <Avatar person={c().peer!} size={26} /><h2><TextWithEmoji v={c().name} /></h2>
+                  <button class="bar-peer" aria-label={`${c().name}'s profile`} title="View profile" onClick={() => setProfileView({ person: c().peer!, full: !phone(), x: 0, y: 0 })}>
+                    <Avatar person={c().peer!} size={26} /><h2><TextWithEmoji v={shownName(c().peer!)} /></h2>
                   </button>
                 </Show>
                 <Show when={c().description}><span class="topic" title={c().description}>{c().description}</span></Show>

@@ -60,9 +60,6 @@ export function setDraft(channelId: string, d: Draft) {
   save();
 }
 
-/** Channels with a draft, for the little pencil in the channel list. */
-export function hasDraft(channelId: string) { return !!load()[channelId]?.text.trim(); }
-
 const files = new Map<string, PendingFile[]>();
 export const getFiles = (channelId: string) => files.get(channelId) ?? [];
 export function setFiles(channelId: string, list: PendingFile[]) { if (list.length) files.set(channelId, list); else files.delete(channelId); }

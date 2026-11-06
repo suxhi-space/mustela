@@ -112,7 +112,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
         </nav>
         <div class="spage panel" role="tabpanel" aria-label={TITLE[tab()]}>
           <header class="spage-head">
-            <button class="icon-btn snav-back" onClick={() => setNarrowNav(true)} aria-label="All settings"><Icon name="back" size={20} /></button>
+            <button class="icon-btn snav-back" onClick={() => setNarrowNav(true)} aria-label="All settings"><Icon name="back" size={22} /></button>
             <h2>{TITLE[tab()]}</h2>
             <span class="grow" />
             <button class="esc" onClick={props.onClose} aria-label="Close settings"><span class="esc-x"><Icon name="close" size={18} /></span><small class="desk-only">Esc</small></button>

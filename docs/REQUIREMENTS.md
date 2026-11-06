@@ -275,3 +275,18 @@ the Android launcher icon shape, the tablet status/navigation bars, and the macO
 - 🧪 Discover embedded in the main window on desktop (child web view over the content area; falls back to its window)
 - Not possible: disconnecting someone from voice (not in Stoat's API); holding Enter to schedule (keyboards don't
   report a hold); changing an attachment's spoiler after sending (Stoat's edit only takes text and embeds)
+
+## Nov: 0.1.6-build1
+See docs/releases/0.1.6-build1.md. Checked in the demo at computer, phone, tablet-upright and tablet-sideways sizes;
+needs a real device for: Android themed icon, resume size, PiP layout, nav-bar strip, status bar in the viewer,
+Discover embedded view (Windows/macOS/Linux), Save image as dialog, session names.
+- 🧪 Search: filter boxes, auto-search on pick, total count (background, up to 2,000), pages, Media tab rules, spoilers
+- 🧪 Friend nicknames (synced settings), Copy image / Save image as, DM name opens full profile
+- 🧪 Mute/deafen like Discord (separate mute choice, kept between calls), self-move in voice, device-switch sounds
+- 🧪 Role icons visible/removable in server settings, crop on upload; session names per device (only renames "Mustela")
+- 🧪 Desktop Settings full page at ~1:1–4:3, card when wide with dimmed title bar; member list wider/compact; tooltips
+- 🧪 Phones: card gestures everywhere, own card full height, emoji card stays open, call swipe-up, PiP sizing,
+  themed icon, no tap highlight, solid overlays, one header style, settings bars edge to edge
+- 🧪 Tablets: upright = phone layout (tabletQueries.ts), sideways keyboard keeps just the chat
+- 🧪 Discover: postMessage bridge for embedded mode, placement measured with a probe
+

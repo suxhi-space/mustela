@@ -1,3 +1,4 @@
+import { sessionName } from "../deviceName";
 import { normalizeBase } from "../session/book";
 import type { StoredSession } from "./types";
 
@@ -54,13 +55,11 @@ function baseOf(raw?: string): string {
   return b ?? DEFAULT_API;
 }
 
-export const FRIENDLY = "Mustela";
-
-export function beginLogin(p: { baseURL?: string; email: string; password: string }): Promise<LoginResult> {
-  return post(baseOf(p.baseURL), { email: p.email, password: p.password, friendly_name: FRIENDLY });
+export async function beginLogin(p: { baseURL?: string; email: string; password: string }): Promise<LoginResult> {
+  return post(baseOf(p.baseURL), { email: p.email, password: p.password, friendly_name: await sessionName() });
 }
 
 export async function finishMfa(p: { baseURL?: string; ticket: string; method: "totp" | "recovery"; code: string }): Promise<LoginResult> {
   const response = p.method === "totp" ? { totp_code: p.code.replace(/\s+/g, "") } : { recovery_code: p.code.trim() };
-  return post(baseOf(p.baseURL), { mfa_ticket: p.ticket, mfa_response: response, friendly_name: FRIENDLY });
+  return post(baseOf(p.baseURL), { mfa_ticket: p.ticket, mfa_response: response, friendly_name: await sessionName() });
 }

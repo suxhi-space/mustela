@@ -28,8 +28,9 @@ export const zoomNow = () => parseFloat(document.documentElement.style.zoom) || 
  * Clearing the zoom and writing the real size again drops that extra layer.
  */
 function applyAppZoom() {
-  const z = Math.round(appZoom() * 100) / 100;
   const el = document.documentElement;
+  // Picture-in-picture is a tiny window: the call there is sized to the window itself, not the app's text size.
+  const z = el.hasAttribute("data-pip") ? 1 : Math.round(appZoom() * 100) / 100;
   el.style.zoom = "1";
   if (z !== 1) el.style.zoom = String(z);
 }
