@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { emojiName } from "../../lib/emoji";
 import { backend } from "../store";
+import { UEmoji } from "./UEmoji";
 
 type Info = { x: number; y: number; big: { img?: string; char?: string }; name: string; from?: string; fromIcon?: string };
 
@@ -51,7 +52,8 @@ export function EmojiInfo() {
     <Show when={info()}>{(i) => (
       <div class="emoji-info panel" role="tooltip" style={{ left: `${Math.max(120, Math.min(i().x, innerWidth - 120))}px`, top: `${i().y - 10}px` }}>
         <span class="ei-big">
-          <Show when={i().big.img} fallback={<span>{i().big.char}</span>}><img src={i().big.img} alt="" /></Show>
+          {/* In your emoji style, the same as in the message. */}
+          <Show when={i().big.img} fallback={<UEmoji e={i().big.char ?? ""} />}><img src={i().big.img} alt="" /></Show>
         </span>
         <span class="ei-text">
           <strong>{i().name}</strong>

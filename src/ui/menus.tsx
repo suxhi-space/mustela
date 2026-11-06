@@ -165,9 +165,9 @@ export function channelMenu(e: MouseEvent, c: ChannelInfo, serverId?: string) {
   } else if (serverId) {
     items.push({ sep: true }, { label: "Channel settings", icon: "gear", onSelect: () => setChannelSettings({ id: c.id }) });
   }
+  if (c.kind === "dm" && c.peer) items.push(...friendItems(c.peer));
   if (direct) items.push({ sep: true }, { label: c.kind === "group" ? "Leave group" : "Close conversation", icon: "close", danger: true, onSelect: () => closeDM(c) });
   items.push({ sep: true }, { label: "Copy link", icon: "link", onSelect: () => copy(b().linkFor(c.id), "Link copied") }, { label: "Copy channel ID", icon: "id", onSelect: () => copy(c.id, "ID copied") });
-  if (c.kind === "dm" && c.peer) items.push(...friendItems(c.peer));
   openMenu(e, items);
 }
 
@@ -205,7 +205,38 @@ async function closeDM(c: ChannelInfo) {
 
 /* ---------------------------------------------------------------- people */
 
-function friendItems(p: Person): MenuItem[] {
+/** Which voice channel someone is in, per the channel lists (undefined if none). */
+export async function voiceChannelOf(serverId: string, userId: string): Promise<string | undefined> {
+  const sp = (await b().spaces().catch(() => [])).find((x) => x.id === serverId);
+  return sp?.channels.find((c) => c.kind === "voice" && c.voice?.some((v) => v.id === userId))?.id;
+}
+
+/**
+ * For people who may (Stoat's Move/Mute/Deafen Members permissions), like Discord: move someone in a voice channel
+ * to another one, server mute and server deafen them. Asks Stoat for their current mute/deafen first, so the
+ * boxes show the truth. Empty when you can't do any of it.
+ */
+export async function voiceModItems(p: Person, serverId: string | undefined, inChannel?: string): Promise<MenuItem[]> {
+  const be = b();
+  if (!serverId || serverId === "home" || p.id === be.me.id || !be.moderateVoice) return [];
+  const perms = be.serverInfo(serverId)?.perms;
+  if (!perms || !(perms.moveMembers || perms.muteMembers || perms.deafenMembers)) return [];
+  const where = inChannel ?? (await voiceChannelOf(serverId, p.id));
+  const state = where && (perms.muteMembers || perms.deafenMembers)
+    ? await Promise.race([be.voiceModeration?.(serverId, p.id) ?? Promise.resolve(null), new Promise<null>((r) => setTimeout(() => r(null), 700))]).catch(() => null)
+    : null;
+  const out: MenuItem[] = [{ sep: true }];
+  if (perms.moveMembers && where) {
+    const sp = (await be.spaces().catch(() => [])).find((x) => x.id === serverId);
+    const others = (sp?.channels ?? []).filter((c) => c.kind === "voice" && c.id !== where);
+    if (others.length) out.push({ label: "Move to", icon: "speaker", sub: others.map((c) => ({ label: c.name, icon: "speaker", onSelect: () => attempt(() => be.moderateVoice!(serverId, p.id, { channel: c.id }), `Moved to ${c.name}`) })) });
+  }
+  if (perms.muteMembers && where) out.push({ label: "Server mute", danger: true, checked: !!state?.muted, onSelect: () => attempt(() => be.moderateVoice!(serverId, p.id, { mute: !state?.muted }), state?.muted ? "Server mute removed" : "Server muted") });
+  if (perms.deafenMembers && where) out.push({ label: "Server deafen", danger: true, checked: !!state?.deafened, onSelect: () => attempt(() => be.moderateVoice!(serverId, p.id, { deaf: !state?.deafened }), state?.deafened ? "Server deafen removed" : "Server deafened") });
+  return out.length > 1 ? out : [];
+}
+
+export function friendItems(p: Person): MenuItem[] {
   const rel = p.relation ?? "none";
   if (rel === "self" || p.bot) return [];
   const act = (a: "add" | "accept" | "remove" | "block" | "unblock", done: string) => () => attempt(() => b().friendAction(p.id, a), done);
@@ -225,7 +256,8 @@ function mention(p: Person) {
   composer.insert(`<@${p.id}> `);
 }
 
-export function userMenu(e: MouseEvent, p: Person, serverId?: string) {
+export async function userMenu(e: MouseEvent, p: Person, serverId?: string) {
+  e.preventDefault(); e.stopPropagation();
   const me = p.id === b().me.id;
   const info = serverId ? b().serverInfo(serverId) : null;
   const items: MenuItem[] = [
@@ -234,6 +266,16 @@ export function userMenu(e: MouseEvent, p: Person, serverId?: string) {
   ];
   if (!me) items.push({ label: "Message", icon: "chat", onSelect: () => attempt(async () => openChannel(await b().openDM(p.id))) });
   items.push(...friendItems(p));
+  // Roles (with Manage Roles), then voice moderation, then kick and ban, like Discord's order.
+  if (serverId && serverId !== "home" && info?.perms.manageRoles) {
+    const roles = b().roles(serverId).filter((r) => r.id !== "default" && r.name);
+    const has = new Set(await b().memberRoles(serverId, p.id).catch(() => [] as string[]));
+    if (roles.length) items.push({ sep: true }, { label: "Roles", icon: "shield", sub: roles.map((r) => ({ label: r.name, checked: has.has(r.id), onSelect: () => {
+      const next = has.has(r.id) ? [...has].filter((x) => x !== r.id) : [...has, r.id];
+      return attempt(() => b().setMemberRoles(serverId, p.id, next), has.has(r.id) ? `Removed ${r.name}` : `Gave ${r.name}`);
+    } })) });
+  }
+  items.push(...(await voiceModItems(p, serverId)));
   if (serverId && !me && info && (info.perms.kick || info.perms.ban) && p.id !== info.ownerId) {
     items.push({ sep: true });
     if (info.perms.kick) items.push({ label: `Kick ${p.name}`, icon: "door", danger: true, onSelect: async () => { if (await confirmDialog(`Kick ${p.name}?`, "They can rejoin with an invite.", "Kick", true)) await attempt(() => b().kick(serverId, p.id), "Kicked"); } });

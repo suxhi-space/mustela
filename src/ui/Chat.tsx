@@ -7,8 +7,14 @@ import { Icon } from "./icons";
 import { backend, platform } from "./store";
 import { backToList, jumpRequest, openChannel, setJumpRequest } from "./nav";
 import { getDraft } from "./drafts";
+import { fmtTime } from "../lib/time";
+import { cachedChat, saveChat } from "../lib/chatCache";
 
-const day = (d: Date) => d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+// The day dividers: formatters made once (making one per message was slow), and days compared by number.
+const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" });
+const dayFmtYear = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+const day = (d: Date) => (d.getFullYear() === new Date().getFullYear() ? dayFmt : dayFmtYear).format(d);
+const sameDay = (a: Date, b: Date) => a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
 
 /* ---------- mature channels: confirm your age first, like Stoat (remembered per channel on this device) ---------- */
 const AGE_KEY = "mustela:mature-ok";
@@ -65,6 +71,15 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   /** Where you'd read up to when you opened this channel: drives the "new messages" bar and the New line. */
   const [since, setSince] = createSignal<string | null>(null);
   const [sinceBar, setSinceBar] = createSignal(false);
+  /** Showing the saved copy of the chat while the fresh one loads (no paging back, no marking read yet). */
+  const [stale, setStale] = createSignal(false);
+  /** The account to keep a copy of recent chats for (not the demo). */
+  const cacheAccount = () => { const be = b(); return be.session() ? be.me.id : null; };
+  // Keep the copy up to date: the newest messages of the chat you're reading.
+  createEffect(() => {
+    const list = msgs(), account = cacheAccount();
+    if (account && state() === "ready" && !stale() && !detached() && list.length) saveChat(account, id(), list);
+  });
   let jumping = 0; // while a jump settles: no paging, no snapping to the bottom
   let list!: HTMLDivElement, inner!: HTMLDivElement, top!: HTMLDivElement, bottom!: HTMLDivElement;
 
@@ -98,9 +113,26 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     const direct = props.channel.kind === "dm" || props.channel.kind === "group";
     // DMs open at the first unread message; channels open at the newest, with a bar to jump back.
     const load = direct && marker ? b().messagesAround(cid, marker).then((page) => ({ page, around: true })) : b().messages(cid).then((page) => ({ page, around: false }));
-    load.then(({ page, around }) => {
+    // Opening at the newest messages: show the saved copy of this chat (lib/chatCache.ts) straight away while the
+    // fresh page loads. (Not for a DM opening at its first unread: that starts somewhere else.)
+    const account = cacheAccount();
+    if (account && !(direct && marker)) void cachedChat(account, cid).then((saved) => {
+      if (!alive || !saved || state() !== "loading") return;
+      batch(() => { setMsgs(saved); setMore(false); setState("ready"); setStale(true); });
+      queueMicrotask(toBottom);
+    });
+    load.then(async ({ page, around }) => {
       if (!alive) return;
-      const at = around ? page.findIndex((m) => m.id === marker) : -1;
+      setStale(false);
+      let at = around ? page.findIndex((m) => m.id === marker) : -1;
+      // Only other people's messages are new. Messages you sent yourself (from another device, or before the read
+      // marker caught up) leave nothing to jump to: open at the newest, marked read, instead of the old spot.
+      if (around && (at < 0 || !page.slice(at + 1).some((m) => m.author.id !== b().me.id && !m.system))) {
+        setSince(null); setSinceBar(false);
+        if (at < 0 || page.length - at - 1 >= 24) page = await b().messages(cid).catch(() => page);
+        if (!alive) return;
+        around = false; at = -1;
+      }
       // An "around" page that reaches the newest message isn't detached history.
       const tail = around ? page.length - at - 1 : 0;
       batch(() => { setMsgs(page); setMore(page.length >= 25); setState("ready"); if (around && tail >= 24) { setDetached(true); setPinned(false); } });
@@ -108,7 +140,8 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
         if (around && at >= 0) {
           jumping = Date.now() + 800;
           document.getElementById("new-line")?.scrollIntoView({ block: "center" });
-          if (tail < 24) ack();
+          // Seen once, like Discord: it's read now, so next time it opens at the newest (the New line stays for now).
+          if (looking()) b().ack(cid);
         } else { toBottom(); ack(); }
       });
       // The reply you were writing comes back with the draft.
@@ -148,7 +181,7 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     if (from) {
       const list = msgs(), i = list.findIndex((m) => m.id === from);
       if (i >= 0) {
-        const n = list.length - i, at = list[i]!.at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        const n = list.length - i, at = fmtTime(list[i]!.at);
         return `${n} new message${n === 1 ? "" : "s"} since ${at}`;
       }
     }
@@ -161,7 +194,7 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     if (!fresh.length) return "";
     const more = !!list.length && list[0]!.id > mk && !list.some((m) => m.id === mk);
     const firstNew = list.find((m) => m.id > mk);
-    const time = firstNew ? firstNew.at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+    const time = firstNew ? fmtTime(firstNew.at) : "";
     const n = `${fresh.length}${more ? "+" : ""} new message${fresh.length === 1 && !more ? "" : "s"}`;
     return time && !more ? `${n} since ${time}` : n;
   });
@@ -186,7 +219,11 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     const off = b().onEvent((e) => {
       if (e.t === "message" && e.m.channelId === cid) {
         if (msgs().some((m) => m.id === e.m.id) || detached()) return;
-        setMsgs([...msgs(), e.m]);
+        // Reading at the bottom of a busy channel: keep the newest 150 or so loaded (older ones load again when
+        // you scroll up), so a chat left open for hours doesn't keep growing.
+        const next = [...msgs(), e.m];
+        if (pinned() && next.length > 180) { setMsgs(next.slice(-150)); setMore(true); }
+        else setMsgs(next);
         setTypers(typers().filter((p) => p.id !== e.m.author.id));
         if (pinned() || e.m.author.id === b().me.id) queueMicrotask(toBottom);
         // Stoat only counts the message as unread just after this event, so marking it read right now did nothing
@@ -228,7 +265,7 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   });
 
   async function older() {
-    if (!more() || loadingOlder() || state() !== "ready" || !msgs().length || Date.now() < jumping) return;
+    if (stale() || !more() || loadingOlder() || state() !== "ready" || !msgs().length || Date.now() < jumping) return;
     setLoadingOlder(true);
     const cid = id();
     try {
@@ -334,7 +371,7 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes("Files");
 
   return (
-    <div class="chat" ref={(el) => {
+    <div class="chat" classList={{ "older-on": detached() || !pinned() }} ref={(el) => {
       // The message box's height, so the "viewing older messages" card floats just above it whatever its size.
       onMount(() => {
         const box = el.querySelector<HTMLElement>(".composer-wrap");
@@ -375,7 +412,7 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
           <Show when={state() === "error"}><p class="empty">Couldn't load messages. Check your connection, then open this channel again.</p></Show>
           <For each={msgs()}>{(m, i) => {
             const prev = () => msgs()[i() - 1];
-            const newDay = () => !prev() || prev()!.at.toDateString() !== m.at.toDateString();
+            const newDay = () => !prev() || !sameDay(prev()!.at, m.at);
             return (
               <>
                 <Show when={newDay()}><div class="day" role="separator"><span>{day(m.at)}</span></div></Show>

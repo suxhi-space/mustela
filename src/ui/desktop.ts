@@ -13,16 +13,21 @@ const DOT: Record<string, string> = { online: "#23a559", idle: "#e3a008", focus:
  * centre, like a "live" light, so you can tell at a glance.
  */
 async function drawTray(status: string, inCall: boolean): Promise<Uint8Array | null> {
+  // The size the tray actually shows. Larger bitmaps get padded down on Windows and look tiny;
+  // 24px is the normal panel icon on Linux. The face is drawn a little bigger than the svg's margin.
+  const size = platform === "linux" ? 24 : platform === "mac" ? 22 : 32;
   const ring = inCall ? '<circle cx="419.365" cy="443.942" r="24" style="fill:#fff"/>' : "";
   const svg = traySvg
-    .replace('width="100%" height="100%"', 'width="64" height="64"')
+    .replace('width="100%" height="100%"', `width="${size}" height="${size}"`)
     .replace(/<circle ([^>]*?)\/>/, `<circle $1 style="fill:${DOT[status] ?? DOT.online};stroke:#353535;stroke-width:16px"/>${ring}`);
   const img = new Image();
   img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   try { await img.decode(); } catch { return null; }
   const c = document.createElement("canvas");
-  c.width = c.height = 64;
-  c.getContext("2d")!.drawImage(img, 0, 0, 64, 64);
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  const fill = size * 1.12;
+  ctx.drawImage(img, (size - fill) / 2, (size - fill) / 2, fill, fill);
   const blob = await new Promise<Blob | null>((r) => c.toBlob(r, "image/png"));
   return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
 }

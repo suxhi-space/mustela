@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { TextWithEmoji } from "./chat/EmojiText";
 import { useBack } from "./back";
 import { userMenu } from "./menus";
 import type { Friends as FriendList, Person } from "../lib/backend/types";
@@ -91,7 +92,7 @@ export function Friends(props: { onMessage(channelId: string): void; onProfile(p
                 <div class="friend-row">
                   <button class="fr-main" onClick={() => props.onProfile(r.p)} onContextMenu={(e) => userMenu(e, r.p)}>
                     <Avatar person={r.p} size={36} />
-                    <span class="fr-text"><NameText person={r.p} /><small>{r.kind === "incoming" ? "Incoming request" : r.kind === "outgoing" ? "Outgoing request" : r.p.status ?? (r.p.online ? "Online" : "Offline")}</small>
+                    <span class="fr-text"><NameText person={r.p} /><small>{r.kind === "incoming" ? "Incoming request" : r.kind === "outgoing" ? "Outgoing request" : <TextWithEmoji v={r.p.status ?? (r.p.online ? "Online" : "Offline")} />}</small>
                       <Show when={r.kind === "friend" && backend()?.voiceOf(r.p.id)}>{(v) => (
                         <small class="fr-where" classList={{ live: v().screen }}><Icon name={v().screen ? "screen" : "speaker"} size={12} />{v().screen ? "Streaming in " : "In "}{v().channelName}<Show when={v().serverName}> · {v().serverName}</Show></small>
                       )}</Show>

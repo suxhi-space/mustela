@@ -1,4 +1,5 @@
 import { createMemo, createSignal, Show } from "solid-js";
+import { TextWithEmoji } from "./chat/EmojiText";
 import type { Person } from "../lib/backend/types";
 import type { ProfileConfig } from "../lib/profile/model";
 import { nameCss } from "../lib/profile/nameStyle";
@@ -57,5 +58,5 @@ export function NameText(props: { person: Person; profile?: ProfileConfig | null
   // name styles only ever appeared inside their profile card.
   const { profile, ref } = createPerson(() => props.person, () => props.profile);
   const css = createMemo(() => nameCss(profile()?.name ?? null, surfaceInt(), !!props.fontOnly));
-  return <span ref={ref} class={`name ${props.class ?? ""} ${css().class}`} style={css().style}>{props.person.name}</span>;
+  return <span ref={ref} class={`name ${props.class ?? ""} ${css().class}`} style={css().style}><TextWithEmoji v={props.person.name} /></span>;
 }

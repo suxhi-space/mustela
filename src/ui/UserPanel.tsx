@@ -11,7 +11,7 @@ import { createAnim } from "./anim";
 import { createSize } from "./hooks";
 import { Icon } from "./icons";
 import { copy, openMenu, type MenuItem } from "./menu";
-import { currentServer, inboxBadge, inboxOpen, openProfileEditor, setInboxOpen, setSettingsOpen } from "./nav";
+import { currentServer, inboxBadge, inboxOpen, openProfileEditor, setInboxOpen, setProfileView, setSettingsOpen } from "./nav";
 import { createProfileInfo } from "./hooks";
 import { TextWithEmoji } from "./chat/Markdown";
 import { PlateCanvas } from "./Paint";
@@ -108,12 +108,16 @@ function MeCard(props: { onClose(): void }) {
   const presence = () => (me().online ? me().presence ?? "online" : "invisible");
   // Your published card (banner and bio); decorations come straight from settings so edits show at once.
   const info = createProfileInfo(() => me().id);
-  // Your picture or name opens the editor: on desktop on this server's profile when you're in one, on phones and
-  // tablets your main profile (pick a server inside the editor).
+  // "Edit profile" opens the editor: on desktop on this server's profile when you're in one, on phones and tablets
+  // your main profile (pick a server inside the editor).
   const editTarget = () => (MOBILE_UI ? undefined : currentServer() ?? undefined);
+  // Your picture or name: on computers your full profile (Edit profile is right there on the card already); on
+  // phones and tablets the editor, as before.
   const edit = (e: MouseEvent) => {
     if (!(e.target as HTMLElement).closest(".pc-avatar, .pc-name")) return;
-    props.onClose(); openProfileEditor(editTarget());
+    props.onClose();
+    if (MOBILE_UI) openProfileEditor(editTarget());
+    else setProfileView({ person: me(), full: true, x: 0, y: 0 });
   };
   // Phones and tablets: a sheet from the bottom; pull it down to close.
   let card!: HTMLDivElement;

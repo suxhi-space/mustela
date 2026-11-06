@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { InviteCard } from "./chat/Message";
 import { Icon } from "./icons";
 import { toast } from "./menu";
@@ -14,8 +14,8 @@ const ORIGIN = "https://stt.gg";
 export function Discover(props: { onBack(): void; onJoined(serverId: string): void }) {
   const [invite, setInvite] = createSignal<string | null>(null);
   const [bot, setBot] = createSignal<string | null>(null);
-  // stt.gg only lets Stoat's own site show Discover in a frame ("blocked by response" anywhere else), so the
-  // desktop app opens it in a window of its own and gets invite and bot links back; phones use the browser.
+  // stt.gg only lets Stoat's own site show Discover in a frame, so on computers Mustela lays a web view of its own
+  // over this page's content area (discover_embed in lib.rs); phones open it in the browser.
   const desktop = inTauri() && !/Android|iPhone|iPad/i.test(navigator.userAgent);
   const handle = (url: string) => {
     let u: URL;
@@ -24,20 +24,51 @@ export function Discover(props: { onBack(): void; onJoined(serverId: string): vo
     if (b) setBot(b[1]!);
     else if (inv) setInvite(inv[1]!);
   };
-  const openWindow = async () => {
-    try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("open_discover"); }
-    catch (e) { toast((e as Error)?.message || "Couldn't open Discover.", true); }
-  };
   const openBrowser = async () => {
     const url = `${ORIGIN}/discover/servers`;
     try { if (inTauri()) { const { openUrl } = await import("@tauri-apps/plugin-opener"); await openUrl(url); } else window.open(url, "_blank", "noopener"); }
     catch { toast("Couldn't open the browser.", true); }
   };
+  const openWindow = async () => {
+    try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("open_discover"); }
+    catch (e) { toast((e as Error)?.message || "Couldn't open Discover.", true); }
+  };
+  let host: HTMLDivElement | undefined;
+  const [failed, setFailed] = createSignal(false);
   if (desktop) {
-    void openWindow();
     let off: (() => void) | undefined;
     void import("@tauri-apps/api/event").then(({ listen }) => listen<string>("mustela:discover-link", (e) => handle(e.payload))).then((f) => { off = f; });
-    onCleanup(() => off?.());
+    const call = (args: { x: number; y: number; w: number; h: number; show: boolean; close: boolean }) =>
+      import("@tauri-apps/api/core").then(({ invoke }) => invoke("discover_embed", args)).catch(() => { if (!args.close) setFailed(true); });
+    // Menus, dialogs, Settings and the like are drawn by Mustela's own page, under the Discover view: hide it while one is open.
+    const covered = () => !!document.querySelector(".scrim, .menu-scrim, .pop-scrim, .ctx, .menu, .settings-card, .settings, .inbox, .gallery-view, .profile-full, .modal");
+    let queued = false, last = "";
+    const place = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        if (!host || failed()) return;
+        const r = host.getBoundingClientRect();
+        // Text size zooms Mustela's page; the web view is placed in window units.
+        const ref = document.querySelector(".app")?.getBoundingClientRect().height || innerHeight;
+        const k = innerHeight / ref;
+        const show = !covered() && r.width > 20 && r.height > 20;
+        const args = { x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k), show, close: false };
+        const key = JSON.stringify(args);
+        if (key !== last) { last = key; void call(args); }
+      });
+    };
+    onMount(() => {
+      place();
+      const ro = new ResizeObserver(place);
+      if (host) ro.observe(host);
+      const mo = new MutationObserver(place);
+      mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+      addEventListener("resize", place);
+      onCleanup(() => { ro.disconnect(); mo.disconnect(); removeEventListener("resize", place); });
+    });
+    onCleanup(() => { off?.(); void call({ x: 0, y: 0, w: 0, h: 0, show: false, close: true }); });
   }
 
   return (
@@ -47,18 +78,23 @@ export function Discover(props: { onBack(): void; onJoined(serverId: string): vo
         <Icon name="compass" size={20} class="muted" /><h2>Discover</h2>
       </header>
       <div class="discover-body">
-        <div class="empty center">
-          <div class="discover-fail">
-            <Icon name="compass" size={40} />
-            <Show when={desktop} fallback={<>
-              <p>Discover opens in your browser. When you find a server, copy its invite link and paste it into <b>Join a server</b> (the + on the server list).</p>
-              <button class="btn primary" onClick={() => void openBrowser()}>Open Discover</button>
-            </>}>
-              <p>Discover opens in its own window. Joining a server or adding a bot there brings you back here to finish.</p>
-              <button class="btn primary" onClick={() => void openWindow()}>Open Discover</button>
-            </Show>
+        <Show when={desktop && !failed()} fallback={
+          <div class="empty center">
+            <div class="discover-fail">
+              <Icon name="compass" size={40} />
+              <Show when={desktop} fallback={<>
+                <p>Discover opens in your browser. When you find a server, copy its invite link and paste it into <b>Join a server</b> (the + on the server list).</p>
+                <button class="btn primary" onClick={() => void openBrowser()}>Open Discover</button>
+              </>}>
+                <p>Discover couldn't be shown here, so it opens in a window of its own. Joining a server or adding a bot there brings you back here to finish.</p>
+                <button class="btn primary" onClick={() => void openWindow()}>Open Discover</button>
+              </Show>
+            </div>
           </div>
-        </div>
+        }>
+          {/* Stoat's Discover is shown right over this space. */}
+          <div class="discover-host" ref={host}><div class="loading-row"><div class="spinner small" /></div></div>
+        </Show>
       </div>
       <Show when={invite()}>{(code) => (
         <div class="scrim" onClick={() => setInvite(null)}>

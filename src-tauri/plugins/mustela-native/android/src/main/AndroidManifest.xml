@@ -16,6 +16,10 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Screen share: capture runs in a foreground service of this type (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- Updates: Mustela hands a downloaded, checksum-checked update to Android's installer (the person confirms) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Lets an update install without the confirm screen on Android 12+ when Mustela itself installed this copy -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <application>
         <!-- Merged into the app's own activity: calls can continue in a floating
@@ -27,6 +31,8 @@
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             tools:node="merge">
+            <!-- PiP can get as small as a phone's window. A larger minimum (from the desktop window) kept tablets big. -->
+            <layout android:minWidth="108dp" android:minHeight="108dp" />
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

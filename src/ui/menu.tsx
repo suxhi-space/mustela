@@ -1,6 +1,7 @@
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { dragToClose } from "./sheetDrag";
 import { useBack } from "./back";
+import { justHeld } from "./hold";
 import { Icon } from "./icons";
 
 /* ============================================================ context menus */
@@ -24,11 +25,20 @@ export function openMenu(at: MouseEvent | Element, items: MenuItem[], opts: { wi
   // Touch screens: every menu (hold menus, dropdowns) is a card from the bottom with big rows.
   const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   const extra = { sheet: opts.sheet ?? touch, head: opts.head };
+  // Only a menu opened by touching and holding needs the lifted finger ignored; a mouse click right away is fine.
+  const touched = justHeld() || (!("getBoundingClientRect" in at) && (at as PointerEvent).pointerType === "touch");
+  openedAt = touched ? Date.now() : 0;
   if ("getBoundingClientRect" in at) { const r = at.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: clean, doc: at.ownerDocument, width: opts.width, ...extra }); }
   else { at.preventDefault(); at.stopPropagation(); setMenu({ x: at.clientX, y: at.clientY, items: clean, doc: (at.target as Node | null)?.ownerDocument ?? document, ...extra }); }
   return false;
 }
 export const closeMenu = () => setMenu(null);
+/**
+ * A menu opened by touching and holding: lifting the finger sends a tap to whatever is under it, which closed the
+ * menu straight away (or picked a row). Taps in the first moment after a menu opens are ignored.
+ */
+let openedAt = 0;
+const tooSoon = () => Date.now() - openedAt < 450;
 
 function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolean; width?: number; sheet?: boolean; head?: () => JSX.Element }) {
   let el!: HTMLDivElement;
@@ -74,7 +84,7 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
         return (
           <button role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"} aria-checked={it.checked} class="ctx-item" classList={{ danger: !!it.danger }} disabled={it.disabled}
             onMouseEnter={() => setOpenSub(null)}
-            onClick={() => { closeMenu(); void it.onSelect(); }}>
+            onClick={() => { if (tooSoon()) return; closeMenu(); void it.onSelect(); }}>
             <Show when={it.icon} fallback={<Show when={it.checked !== undefined}><span class="ctx-check">{it.checked ? "✓" : ""}</span></Show>}><Icon name={it.icon!} size={16} /></Show>
             <span class="ctx-label">{it.label}</span>
             <Show when={it.hint}><span class="ctx-hint">{it.hint}</span></Show>
@@ -102,7 +112,7 @@ export function ContextMenu(props: { win?: Window }) {
   onCleanup(() => { const v = w(); v.removeEventListener("keydown", esc); v.removeEventListener("resize", away); v.removeEventListener("blur", away); });
   return (
     <Show when={menu()?.doc === w().document ? menu() : null}>{(m) => { useBack(closeMenu); return (
-      <div class="ctx-scrim" onClick={closeMenu} onContextMenu={(e) => { e.preventDefault(); closeMenu(); }} onWheel={closeMenu}>
+      <div class="ctx-scrim" onClick={() => { if (!tooSoon()) closeMenu(); }} onContextMenu={(e) => { e.preventDefault(); if (!tooSoon()) closeMenu(); }} onWheel={closeMenu}>
         <MenuList items={m().items} x={m().x} y={m().y} width={m().width} sheet={m().sheet} head={m().head} />
       </div>
     ); }}</Show>

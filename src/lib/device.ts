@@ -85,6 +85,8 @@ export interface DeviceSettings {
   voice: VoicePrefs;
   /** Phones: the small call tile that follows you around the app */
   miniCall: boolean;
+  /** Phones and tablets: drag servers, channels, favorites and DMs to rearrange them (off, so a long press is just the menu). */
+  rearrange: boolean;
   /** Settings > Accessibility */
   a11y: A11yPrefs;
   /** Off: this device keeps its own colours and theme instead of following your account's */
@@ -135,7 +137,7 @@ export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "fu
 
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
-  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true, streams: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, appSize: 0, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, lookKind: false, localLook: null, miniCall: true, voice: { ...DEFAULT_VOICE_PREFS },
+  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true, streams: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, appSize: 0, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, lookKind: false, localLook: null, miniCall: true, rearrange: false, voice: { ...DEFAULT_VOICE_PREFS },
 };
 
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
@@ -204,6 +206,7 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     syncLook: r.syncLook !== false,
     lookKind: r.lookKind === true,
     miniCall: r.miniCall !== false,
+    rearrange: r.rearrange === true,
     localLook: r.localLook && typeof r.localLook === "object" ? r.localLook : null,
     collapsed: Array.isArray(r.collapsed) ? r.collapsed.filter((x): x is string => typeof x === "string").slice(0, 200) : [],
   };

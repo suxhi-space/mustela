@@ -1,4 +1,6 @@
 mod fetch;
+mod emoji_store;
+mod gif_store;
 mod preview;
 mod updater;
 #[cfg(desktop)]
@@ -164,7 +166,7 @@ fn writable(dir: &std::path::Path) -> bool {
 
 /// Downloads the new version (checked against GitHub's SHA-256) and puts it in place:
 /// Windows runs the installer and restarts, an AppImage swaps itself and restarts, a Mac
-/// .dmg or Linux .deb is saved to Downloads and opened. Phones open the release page instead.
+/// .dmg or Linux .deb is saved to Downloads and opened, and Android hands the APK to its installer.
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<String, String> {
     let (info, asset) = updater::check().await?.ok_or("Mustela is already up to date.")?;
@@ -222,6 +224,21 @@ async fn install_update(app: tauri::AppHandle) -> Result<String, String> {
             app.exit(0);
             Ok("Restarting…".into())
         }
+        // Android: download into Mustela's own folder and hand it to Android's installer, which asks you to confirm
+        // and then replaces Mustela; the file is deleted as soon as the installer has it.
+        #[cfg(target_os = "android")]
+        updater::Kind::Android => {
+            use tauri::Manager;
+            use tauri_plugin_mustela_native::MustelaNativeExt;
+            let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("updates");
+            let _ = std::fs::remove_dir_all(&dir); // anything left from an update that didn't finish
+            std::fs::create_dir_all(&dir).map_err(|e| format!("Couldn't make room for the update: {e}"))?;
+            let path = dir.join(format!("Mustela-{}.apk", info.version.replace(['/', '\\'], "_")));
+            updater::download(&asset, &path, progress).await?;
+            app.mustela_native().install_apk(tauri_plugin_mustela_native::InstallApk { path: path.to_string_lossy().into_owned() })
+                .map_err(|e| { let _ = std::fs::remove_file(&path); format!("Couldn't start the install: {e}") })?;
+            Ok("Confirm the update in the window Android shows.".into())
+        }
         #[cfg(desktop)]
         _ => {
             let dir = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(|h| std::path::PathBuf::from(h).join("Downloads"))
@@ -273,6 +290,41 @@ async fn open_discover(app: tauri::AppHandle) -> Result<(), String> {
         .on_new_window(move |u, _| { if discover_link(&u) { send(&popup, &u); } else { use tauri_plugin_opener::OpenerExt; let _ = popup.opener().open_url(u.as_str(), None::<&str>); } tauri::webview::NewWindowResponse::Deny })
         .build()
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Discover inside Mustela's window: a second web view placed over the content area (stt.gg refuses to be shown in
+/// a frame anywhere but Stoat's own site; a web view of its own isn't a frame). It loads Stoat's embedded Discover
+/// (no "Open App" or sign-up panel). Invite and bot links come back to Mustela's own dialogs; other links open in
+/// the browser. `show: false` puts it out of sight (a menu or dialog is over it) and `close: true` removes it.
+#[cfg(desktop)]
+#[tauri::command]
+async fn discover_embed(app: tauri::AppHandle, x: f64, y: f64, w: f64, h: f64, show: bool, close: bool) -> Result<(), String> {
+    const LABEL: &str = "discover-embed";
+    if close { if let Some(v) = app.get_webview(LABEL) { let _ = v.close(); } return Ok(()); }
+    // Out of sight: moved off the window and shrunk, so the page (and where you scrolled to) stays loaded.
+    let (pos, size) = if show {
+        (tauri::LogicalPosition::new(x, y), tauri::LogicalSize::new(w.max(1.0), h.max(1.0)))
+    } else {
+        (tauri::LogicalPosition::new(-20000.0, -20000.0), tauri::LogicalSize::new(1.0, 1.0))
+    };
+    if let Some(v) = app.get_webview(LABEL) {
+        v.set_position(pos).map_err(|e| e.to_string())?;
+        v.set_size(size).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    if !show { return Ok(()); }
+    let window = app.get_window("main").ok_or("Mustela's window isn't open.")?;
+    let url: tauri::Url = "https://stt.gg/discover/servers?embedded=true".parse().map_err(|e: url::ParseError| e.to_string())?;
+    let (nav, popup) = (app.clone(), app.clone());
+    let builder = tauri::webview::WebviewBuilder::new(LABEL, tauri::WebviewUrl::External(url))
+        .on_navigation(move |u| { if discover_link(u) { let _ = nav.emit("mustela:discover-link", u.to_string()); false } else { true } })
+        .on_new_window(move |u, _| {
+            if discover_link(&u) { let _ = popup.emit("mustela:discover-link", u.to_string()); }
+            else { use tauri_plugin_opener::OpenerExt; let _ = popup.opener().open_url(u.as_str(), None::<&str>); }
+            tauri::webview::NewWindowResponse::Deny
+        });
+    window.add_child(builder, pos, size).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -362,6 +414,16 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default()
             .with_state_flags(tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE & !tauri_plugin_window_state::StateFlags::DECORATIONS)
             .build());
+    // Emoji pictures saved on this device (emoji_store.rs).
+    let builder = builder.register_asynchronous_uri_scheme_protocol("emoji", |ctx, request, responder| {
+        let app = ctx.app_handle().clone();
+        tauri::async_runtime::spawn(async move { responder.respond(emoji_store::serve(app, request).await) });
+    })
+    // Favorite GIFs saved on this device (gif_store.rs).
+    .register_asynchronous_uri_scheme_protocol("gifs", |ctx, request, responder| {
+        let app = ctx.app_handle().clone();
+        tauri::async_runtime::spawn(async move { responder.respond(gif_store::serve(app, request).await) });
+    });
     builder
         // Voice, camera and screen share run in the webview. The app only loads its own
         // bundled pages (see the CSP), so granting these to it is the same as a browser
@@ -439,12 +501,12 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![material_support, set_material, fetch_image, preview::link_preview, close_popout, activity_config, fetch_audio, update_config, check_update, install_update,
+        .invoke_handler(tauri::generate_handler![gif_store::warm_gifs, emoji_store::emoji_store_size, emoji_store::clear_emoji_store, material_support, set_material, fetch_image, preview::link_preview, close_popout, activity_config, fetch_audio, update_config, check_update, install_update,
             #[cfg(desktop)] screen_sources, #[cfg(desktop)] screen_permission, #[cfg(desktop)] screen_permission_request, #[cfg(desktop)] relaunch, #[cfg(desktop)] screen_start, #[cfg(desktop)] screen_ack, #[cfg(desktop)] screen_stop, #[cfg(desktop)] screen_audio,
             #[cfg(target_os = "linux")] call_linux::voice_start_call, #[cfg(target_os = "linux")] call_linux::voice_set_mic,
             #[cfg(target_os = "linux")] call_linux::voice_set_deaf, #[cfg(target_os = "linux")] call_linux::voice_end_call,
             #[cfg(target_os = "linux")] call_linux::voice_call_state,
-            #[cfg(desktop)] notify::notify_rich, #[cfg(desktop)] set_start_open, #[cfg(desktop)] open_discover, #[cfg(desktop)] start_open,
+            #[cfg(desktop)] notify::notify_rich, #[cfg(desktop)] set_start_open, #[cfg(desktop)] open_discover, #[cfg(desktop)] discover_embed, #[cfg(desktop)] start_open,
             #[cfg(desktop)] desktop::tray_state, #[cfg(desktop)] desktop::tray_image, #[cfg(desktop)] desktop::set_close_to_tray,
             #[cfg(desktop)] desktop::appimage_status, #[cfg(desktop)] desktop::appimage_install, #[cfg(desktop)] desktop::relaunch_installed])
         .run(tauri::generate_context!())

@@ -1,3 +1,4 @@
+import { inTauri } from "./platform";
 import { EMOJI_DATA } from "./emoji-data";
 
 /**
@@ -62,4 +63,56 @@ export const PACK_PUA: Record<string, string> = { "": "fluent-3d", "": "fl
 export const PACKED_EMOJI_RE = new RegExp(`[\\uE0E0-\\uE0E6]?(?:${EMOJI_RE.source})`, "gu");
 /** Stoat's file naming: each code point in hex, joined with dashes. */
 export const toCodepoint = (s: string) => [...s].map((c) => c.codePointAt(0)!.toString(16)).join("-");
-export const emojiUrl = (pack: string, char: string) => `https://static.stoat.chat/emoji/${pack}/${toCodepoint(char)}.svg?v=1`;
+/**
+ * Where an emoji picture comes from. In the app, Mustela's own emoji store (src-tauri/src/emoji_store.rs): it fetches
+ * each picture from Stoat once and keeps it on this device, so it shows instantly next time, even offline. In a
+ * browser (the demo), Stoat's server directly.
+ */
+const STORE = (() => {
+  if (!inTauri()) return null;
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  // Windows and Android web views reach app schemes as http://<scheme>.localhost; macOS and Linux as <scheme>://localhost.
+  return /Windows|Android/i.test(ua) ? "http://emoji.localhost/" : "emoji://localhost/";
+})();
+export const emojiUrl = (pack: string, char: string) => (STORE ? `${STORE}${pack}/${toCodepoint(char)}.svg` : `https://static.stoat.chat/emoji/${pack}/${toCodepoint(char)}.svg?v=1`);
+
+/* ---------- emoji pictures: loaded once, shared by every place that shows them ---------- */
+
+const loaded = new Set<string>();
+const loading = new Map<string, Promise<boolean>>();
+
+/** Whether this emoji picture is already loaded (it can be drawn straight away, with no flash). */
+export const emojiReady = (url: string) => loaded.has(url);
+
+/** Load an emoji picture once; every later use draws it from memory. Resolves false if it doesn't exist. */
+export function loadEmoji(url: string): Promise<boolean> {
+  if (loaded.has(url)) return Promise.resolve(true);
+  let p = loading.get(url);
+  if (!p) {
+    p = new Promise<boolean>((done) => {
+      const img = new Image();
+      img.decoding = "async";
+      img.onload = () => { loaded.add(url); loading.delete(url); done(true); };
+      img.onerror = () => { loading.delete(url); done(false); };
+      img.src = url;
+    });
+    loading.set(url, p);
+  }
+  return p;
+}
+
+/**
+ * Load a set of emoji in the background, a few at a time while the app is idle, so the ones you're likely to see
+ * (your frequent ones, the first sections of the picker) are already there when you look.
+ */
+export function warmEmoji(pack: string, chars: string[]) {
+  if (pack === "system" || typeof window === "undefined") return;
+  const queue = chars.map((c) => emojiUrl(pack, c)).filter((u) => !loaded.has(u));
+  const idle = (f: () => void) => ((window as unknown as { requestIdleCallback?: (f: () => void, o?: object) => void }).requestIdleCallback ?? ((g: () => void) => setTimeout(g, 50)))(f, { timeout: 2000 });
+  const step = () => {
+    const batch = queue.splice(0, 8);
+    if (!batch.length) return;
+    void Promise.all(batch.map(loadEmoji)).then(() => idle(step));
+  };
+  idle(step);
+}

@@ -60,7 +60,9 @@ export function MiniCall(props: { onOpen(): void }) {
       // Bigger or smaller, up to the screen's width (it keeps its shape: square, or wide for a stream).
       const base = stream() ? 184 : 104;
       const most = Math.max(1, (innerWidth / zoomNow() - 16) / base);
-      setMiniScale(Math.max(0.75, Math.min(most, pinch.scale * spread() / Math.max(1, pinch.d))));
+      // Same smallest size on a phone and a tablet: about 72px square, or 108px wide for a stream.
+      const floor = (stream() ? 108 : 72) / base;
+      setMiniScale(Math.max(floor, Math.min(most, pinch.scale * spread() / Math.max(1, pinch.d))));
       keepOnScreen();
       return;
     }

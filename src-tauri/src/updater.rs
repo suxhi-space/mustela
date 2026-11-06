@@ -38,7 +38,7 @@ impl Kind {
         } else { Kind::Other }
     }
     /// Installed in place by Mustela itself. Everything else opens the file or the release page.
-    pub fn self_installs(self) -> bool { matches!(self, Kind::WindowsNsis | Kind::LinuxAppimage | Kind::MacosDmg) }
+    pub fn self_installs(self) -> bool { matches!(self, Kind::WindowsNsis | Kind::LinuxAppimage | Kind::MacosDmg | Kind::Android) }
 }
 
 /// Picks this platform's file from a release. Names follow scripts/build.mjs:
@@ -171,22 +171,17 @@ async fn releases(repo: &str) -> Result<Vec<Release>, String> {
 }
 
 /// Out of a list of releases, the newest version for this platform: (release, its version, its file).
-/// Each release's version comes from this platform's file name; only when a release has no file named
-/// that way does its tag count. Drafts and pre-releases are skipped.
+/// Only releases with a file for this system count, so a release made for another platform first is never
+/// offered here (it would only send you to a page with nothing to install). Each release's version comes from
+/// that file's name, or its tag when the file isn't named that way. Drafts and pre-releases are skipped.
 fn best<'a>(list: &'a [Release], kind: Kind, arch: &str) -> Option<(&'a Release, String, Option<&'a Asset>)> {
     let mut found: Option<(&Release, String, Option<&Asset>)> = None;
     for rel in list.iter().filter(|r| !r.draft && !r.prerelease) {
-        let asset = pick_asset(kind, arch, &rel.assets);
-        let version = asset.and_then(|a| asset_version(&a.name))
-            .or_else(|| rel.assets.iter().find_map(|a| asset_version(&a.name)))
+        let Some(asset) = pick_asset(kind, arch, &rel.assets) else { continue };
+        let version = asset_version(&asset.name)
             .or_else(|| parse_version(&rel.tag_name).map(|_| rel.tag_name.trim().trim_start_matches(['v', 'V']).to_string()));
         let Some(version) = version else { continue };
-        // A release without a file for this system only counts if nothing better turns up.
-        let better = match &found {
-            None => true,
-            Some((_, v, a)) => is_newer(&version, v) || (version == *v && a.is_none() && asset.is_some()),
-        };
-        if better { found = Some((rel, version, asset)); }
+        if found.as_ref().is_none_or(|(_, v, _)| is_newer(&version, v)) { found = Some((rel, version, Some(asset))); }
     }
     found
 }
@@ -274,6 +269,14 @@ mod tests {
             rel("v9.9.9", &["Mustela_0.1.2_linux_amd64.AppImage"]),
         ];
         assert_eq!(best(&list, Kind::LinuxAppimage, "x86_64").unwrap().1, "0.1.3-build10");
+        // A newer release for another system only is never offered.
+        let list = vec![
+            rel("b6", &["Mustela_0.1.5-build6_windows_x64.exe"]),
+            rel("b5", &["Mustela_0.1.5-build5_windows_x64.exe", "Mustela_0.1.5-build5_android_universal.apk"]),
+        ];
+        assert_eq!(best(&list, Kind::Android, "aarch64").unwrap().1, "0.1.5-build5");
+        assert_eq!(best(&list, Kind::WindowsNsis, "x86_64").unwrap().1, "0.1.5-build6");
+        assert!(best(&list, Kind::MacosDmg, "aarch64").is_none());
         assert_eq!(asset_version("Mustela_0.1.3-build4_android_universal.apk").as_deref(), Some("0.1.3-build4"));
         assert_eq!(asset_version("notes.txt"), None);
     }

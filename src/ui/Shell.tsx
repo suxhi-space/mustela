@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
+import { TextWithEmoji } from "./chat/EmojiText";
 import { createStore, reconcile } from "solid-js/store";
 import type { CategoryInfo, ChannelInfo, Person, Space } from "../lib/backend/types";
 import { plain } from "../lib/markdown";
@@ -23,11 +24,13 @@ import { startSoundSync } from "./call/Soundboard";
 import { createPhone, createProfileInfo, createSize, narrowLayout, phoneLayout } from "./hooks";
 import { MOBILE_UI } from "./target";
 import { dragToClose } from "./sheetDrag";
-import { phoneVoiceChat, setPhoneVoiceChat } from "./Voice";
+import { phoneVoiceChat, setPhoneVoiceChat, VOICE_MIME } from "./Voice";
 import { ScreenPickerHost } from "./call/ScreenPicker";
 import { call, callBanner, checkLastCall, joinCall, setCallBanner, toggleCall } from "./call/state";
 import { Chat } from "./Chat";
-import { EmojiPicker, GifPicker, Lightbox } from "./chat/overlays";
+import { EmojiPicker, GifPicker, Lightbox, warmFavGifs, warmLikelyEmoji } from "./chat/overlays";
+import { perfEvent, setPerfWhere } from "./perfLog";
+import { refreshScheduled, startScheduler } from "./schedule";
 import { ActiveStrip, Friends, JoinServer } from "./Friends";
 import { Icon } from "./icons";
 import { Members } from "./Members";
@@ -51,6 +54,7 @@ import { startDesktop } from "./desktop";
 import { ProfileEditorHost } from "./ProfileEditor";
 import { EmojiInfo } from "./chat/EmojiInfo";
 import { MessagePanel, type Panel } from "./chat/MessagePanel";
+import { HeaderSearch } from "./chat/HeaderSearch";
 import { channelSettings, setChannelSettings, setCurrentServer, setProfileView, inboxBadge, inboxOpen, setInboxOpen, setInboxBadge, setLocation, profileOpen, registerNav, serverSettings, setProfileOpen, setServerSettings, setSettingsOpen, settingsOpen } from "./nav";
 import { ServerSettings } from "./ServerSettings";
 import { ChannelSettings } from "./ChannelSettings";
@@ -91,7 +95,17 @@ export function Shell() {
   createEffect(() => { const v = spacesRes(); if (v) { setSpaceStore("list", reconcile(v, { key: "id", merge: true })); setSpaceStore("ready", true); orderChanged(); } });
   const spaces = () => (spaceStore.ready ? spaceStore.list : undefined);
   let refetchTimer: ReturnType<typeof setTimeout> | undefined;
-  const refetch = () => { clearTimeout(refetchTimer); refetchTimer = setTimeout(() => void refetchNow(), 120); };
+  // At most one refresh per window: a busy server sends messages faster than any debounce, which either kept
+  // pushing the refresh back or (Stoat works out permissions for every channel each time) rebuilt it constantly.
+  // Something you did (a new DM, joining a server) asks sooner and brings a waiting refresh forward.
+  let refetchDue = 0;
+  const refetch = (wait = 120) => {
+    const due = Date.now() + wait;
+    if (refetchTimer && refetchDue <= due) return;
+    clearTimeout(refetchTimer);
+    refetchDue = due;
+    refetchTimer = setTimeout(() => { refetchTimer = undefined; void refetchNow(); }, wait);
+  };
   onCleanup(() => clearTimeout(refetchTimer));
   const [spaceId, setSpaceId] = createSignal<string>("home");
   const [channelId, setChannelId] = createSignal<string | undefined>();
@@ -226,8 +240,23 @@ export function Shell() {
   };
 
   // Unread badges and notifications.
+  // Scheduled messages (schedule.ts): sent from here when they come due; this account's list.
+  startScheduler();
+  createEffect(on(() => backend()?.me.id, () => refreshScheduled()));
+  // Emoji you're likely to see load in the background a few seconds after start-up (and again after picking a
+  // new style), so they show in your style straight away instead of loading one by one.
+  createEffect(on(() => settings().emojiPack, () => { const t = setTimeout(warmLikelyEmoji, 3000); onCleanup(() => clearTimeout(t)); }));
+  // Favorite GIFs saved on this device, kept in step with your favorites (they sync from other devices too).
+  createEffect(on(() => settings().favGifs, () => { const t = setTimeout(warmFavGifs, 4000); onCleanup(() => clearTimeout(t)); }));
+  // For Settings > Advanced > Copy performance report: what was on screen when something froze.
+  setPerfWhere(() => {
+    const sp = space(), c = channel();
+    return `${view()} · ${sp?.home ? "Home" : `server with ${sp?.channels.length ?? 0} channels`}${c ? ` · ${c.kind}` : ""}${call.active() ? " · in a call" : ""}`;
+  });
   const off = backend()!.onEvent((e) => {
-    if (e.t === "activity" || e.t === "message") void refetch();
+    if (e.t === "message" || e.t === "update" || e.t === "activity") perfEvent();
+    if (e.t === "activity") refetch();
+    else if (e.t === "message") refetch(700);
     if (e.t === "activity") bumpMe();
     if (e.t !== "message" || e.m.author.id === me().id || !device().notifications) return;
     // Busy (do not disturb) means no notifications; nothing from people you've blocked.
@@ -296,8 +325,10 @@ export function Shell() {
   type Drag = { kind: "chan" | "cat" | "spin" | "fav" | "dm"; id: string };
   const [drag, setDrag] = createSignal<Drag | null>(null);
   const [dropAt, setDropAt] = createSignal<string | null>(null);
+  // Phones and tablets: only with "Rearrange by dragging" on (Settings > Appearance), so a long press is the menu.
+  const canDrag = () => !MOBILE_UI || device().rearrange;
   const dragFrom = (d: Drag) => ({
-    draggable: true,
+    get draggable() { return canDrag(); },
     onDragStart: (e: DragEvent) => { e.stopPropagation(); e.dataTransfer!.setData("text/x-mustela-chan", d.id); e.dataTransfer!.effectAllowed = "move"; setDrag(d); },
     onDragEnd: () => { setDrag(null); setDropAt(null); },
   });
@@ -332,11 +363,28 @@ export function Shell() {
     return v ? (v.screen ? "Streaming" : "In voice") : c.peer.status || undefined;
   };
   type RowOpts = { fav?: () => void; saved?: boolean; drag?: Drag; drop?: ReturnType<typeof dropTo>; key?: string; sub?: string; onOpen?: () => void; server?: string };
+  /** A voice channel takes someone dragged from another one (computers, with Move Members): moves them there. */
+  const [voiceDropAt, setVoiceDropAt] = createSignal<string | null>(null);
+  const voiceDrop = (c: ChannelInfo) => (c.kind !== "voice" || !serverPerms()?.moveMembers ? {} : {
+    onDragOver: (e: DragEvent) => { if (!e.dataTransfer?.types.includes(VOICE_MIME)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setVoiceDropAt(c.id); },
+    onDragLeave: () => { if (voiceDropAt() === c.id) setVoiceDropAt(null); },
+    onDrop: (e: DragEvent) => {
+      const v = e.dataTransfer?.getData(VOICE_MIME);
+      setVoiceDropAt(null);
+      if (!v) return;
+      e.preventDefault(); e.stopPropagation();
+      const [uid, from] = v.split("|");
+      const sid = space()?.id;
+      if (!uid || from === c.id || !sid) return;
+      void attempt(() => backend()!.moderateVoice!(sid, uid, { channel: c.id }), `Moved to ${c.name}`).then(() => refetch());
+    },
+  });
   const row = (c: ChannelInfo, o: RowOpts = {}) => (
     <>
-      <div class="chan-wrap" classList={{ "drop-line": !!o.key && dropAt() === o.key, dragging: !!o.drag && drag()?.id === o.drag.id }} {...(o.drop ?? {})}>
+      <div class="chan-wrap" classList={{ "drop-line": !!o.key && dropAt() === o.key, dragging: !!o.drag && drag()?.id === o.drag.id, "voice-drop": voiceDropAt() === c.id }} {...(o.drop ?? {})}>
       <button class="chan" classList={{ on: channel()?.id === c.id, big: o.saved, unread: !!c.unread, muted: !!c.muted, dm: c.kind === "dm" || c.kind === "group" }} onClick={() => { setDiscover(false); if (o.onOpen) o.onOpen(); else pick(c); }}
         {...(o.drag ? dragFrom(o.drag) : {})}
+        {...voiceDrop(c)}
         onContextMenu={(e) => (o.fav ? favoriteMenu(e, c, o.fav) : channelMenu(e, c, o.server ?? (space()?.home ? undefined : space()?.id)))}>
         {/* The open DM shows their nameplate behind it (more than a highlighted name) */}
         <Show when={c.kind === "dm" && c.peer && channel()?.id === c.id}><DmPlate person={c.peer!} /></Show>
@@ -347,7 +395,7 @@ export function Shell() {
         }>
           <Avatar person={c.peer!} size={phone() ? 38 : 28} still />
         </Show>
-        <span class="chan-name">{c.name}<Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
+        <span class="chan-name"><TextWithEmoji v={c.name} /><Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
         <Show when={call.active() && call.channel()?.id === c.id}><Icon name="speaker" size={14} class="live-ic" /></Show>
         {/* DMs count every unread message (like the orbs above the server list); channels count mentions. */}
         <Show when={(c.kind === "dm" || c.kind === "group") && c.unread && !c.muted ? Math.max(c.mentions ?? 0, backend()!.unreadCount(c.id)) : c.mentions}>{(n) => <span class="badge">{n() > 99 ? "99+" : n()}</span>}</Show>
@@ -359,7 +407,7 @@ export function Shell() {
         </span>
       </Show>
       </div>
-      <Show when={c.voice?.length}><VoiceMembers members={c.voice!} channelId={c.id} /></Show>
+      <Show when={c.voice?.length}><VoiceMembers members={c.voice!} channelId={c.id} serverId={o.server ?? (space()?.home ? undefined : space()?.id)} canMove={!!serverPerms()?.moveMembers} /></Show>
     </>
   );
   /** Your favorites: the plain list, then your own categories. Each opens where it is, without leaving. */
@@ -592,10 +640,10 @@ export function Shell() {
             <>
               <header class="bar main-bar">
                 <button class="icon-btn back" onClick={() => setView("nav")} aria-label="Back"><Icon name="back" size={20} /></button>
-                <Show when={c().kind === "dm" && c().peer} fallback={<><Icon name={c().kind === "voice" ? "speaker" : c().kind === "group" ? "users" : "hash"} size={20} class="muted" /><h2>{c().name}</h2></>}>
+                <Show when={c().kind === "dm" && c().peer} fallback={<><Icon name={c().kind === "voice" ? "speaker" : c().kind === "group" ? "users" : "hash"} size={20} class="muted" /><h2><TextWithEmoji v={c().name} /></h2></>}>
                   {/* Their picture and name: on phones, tap them for their card (instead of a separate button) */}
                   <button class="bar-peer" aria-label={`${c().name}'s profile`} onClick={() => phone() && setProfileView({ person: c().peer!, full: false, x: 0, y: 0 })}>
-                    <Avatar person={c().peer!} size={26} /><h2>{c().name}</h2>
+                    <Avatar person={c().peer!} size={26} /><h2><TextWithEmoji v={c().name} /></h2>
                   </button>
                 </Show>
                 <Show when={c().description}><span class="topic" title={c().description}>{c().description}</span></Show>
@@ -608,10 +656,12 @@ export function Shell() {
                     onClick={() => setPanel(panel()?.kind === "pins" ? null : { kind: "pins" })}><Icon name="pin" size={20} /></button>
                   <button class="icon-btn phone-only" classList={{ on: panel()?.kind === "search" }} aria-label="Search" title="Search"
                     onClick={() => setPanel(panel()?.kind === "search" ? null : { kind: "search", q: "" })}><Icon name="search" size={20} /></button>
-                  <form class="search-box desk-only" role="search" onSubmit={(e) => { e.preventDefault(); const q = (e.currentTarget.elements.namedItem("q") as HTMLInputElement).value.trim(); if (q) setPanel({ kind: "search", q }); }}>
-                    <Icon name="search" size={16} />
-                    <input name="q" placeholder="Search messages…" aria-label={`Search in ${c().name}`} autocomplete="off" onKeyDown={(e) => e.key === "Escape" && (e.currentTarget.value = "", setPanel(null))} />
-                  </form>
+                  <Show when={!MOBILE_UI} fallback={
+                    <form class="search-box desk-only" role="search" onSubmit={(e) => { e.preventDefault(); const q = (e.currentTarget.elements.namedItem("q") as HTMLInputElement).value.trim(); if (q) setPanel({ kind: "search", q }); }}>
+                      <Icon name="search" size={16} />
+                      <input name="q" placeholder="Search messages…" aria-label={`Search in ${c().name}`} autocomplete="off" onKeyDown={(e) => e.key === "Escape" && (e.currentTarget.value = "", setPanel(null))} />
+                    </form>
+                  }><HeaderSearch channel={c()} spaceId={space()?.id} panel={panel()} setPanel={setPanel} /></Show>
                 <Show when={direct(c())}>
                   <button class="icon-btn not-phone" aria-label={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} title={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} onClick={() => setGroupInvite(c())}><Icon name="user-plus" size={20} /></button>
                 </Show>
@@ -632,11 +682,20 @@ export function Shell() {
               <div class="main-body">
                 {/* The "new messages" bar keeps clear of the floating call preview. */}
                 <div class="main-col" style={previewRoom() ? { "--cpv-room": `${previewRoom()}px` } : {}}>
-                  <Show when={direct(c()) && call.active() && call.channel()?.id === c().id}>
-                    <div class="dm-call"><CallStage channel={c()} compact /></div>
-                  </Show>
-                  <Show when={c().kind === "voice"} fallback={<Chat channel={c()} spaceId={chanSpace()?.id} onProfile={setProfile} onOpenChannel={openChannelById} />}>
-                    <Voice channel={c()} spaceId={chanSpace()?.id} onProfile={setProfile} onOpenChannel={openChannelById} />
+                  <Show when={direct(c()) && call.active() && call.channel()?.id === c().id && phone()} fallback={
+                    <>
+                      <Show when={direct(c()) && call.active() && call.channel()?.id === c().id}>
+                        <div class="dm-call"><CallStage channel={c()} compact /></div>
+                      </Show>
+                      <Show when={c().kind === "voice"} fallback={<Chat channel={c()} spaceId={chanSpace()?.id} onProfile={setProfile} onOpenChannel={openChannelById} />}>
+                        <Voice channel={c()} spaceId={chanSpace()?.id} onProfile={setProfile} onOpenChannel={openChannelById} />
+                      </Show>
+                    </>
+                  }>
+                    <div class="voice-view" classList={{ "with-chat": phoneVoiceChat(), "phone-chat": phoneVoiceChat() }}>
+                      <CallStage channel={c()} chatOpen={phoneVoiceChat()} onToggleChat={() => setPhoneVoiceChat(!phoneVoiceChat())} />
+                      <Show when={phoneVoiceChat()}><Chat channel={c()} spaceId={chanSpace()?.id} onProfile={setProfile} onOpenChannel={openChannelById} /></Show>
+                    </div>
                   </Show>
                 </div>
                 <Show when={showPreview()}>
@@ -649,7 +708,7 @@ export function Shell() {
                       style={{ "padding-top": showPreview() ? `${previewH() + 16}px` : undefined, "--cpv-h": `${previewH()}px`, ...(peerBanner() ? { "--cpv-banner": `url("${peerBanner()!.replace(/"/g, "%22")}")` } : {}) }}><DmProfile person={c().peer!} /></div></Match>
                   </Switch>
                 }>
-                  {(pn) => <div class="members-col panel-col"><MessagePanel panel={pn()} channel={c()} onClose={() => setPanel(null)} /></div>}
+                  {(pn) => <div class="members-col panel-col"><MessagePanel panel={pn()} channel={c()} spaceId={space()?.id} onClose={() => setPanel(null)} /></div>}
                 </Show>
               </div>
             </>

@@ -3,6 +3,7 @@ import type { ProfileInfo } from "../lib/backend/types";
 import { backend, ext, settings } from "./store";
 import { currentServer } from "./nav";
 import { MOBILE_UI } from "./target";
+import { cachedProfile, saveProfile } from "../lib/profileCache";
 
 /** True once the element has been on screen. Used to avoid fetching profiles for rows nobody sees. */
 /** One observer for every name and avatar on screen, instead of one each (chat can show hundreds). */
@@ -88,8 +89,15 @@ export async function refreshProfile(userId: string) {
 export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolean> = () => true, server: Accessor<string | null | undefined> = currentServer): Accessor<ProfileInfo | undefined> {
   const [res] = createResource(
     () => (enabled() && backend() ? `${id()}:${epochs()[id()] ?? 0}` : null),
-    async (key) => backend()?.profileOf(key.slice(0, key.lastIndexOf(":"))),
+    async (key) => {
+      const uid = key.slice(0, key.lastIndexOf(":")), b = backend();
+      const info = await b?.profileOf(uid);
+      if (info && b && !MOBILE_UI && b.session() && (info.config || info.bio || info.bannerUrl)) saveProfile(b.me.id, uid, info);
+      return info;
+    },
   );
+  // Computers: the copy saved last time shows while the fresh one loads (lib/profileCache.ts).
+  const [saved] = createResource(() => (!MOBILE_UI && enabled() && backend()?.session() ? id() : null), (uid) => cachedProfile(backend()!.me.id, uid));
   const base = (): ProfileInfo | undefined => {
     const b = backend();
     if (b && id() === b.me.id) {
@@ -98,7 +106,7 @@ export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolea
       for (const [sid, l] of Object.entries(ext().serverLooks)) servers[sid] = { config: l.config, bio: l.bio, bannerAt: l.banner };
       return { config: settings().profile, bio: res()?.bio, bannerUrl: res()?.bannerUrl, servers };
     }
-    return res();
+    return res() ?? (res.loading ? saved() ?? undefined : undefined);
   };
   const look = () => { const s = server(); return s ? base()?.servers?.[s] : undefined; };
   const [banner] = createResource(

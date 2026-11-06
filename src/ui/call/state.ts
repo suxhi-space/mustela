@@ -212,12 +212,19 @@ export function screenButton(anchor: Element) {
   ]);
 }
 
+let micBeforeDeaf = false;
 export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
   const h = handle(); if (!h) return;
   const next = !on()[k];
   try {
     if (device().sounds.toggles && (k === "mic" || k === "deaf")) playSfx(k === "mic" ? (next ? "unmute" : "mute") : next ? "deafen" : "undeafen");
-    if (k === "deaf") { await h.setDeaf?.(next); }
+    if (k === "deaf") {
+      // Like Discord: deafening mutes you, and undeafening turns your microphone back on if it was on before.
+      if (next) micBeforeDeaf = on().mic;
+      await h.setDeaf?.(next);
+      if (!next && micBeforeDeaf && !(h.state?.() ?? on()).mic) await h.setMic(true).catch(() => {});
+      if (!next) micBeforeDeaf = false;
+    }
     else {
       // Unmuting while deafened undeafens too, like Discord and Stoat.
       if (k === "mic" && next && on().deaf) await h.setDeaf?.(false);

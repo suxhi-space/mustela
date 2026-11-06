@@ -9,6 +9,8 @@ import { Compartment, EditorSelection, EditorState, RangeSetBuilder, type Extens
 import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { CHIP_RE, codeSpans } from "./complete";
+import { emojiReady, emojiUrl, loadEmoji, PACK_PUA, PACKED_EMOJI_RE } from "../../lib/emoji";
+import { settings } from "../store";
 export { CHIP_RE, codeSpans };
 
 /** What the editor needs to draw a chip. Looked up at draw time, so names stay current. */
@@ -42,6 +44,26 @@ class ChipWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+/**
+ * A unicode emoji in the box, drawn in your chosen style like in sent messages. The system emoji shows until the
+ * styled picture is loaded. The text itself is unchanged, so what's sent is still the emoji.
+ */
+class UniEmojiWidget extends WidgetType {
+  constructor(readonly char: string, readonly pack: string) { super(); }
+  eq(o: UniEmojiWidget) { return o.char === this.char && o.pack === this.pack; }
+  toDOM() {
+    const url = emojiUrl(this.pack, this.char);
+    const img = () => { const i = document.createElement("img"); i.className = "uemoji-img ed-uemoji"; i.src = url; i.alt = this.char; i.draggable = false; return i; };
+    if (emojiReady(url)) return img();
+    const s = document.createElement("span");
+    s.className = "ue-glyph ed-uemoji";
+    s.textContent = this.char;
+    void loadEmoji(url).then((ok) => { if (ok && s.isConnected) s.replaceWith(img()); });
+    return s;
+  }
+  ignoreEvent() { return false; }
+}
+
 function chipDecorations(view: EditorView, look: ChipLookup): DecorationSet {
   const b = new RangeSetBuilder<Decoration>();
   const out: [number, number, Decoration][] = [];
@@ -61,8 +83,23 @@ function chipDecorations(view: EditorView, look: ChipLookup): DecorationSet {
       else if (m[5]) { const l = look.messageLink(m[5]); if (l) w = new ChipWidget("link", l); }
       if (w) out.push([start, end, Decoration.replace({ widget: w })]);
     }
+    // Unicode emoji in your style (a style marker in front of one picks that style, as in sent messages).
+    const pack = settings().emojiPack;
+    const taken: [number, number][] = out.map(([a, z]) => [a, z]);
+    const free = (a: number, z: number) => !taken.some(([x, y]) => a < y && z > x) && !code.some(([x, y]) => a < y && z > x);
+    for (const m of text.matchAll(PACKED_EMOJI_RE)) {
+      const start = from + m.index!, end = start + m[0].length;
+      const forced = PACK_PUA[m[0][0]!];
+      const style = forced ?? pack;
+      if (style === "system" || !free(start, end)) continue;
+      out.push([start, end, Decoration.replace({ widget: new UniEmojiWidget(forced ? m[0].slice(1) : m[0], style) })]);
+      taken.push([start, end]);
+    }
     // Stoat's emoji style marker (the hidden character before an emoji picked in another style) would draw as a box.
-    for (const m of text.matchAll(/[\uE0E0-\uE0E6]/g)) out.push([from + m.index!, from + m.index! + 1, Decoration.replace({})]);
+    for (const m of text.matchAll(/[\uE0E0-\uE0E6]/g)) {
+      const at = from + m.index!;
+      if (free(at, at + 1)) out.push([at, at + 1, Decoration.replace({})]);
+    }
   }
   for (const [f, t, d] of out.sort((x, y) => x[0] - y[0])) b.add(f, t, d);
   return b.finish();

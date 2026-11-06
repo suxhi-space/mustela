@@ -5,9 +5,12 @@ import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show
 import type { CustomEmoji } from "../../lib/backend/types";
 import type { FavGif } from "../../lib/sync/settings";
 import { backend, ext, settings, updateExt, updateSettings } from "../store";
-import { EMOJI_GROUPS, emojiName, searchEmoji } from "../../lib/emoji";
+import { EMOJI_GROUPS, emojiName, searchEmoji, warmEmoji } from "../../lib/emoji";
 import { Icon } from "../icons";
 import { UEmoji } from "./UEmoji";
+import { SheetTop, useExprSheet } from "./ExprSheet";
+import { savedGif, syncFavGifs } from "../../lib/gifStore";
+import { toast } from "../menu";
 
 const PUA_OF: Record<string, string> = { "fluent-flat": "\uE0E2", mutant: "\uE0E3", noto: "\uE0E4", twemoji: "\uE0E6" };
 
@@ -15,16 +18,39 @@ const PUA_OF: Record<string, string> = { "fluent-flat": "\uE0E2", mutant: "\uE0E
 
 /** `text` goes into a message (":id:" for custom emoji); `key` is what a reaction uses. */
 export type EmojiPick = { text: string; key: string };
-type PickerReq = { x: number; y: number; onPick(p: EmojiPick): void };
+/** `gif`: also offer the GIFs tab (phones), picking with this. */
+type PickerReq = { x: number; y: number; onPick(p: EmojiPick): void; gif?: (url: string) => void };
 const [picker, setPicker] = createSignal<PickerReq | null>(null);
 
-export function openEmojiPicker(anchor: Element, onPick: (p: EmojiPick) => void) {
+export function openEmojiPicker(anchor: Element, onPick: (p: EmojiPick) => void, more: { gif?: (url: string) => void } = {}) {
   const r = anchor.getBoundingClientRect();
-  setPicker({ x: r.right, y: r.top, onPick });
+  setPicker({ x: r.right, y: r.top, onPick, gif: more.gif });
 }
+
+/** Whether the emoji or GIF picker is open (phones swap the message box's emoji button for a keyboard then). */
+export const exprOpen = () => !!picker() || !!gifReq();
+export function closeExpr() { setPicker(null); setGifReq(null); }
 
 /** Emoji you use, most used first (this device only, like Discord's "Frequently used"). */
 const RECENT_KEY = "mustela:emoji-recent";
+/**
+ * In the background, load the emoji you're most likely to see (your favorites and frequent ones, the quick
+ * reactions, the first picker section) so they show in your style straight away. Called once at start-up and
+ * whenever the picker opens.
+ */
+/** Save favorite GIFs on this device (and forget removed ones). Called at start-up and when the GIF picker opens. */
+export function warmFavGifs() {
+  const favs = settings().favGifs;
+  syncFavGifs([...new Set(favs.flatMap((g) => [g.preview, ...(g.still ? [g.still] : [])]))]);
+}
+
+export function warmLikelyEmoji() {
+  const isUni = (k: string) => !isCustomKey(k);
+  const frequent = Object.entries(recentCounts()).sort((x, y) => y[1] - x[1]).map(([k]) => k).filter(isUni).slice(0, 40);
+  const favs = ext().favEmoji.filter(isUni);
+  warmEmoji(settings().emojiPack, [...new Set([...favs, ...frequent, "👍", "❤️", "😂", "😮", "😢", "🔥", ...EMOJI_GROUPS[0]!.items.slice(0, 96).map((e) => e.char)])]);
+}
+
 function recentCounts(): Record<string, number> { try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "{}") ?? {}; } catch { return {}; } }
 function noteUse(key: string) {
   try {
@@ -68,11 +94,13 @@ export function EmojiPicker() {
         return { custom: custom().filter((e) => e.name.toLowerCase().includes(s)).slice(0, 60), unicode: searchEmoji(s, 120) };
       });
       const phone = phoneLayout();
-      const W = 420, H = 440;
+      const sheet = phone ? useExprSheet(() => setPicker(null)) : null;
+      const toGif = req.gif ? () => { const g = req.gif!; setPicker(null); setGifReq({ x: req.x, y: req.y, onPick: g, emoji: req.onPick }); } : undefined;
+      const W = 420, H = 460;
       const left = () => Math.max(8, Math.min(req.x - W, innerWidth - W - 8));
       const top = () => (req.y - H - 8 > 8 ? req.y - H - 8 : Math.min(req.y + 36, innerHeight - H - 8));
       let input!: HTMLInputElement, list!: HTMLDivElement;
-      onMount(() => { if (!phone) input.focus(); });
+      onMount(() => { if (!phone) input.focus(); warmLikelyEmoji(); });
       const pick = (p: EmojiPick) => { noteUse(p.key); req.onPick(p); setPicker(null); };
       const pickKey = (k: string) => { const e = byKey(k); if (e) pick({ text: `:${e.id}:`, key: e.id }); else pickUnicode(k); };
       // Like Stoat: the text carries your pack so other Stoat users see the same art. Reactions stay plain.
@@ -89,7 +117,10 @@ export function EmojiPicker() {
             onMouseEnter={() => setHover({ key: p.k, name: p.title, render: p.render })} onFocus={() => setHover({ key: p.k, name: p.title, render: p.render })}
             onClick={() => { if (held) { held = false; return; } pickKey(p.k); }}
             onContextMenu={(e) => { e.preventDefault(); toggleFavEmoji(p.k); }}
-            onPointerDown={(e) => { if (e.pointerType !== "touch") return; held = false; t = setTimeout(() => { held = true; toggleFavEmoji(p.k); setHover({ key: p.k, name: p.title, render: p.render }); }, 500); }}
+            onPointerDown={(e) => { if (e.pointerType !== "touch") return; held = false; t = setTimeout(() => {
+              held = true; const was = ext().favEmoji.includes(p.k); toggleFavEmoji(p.k); setHover({ key: p.k, name: p.title, render: p.render });
+              if (phone) { navigator.vibrate?.(15); toast(was ? `${p.title} removed from favorites` : `${p.title} added to favorites`); }
+            }, 500); }}
             onPointerUp={() => clearTimeout(t)} onPointerLeave={() => clearTimeout(t)}>{p.render()}</button>
         );
       };
@@ -104,18 +135,40 @@ export function EmojiPicker() {
         ...servers().map((g) => ({ id: g.id, title: g.name, icon: () => (g.icon ? <img src={g.icon} alt="" /> : <span class="et-letter">{g.name.slice(0, 1)}</span>), keys: g.items.map((e) => e.id) })),
         ...EMOJI_GROUPS.map((g, i) => ({ id: `u${i}`, title: g.title, icon: () => <UEmoji e={g.items[0]!.char} />, keys: g.items.map((e) => e.char) })),
       ]);
-      const jump = (id: string) => { setActive(id); list.querySelector(`[data-sec="${id}"]`)?.scrollIntoView({ block: "start" }); };
+      // Jumping: every section above the one you picked is filled in first (they start as placeholders), then the list
+      // lines it up and keeps it lined up for a moment while pictures settle, with your pick highlighted throughout.
+      const [upTo, setUpTo] = createSignal(-1);
+      let jumpUntil = 0;
+      const jump = (id: string) => {
+        const idx = sections().findIndex((x) => x.id === id);
+        setActive(id);
+        if (idx > upTo()) setUpTo(idx);
+        jumpUntil = performance.now() + 450;
+        const align = () => {
+          const h = list.querySelector<HTMLElement>(`[data-sec="${id}"]`);
+          if (h) list.scrollTop += h.getBoundingClientRect().top - list.getBoundingClientRect().top;
+          if (performance.now() < jumpUntil) requestAnimationFrame(align);
+        };
+        align();
+      };
+      let scrollQueued = false;
       const onScroll = () => {
-        const top = list.getBoundingClientRect().top;
-        let cur = sections()[0]?.id ?? "";
-        for (const h of list.querySelectorAll<HTMLElement>("[data-sec]")) { if (h.getBoundingClientRect().top - top <= 8) cur = h.dataset.sec!; else break; }
-        if (cur !== active()) setActive(cur);
+        if (scrollQueued || performance.now() < jumpUntil) return;
+        scrollQueued = true;
+        requestAnimationFrame(() => {
+          scrollQueued = false;
+          const top = list.getBoundingClientRect().top;
+          let cur = sections()[0]?.id ?? "";
+          for (const h of list.querySelectorAll<HTMLElement>("[data-sec]")) { if (h.getBoundingClientRect().top - top <= 8) cur = h.dataset.sec!; else break; }
+          if (cur !== active()) setActive(cur);
+        });
       };
 
       return (
-        <div class="pop-scrim emoji-scrim" classList={{ sheet: phone }} onClick={() => setPicker(null)}>
-          <div class="emoji-pop panel" classList={{ "emoji-sheet": phone }} style={phone ? {} : { left: `${left()}px`, top: `${Math.max(8, top())}px`, width: `${W}px`, height: `${H}px` }}
+        <div class="pop-scrim emoji-scrim" classList={{ sheet: phone, "xs-scrim": phone }} onClick={() => setPicker(null)}>
+          <div class="emoji-pop panel" classList={{ "emoji-sheet": phone, "xs-dragging": !!sheet?.dragging() }} style={sheet ? { height: `${sheet.height()}px` } : { left: `${left()}px`, top: `${Math.max(8, top())}px`, width: `${W}px`, height: `${H}px` }}
             onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Emoji picker">
+            <SheetTop tab="emoji" toGif={toGif} toEmoji={toGif && (() => {})} grip={sheet?.grip} />
             <div class="emoji-top">
               <input ref={input} class="emoji-search" placeholder="Find the perfect emoji" value={q()} onInput={(e) => setQ(e.currentTarget.value)}
                 onKeyDown={(e) => { if (e.key !== "Enter") return; const r = results(); if (r?.custom[0]) pickKey(r.custom[0].id); else if (r?.unicode[0]) pickUnicode(r.unicode[0].char); }} aria-label="Search emoji" />
@@ -130,11 +183,11 @@ export function EmojiPicker() {
               </Show>
               <div class="emoji-list" ref={list} onScroll={onScroll}>
                 <Show when={results()} fallback={
-                  <For each={sections()}>{(s) => (<>
+                  <For each={sections()}>{(s, i) => (<>
                     <p class="eg-title" data-sec={s.id}>{s.title}</p>
-                    <div class="emoji-grid">
+                    <LazyGrid count={s.keys.length} root={list} now={i() <= upTo()}>
                       <For each={s.keys}>{(k) => <Btn k={k} title={titleOf(k)} render={renderOf(k)} />}</For>
-                    </div>
+                    </LazyGrid>
                   </>)}</For>
                 }>
                   <div class="emoji-grid">
@@ -163,29 +216,33 @@ export function EmojiPicker() {
 
 /* ---------- GIF picker (Gifbox), with starred favorites that sync through settings ---------- */
 
-type GifReq = { x: number; y: number; onPick(url: string): void };
+type GifReq = { x: number; y: number; onPick(url: string): void; emoji?: (p: EmojiPick) => void };
 const [gifReq, setGifReq] = createSignal<GifReq | null>(null);
-export function openGifPicker(anchor: Element, onPick: (url: string) => void) {
+export function openGifPicker(anchor: Element, onPick: (url: string) => void, more: { emoji?: (p: EmojiPick) => void } = {}) {
   const r = anchor.getBoundingClientRect();
-  setGifReq({ x: r.right, y: r.top, onPick });
+  setGifReq({ x: r.right, y: r.top, onPick, emoji: more.emoji });
 }
 
 export const isFav = (url: string) => settings().favGifs.some((g) => g.url === url);
 export function toggleFav(g: FavGif) {
   updateSettings((s) => ({ ...s, favGifs: isFav(g.url) ? s.favGifs.filter((x) => x.url !== g.url) : [g, ...s.favGifs].slice(0, 100) }));
+  warmFavGifs();
 }
 
-function GifTile(props: { g: FavGif; onPick(): void }) {
+function GifTile(props: { g: FavGif; onPick(): void; saved?: boolean }) {
   // Gifbox previews are webm (often with no file extension). If this system can't play them, show the GIF instead.
   const [failed, setFailed] = createSignal(false);
+  // Favorites come from the copy kept on this device (lib/gifStore.ts); if that's missing, from the web as usual.
+  const [local, setLocal] = createSignal(!!props.saved);
+  const src = (u: string) => (local() ? savedGif(u) : u);
   const isImage = () => /\.(gif|png|jpe?g|webp)(\?|$)/i.test(props.g.preview);
   const ratio = () => (props.g.w && props.g.h ? `${props.g.w} / ${props.g.h}` : undefined);
   const play = useAutoplay();
   return (
     <div class="gif-tile" style={{ "aspect-ratio": ratio() }}>
       <button class="gif-play" onClick={props.onPick} aria-label="Send GIF">
-        <Show when={!isImage() && !failed()} fallback={<img src={failed() ? props.g.still ?? props.g.preview : props.g.preview} alt="" loading="lazy" />}>
-          <video ref={play} src={props.g.preview} muted playsinline preload="metadata" onError={() => props.g.still && setFailed(true)} />
+        <Show when={!isImage() && !failed()} fallback={<img src={src(failed() ? props.g.still ?? props.g.preview : props.g.preview)} alt="" loading="lazy" onError={() => local() && setLocal(false)} />}>
+          <video ref={play} src={src(props.g.preview)} muted playsinline preload="metadata" onError={() => { if (local()) setLocal(false); else if (props.g.still) setFailed(true); }} />
         </Show>
       </button>
       <button class="gif-star" classList={{ on: isFav(props.g.url) }} aria-pressed={isFav(props.g.url)} aria-label={isFav(props.g.url) ? "Remove from favorites" : "Add to favorites"}
@@ -204,20 +261,25 @@ export function GifPicker() {
       let t: ReturnType<typeof setTimeout> | undefined;
       const [cats] = createResource(() => backend()?.gifCategories().catch(() => []));
       const [found] = createResource(deb, (x) => backend()!.gifs(x).catch(() => null));
-      const W = 400, H = 440;
+      const phone = phoneLayout();
+      const sheet = phone ? useExprSheet(() => setGifReq(null)) : null;
+      const toEmoji = req().emoji ? () => { const r = req(); setGifReq(null); setPicker({ x: r.x, y: r.y, onPick: r.emoji!, gif: r.onPick }); } : undefined;
+      const W = 420, H = 460;
       const left = () => Math.max(8, Math.min(req().x - W, innerWidth - W - 8));
       const top = () => Math.max(8, req().y - H - 8 > 8 ? req().y - H - 8 : innerHeight - H - 8);
       const pick = (url: string) => { req().onPick(url); setGifReq(null); };
+      onMount(warmFavGifs);
       const esc = (e: KeyboardEvent) => e.key === "Escape" && setGifReq(null);
       onMount(() => addEventListener("keydown", esc));
       onCleanup(() => { removeEventListener("keydown", esc); clearTimeout(t); });
       const search = (v: string) => { setQ(v); setTab("browse"); clearTimeout(t); t = setTimeout(() => setDeb(v.trim()), 300); };
       return (
-        <div class="pop-scrim" onClick={() => setGifReq(null)}>
-          <div class="gif-pop panel" style={{ left: `${left()}px`, top: `${top()}px`, width: `${W}px`, height: `${H}px` }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="GIFs">
+        <div class="pop-scrim" classList={{ "xs-scrim": phone }} onClick={() => setGifReq(null)}>
+          <div class="gif-pop panel" classList={{ "gif-sheet": phone, "xs-dragging": !!sheet?.dragging() }} style={sheet ? { height: `${sheet.height()}px` } : { left: `${left()}px`, top: `${top()}px`, width: `${W}px`, height: `${H}px` }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="GIFs">
+            <SheetTop tab="gif" toEmoji={toEmoji} toGif={toEmoji && (() => {})} grip={sheet?.grip} />
             <div class="gif-head">
               <Show when={deb()}><button class="icon-btn" aria-label="Back" onClick={() => { setQ(""); setDeb(""); }}><Icon name="back" size={18} /></button></Show>
-              <input class="emoji-search" placeholder="Search Gifbox" value={q()} onInput={(e) => search(e.currentTarget.value)} aria-label="Search GIFs" autofocus />
+              <input class="emoji-search" placeholder="Search Gifbox" value={q()} onInput={(e) => search(e.currentTarget.value)} aria-label="Search GIFs" autofocus={!phone} />
             </div>
             <Show when={!deb()}>
               <div class="seg gif-tabs" role="tablist">
@@ -235,7 +297,7 @@ export function GifPicker() {
                   </div>
                 }>
                   <Show when={settings().favGifs.length} fallback={<p class="empty small">Star a GIF to keep it here. Favorites follow your account to every device.</p>}>
-                    <div class="gif-grid"><For each={settings().favGifs}>{(g) => <GifTile g={g} onPick={() => pick(g.url)} />}</For></div>
+                    <div class="gif-grid"><For each={settings().favGifs}>{(g) => <GifTile g={g} saved onPick={() => pick(g.url)} />}</For></div>
                   </Show>
                 </Show>
               }>
@@ -257,3 +319,37 @@ export function GifPicker() {
 /* ---------- pictures shown big: see Gallery.tsx ---------- */
 
 export { Lightbox, openGallery, openLightbox } from "./Gallery";
+
+/**
+ * A section of the emoji picker. Only the first ones are built when the picker opens (building all ~1,900 buttons at
+ * once made it slow to open); the rest are built one at a time while nothing else is happening, or straight away
+ * if you scroll to them first. 8 across, so each one's height is known beforehand and jumping to a section lands in
+ * the right place.
+ */
+const idleQueue: (() => void)[] = [];
+let idleRunning = false;
+function whenIdle(f: () => void) {
+  idleQueue.push(f);
+  if (idleRunning) return;
+  idleRunning = true;
+  const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: object) => void }).requestIdleCallback ?? ((g: () => void) => setTimeout(g, 16));
+  const next = () => { const g = idleQueue.shift(); if (!g) { idleRunning = false; return; } g(); ric(next, { timeout: 300 }); };
+  ric(next, { timeout: 300 });
+}
+function LazyGrid(props: { count: number; root: HTMLElement | undefined; now?: boolean; children: JSX.Element }) {
+  const [seen, setShow] = createSignal(false);
+  const show = () => seen() || !!props.now;
+  let el!: HTMLDivElement;
+  onMount(() => {
+    let done = false;
+    const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { done = true; setShow(true); io.disconnect(); } }, { root: props.root ?? null, rootMargin: "300px 0px" });
+    io.observe(el);
+    whenIdle(() => { if (!done) { done = true; setShow(true); io.disconnect(); } });
+    onCleanup(() => { done = true; io.disconnect(); });
+  });
+  return (
+    <div ref={el} class="emoji-grid" style={show() ? undefined : { "aspect-ratio": `8 / ${Math.ceil(props.count / 8)}` }}>
+      <Show when={show()}>{props.children}</Show>
+    </div>
+  );
+}

@@ -14,7 +14,11 @@ import { MOBILE_UI } from "../target";
  * double-tap to zoom (wheel on a computer), tap to hide the bars, pull down to close. Who sent it sits at the
  * bottom with a strip of the others; the ⋮ menu saves, shares, opens it in the browser or finds it in the chat.
  */
-export type GalleryItem = { url: string; name: string; spoiler?: boolean; video?: boolean; preview?: string; from?: Person; at?: Date; locate?: () => void };
+export type GalleryItem = { url: string; name: string; spoiler?: boolean; video?: boolean; preview?: string; from?: Person; at?: Date; locate?: () => void;
+  /** An embedded player (YouTube) shown instead of a video file; `url` is then its page. */
+  frame?: string;
+  /** Where to start the video (carrying on from the chat). */
+  start?: number };
 
 const [items, setItems] = createSignal<GalleryItem[]>([]);
 const [index, setIndex] = createSignal(0);
@@ -116,6 +120,18 @@ function GalleryView() {
   let onPicture = false; // where the press started (after capture, the release always lands on the stage)
 
   let stageEl: HTMLDivElement | undefined;
+  let clickedStage = 0;
+  /** Whether a point is on the picture itself, not the empty space a fitted picture or video leaves around it. */
+  const onContent = (el: HTMLImageElement | HTMLVideoElement, e: { clientX: number; clientY: number }) => {
+    const r = el.getBoundingClientRect();
+    // The player's controls run along the whole bottom of the video, beside the picture too.
+    if (el instanceof HTMLVideoElement && e.clientY > r.bottom - 64 && e.clientY <= r.bottom) return true;
+    const iw = el instanceof HTMLVideoElement ? el.videoWidth : el.naturalWidth, ih = el instanceof HTMLVideoElement ? el.videoHeight : el.naturalHeight;
+    if (!iw || !ih) return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    const k = Math.min(r.width / iw, r.height / ih), w = iw * k, h = ih * k;
+    const x = r.left + (r.width - w) / 2, y = r.top + (r.height - h) / 2;
+    return e.clientX >= x && e.clientX <= x + w && e.clientY >= y && e.clientY <= y + h;
+  };
   // The picture's area: the whole screen on phones, the window's middle on computers.
   const area = () => {
     const r = stageEl?.getBoundingClientRect();
@@ -138,8 +154,11 @@ function GalleryView() {
   };
 
   const down = (e: PointerEvent) => {
-    if ((e.target as Element).closest("video, .gv-spoiler, .gv-top, .gv-bottom, .gv-side, .gv-menu")) return;
-    onPicture = !!(e.target as Element).closest(".gv-slide img, .gv-slide video");
+    const t = e.target as Element;
+    if (t.closest("iframe, .gv-spoiler, .gv-top, .gv-bottom, .gv-side, .gv-menu")) return;
+    // A video's player is its own (play, seek, volume); only the black space beside the picture is the background.
+    if (t instanceof HTMLVideoElement && onContent(t, e)) return;
+    onPicture = t instanceof HTMLImageElement && !!t.closest(".gv-slide") && onContent(t, e);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     setAnimate(false);
@@ -180,6 +199,7 @@ function GalleryView() {
   };
   const up = (e: PointerEvent) => {
     if (!pts.has(e.pointerId)) return;
+    clickedStage = Date.now();
     pts.delete(e.pointerId);
     if (pts.size >= 1) { // one finger lifted from a pinch: carry on panning with the other
       pinch = null;
@@ -226,7 +246,7 @@ function GalleryView() {
       <>
         <div class="gv-menu-scrim" onClick={() => setMenu(false)} />
         <div class="gv-menu" role="menu">
-            <button role="menuitem" onClick={() => { setMenu(false); void save(it()); }}><Icon name="download" size={20} />Save</button>
+            <Show when={!it().frame}><button role="menuitem" onClick={() => { setMenu(false); void save(it()); }}><Icon name="download" size={20} />Save</button></Show>
             <button role="menuitem" onClick={() => { setMenu(false); void share(it()); }}><Icon name="popout" size={20} />Share</button>
             <button role="menuitem" onClick={() => { setMenu(false); void openOutside(it().url); }}><Icon name="globe" size={20} />Open in browser</button>
             <Show when={it().locate}>{(loc) => <button role="menuitem" onClick={() => { close(); loc()(); }}><Icon name="chat" size={20} />Show in chat</button>}</Show>
@@ -238,7 +258,12 @@ function GalleryView() {
   return (
     <div class="gallery-view" classList={{ bare: !chrome(), desk: !MOBILE_UI }} role="dialog" aria-label={cur()?.name ?? "Picture"}
       style={MOBILE_UI ? { "background-color": `rgba(0,0,0,${fade()})` } : undefined}
-      onClick={(e) => { if (!MOBILE_UI && (e.target === e.currentTarget || e.target === (e.currentTarget.firstElementChild as Element | null))) close(); }}>
+      onClick={(e) => {
+        // Computers: a click anywhere but the picture, a button or the sender's name closes (the stage handles its own).
+        if (MOBILE_UI || Date.now() - clickedStage < 400) return;
+        if ((e.target as Element).closest(".gv-stage, button, a, input, .gv-menu, .gv-who, .avatar, img, video, iframe")) return;
+        close();
+      }}>
       {/* Computers: the picture over the dimmed app, about the size of the full profile; click around it to close. Phones: full screen. */}
       <div class="gv-window">
       <div class="gv-stage" ref={stageEl} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onWheel={wheel}>
@@ -255,7 +280,9 @@ function GalleryView() {
                     style={i() === index() ? { transform: `translate(${pan().x}px, ${pan().y}px) scale(${scale()})` } : undefined}
                     classList={{ animate: animate() }} />
                 }>
-                  <video src={it.url} poster={it.preview} controls playsinline autoplay={i() === index()} />
+                  <Show when={it.frame} fallback={
+                    <video src={it.url} poster={it.preview} controls playsinline autoplay={i() === index()} ref={(v) => { if (it.start) v.currentTime = it.start; }} />
+                  }>{(f) => <iframe class="gv-frame" src={i() === index() ? f() : undefined} title={it.name} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerPolicy="strict-origin-when-cross-origin" />}</Show>
                 </Show>
               </Show>
             </div>

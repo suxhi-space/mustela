@@ -3,8 +3,9 @@ import type { ServerLooks } from "../profile/servers";
 import { Client } from "stoat.js";
 import type { VoicePresence, AccountApi, BotRow, MfaProof,
   Attachment, ChannelInfo, ChatBackend, ChatEvent, Embed, Friends, MemberGroup, Msg, Person, ProfileInfo, Reaction,
-  BanRow, CategoryInfo, ChannelDetails, ChannelRules, CustomEmoji, DiscoverState, Override, ServerDetails, WebhookRow, ServerFolder, GifCategory, InviteRow, NotifyLevel, Role, ServerInfo, GifResult, InviteInfo, MeUpdate, SendOptions, Space, StoredSession, VoiceEngine, VoiceHandle, VoicePrefs,
+  BanRow, CategoryInfo, ChannelDetails, ChannelRules, CustomEmoji, DiscoverState, Override, ServerDetails, WebhookRow, ServerFolder, GifCategory, InviteRow, NotifyLevel, Role, ServerInfo, GifResult, InviteInfo, MeUpdate, SendOptions, Space, StoredSession, VoiceEngine, VoiceHandle, VoicePrefs, SearchSort,
 } from "./types";
+import { SEARCH_BATCH } from "./types";
 import { sanitizeProfile, type ProfileConfig } from "../profile/model";
 import { cachedBanner, forgetBanners, rememberBanner } from "../profile/cache";
 import { packProfile, unpackProfile } from "../profile/pack";
@@ -71,13 +72,24 @@ export function attachmentOf(f: any): Attachment {
 const GIF_ORIGINS = ["https://tenor.com", "https://giphy.com", "https://gifbox.me", "https://media.tenor.com", "https://media.giphy.com"];
 const isGifUrl = (u?: string) => { try { return !!u && GIF_ORIGINS.includes(new URL(u).origin); } catch { return false; } };
 
+/** Character codes some sites leave in their titles (&#x2019; and friends), as the characters. Text only. */
+export function unescapeHtml(s?: string): string | undefined {
+  if (!s || !s.includes("&")) return s;
+  const named: Record<string, string> = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " " };
+  return s.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|amp|quot|apos|lt|gt|nbsp);/gi, (all, n: string) => {
+    if (n[0] !== "#") return named[n.toLowerCase()] ?? all;
+    const code = n[1] === "x" || n[1] === "X" ? parseInt(n.slice(2), 16) : parseInt(n.slice(1), 10);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
+  });
+}
+
 export function embedOf(e: any): Embed | null {
   switch (e?.type) {
     case "Website":
       return {
         gif: e.specialContent?.type === "GIF" || isGifUrl(e.originalUrl ?? e.url),
         special: e.specialContent && e.specialContent.type !== "None" ? { type: e.specialContent.type, id: e.specialContent.id } : undefined,
-        kind: "website", url: e.url ?? e.originalUrl, title: e.title, description: e.description, siteName: e.siteName,
+        kind: "website", url: e.url ?? e.originalUrl, title: unescapeHtml(e.title), description: unescapeHtml(e.description), siteName: unescapeHtml(e.siteName),
         iconUrl: e.proxiedIconURL ?? e.iconUrl, colour: e.colour,
         image: e.image ? { url: e.image.proxiedURL ?? e.image.url, width: e.image.width, height: e.image.height } : undefined,
         video: e.video ? { url: e.video.proxiedURL ?? e.video.url, width: e.video.width, height: e.video.height } : undefined,
@@ -86,7 +98,7 @@ export function embedOf(e: any): Embed | null {
     case "Video": return { kind: "video", gif: isGifUrl(e.url), url: e.url, video: { url: e.proxiedURL ?? e.url, width: e.width, height: e.height } };
     case "Text":
       return {
-        kind: "text", url: e.url, title: e.title, description: e.description, colour: e.colour, iconUrl: e.proxiedIconURL ?? e.iconUrl,
+        kind: "text", url: e.url, title: unescapeHtml(e.title), description: unescapeHtml(e.description), colour: e.colour, iconUrl: e.proxiedIconURL ?? e.iconUrl,
         image: e.media ? { url: e.media.createFileURL?.() ?? "" } : undefined,
       };
     default: return null;
@@ -166,6 +178,21 @@ export class StoatBackend implements ChatBackend {
 
   private constructor(private client: SClient, private sess: StoredSession) {
     this.cloud = new Cloud(normalizeBase((client as any).options?.baseURL) ?? DEFAULT_API, () => this.sess.token, () => this.sess.user_id);
+    this.pruneTimer = setInterval(() => this.pruneMessages(), 60_000);
+  }
+
+  /**
+   * Stoat's library keeps every message it receives, from every server, for as long as the app runs. In big
+   * servers that grows by thousands an hour and the app slows down (and pauses to clean up memory). Keep the newest
+   * 2,500; the chat you're reading keeps its own copy, and anything older is fetched again if it's needed.
+   */
+  private pruneTimer: ReturnType<typeof setInterval>;
+  private pruneMessages(keep = 2500) {
+    const col = (this.client as any).messages;
+    const ids: string[] = [...col.keys()];
+    if (ids.length <= keep + 500) return;
+    ids.sort(); // ids are ULIDs: in time order
+    for (const id of ids.slice(0, ids.length - keep)) col.delete(id);
   }
 
   readonly account: AccountApi = (() => {
@@ -318,11 +345,15 @@ export class StoatBackend implements ChatBackend {
     return [{ id: "home", name: "Home", home: true, channels: saved ? [this.channelInfo(saved), ...dms] : dms }, ...servers];
   }
 
-  /** Each server's member list for a minute, so switching back and forth doesn't download thousands again. */
+  /**
+   * A server's member list. The members are downloaded once per session, like Stoat's own client (only the online
+   * ones for servers over 1,000, as Discord does too); after that the list is built from what's already in memory,
+   * kept for 20 seconds so switching channels doesn't rebuild it.
+   */
   private memberCache = new Map<string, { at: number; list: Promise<MemberGroup[]> }>();
   members(spaceId: string): Promise<MemberGroup[]> {
     const hit = this.memberCache.get(spaceId);
-    if (hit && Date.now() - hit.at < 60_000) return hit.list;
+    if (hit && Date.now() - hit.at < 20_000) return hit.list;
     const list = this.loadMembers(spaceId);
     this.memberCache.set(spaceId, { at: Date.now(), list });
     list.catch(() => this.memberCache.delete(spaceId));
@@ -332,15 +363,18 @@ export class StoatBackend implements ChatBackend {
     if (spaceId === "home") return [];
     const s: any = this.client.servers.get(spaceId);
     if (!s) return [];
-    const { members, users } = await s.fetchMembers();
-    const byId = new Map((users as any[]).map((u) => [u.id, u]));
+    const large = (s.approximateMemberCount ?? 0) > 1000;
+    await s.syncMembers(large);
+    const members = (this.client.serverMembers as any).filter((m: any) => m.id?.server === spaceId) as any[];
+    const byId = { get: (id: string) => this.client.users.get(id) as any };
     const hoisted = new Map<string, { title: string; rank: number; people: Person[] }>();
     const online: Person[] = [], offline: Person[] = [];
-    for (const m of members as any[]) {
+    for (const m of members) {
       const uid = m.id?.user ?? m.userId;
       const u = byId.get(uid) ?? m.user;
       const p = personOf(u, uid ?? "?", m);
-      if (!p.online) { offline.push(p); continue; }
+      // Big servers only download who's online, so an offline list would be whoever happened to be loaded: leave it out.
+      if (!p.online) { if (!large) offline.push(p); continue; }
       const role = m.hoistedRole;
       if (role?.id && role.name) {
         const g = hoisted.get(role.id) ?? { title: role.name, rank: role.rank ?? 0, people: [] as Person[] };
@@ -576,10 +610,11 @@ export class StoatBackend implements ChatBackend {
   private wrap = async <T>(f: () => Promise<T>, what: string): Promise<T> => { try { return await f(); } catch (e) { throw new Error(apiErrorText(e, `Couldn't ${what}.`)); } };
 
   createServer(name: string, description?: string) { return this.wrap(async () => ((await (this.client as any).servers.createServer({ name, ...(description ? { description } : {}) })) as any).id as string, "create the server"); }
-  async search(cid: string, query: string) {
+  async search(cid: string, query: string, sort: SearchSort = "Latest", cursor: { before?: string; after?: string } = {}) {
     const ch: any = this.client.channels.get(cid);
     // Authors come in the same answer, so results don't wait on a lookup per person; newest first, like Discord.
-    const r: any = await this.wrap(() => (ch.searchWithUsers ? ch.searchWithUsers({ query, sort: "Latest", limit: 50 }) : ch.search({ query, sort: "Latest", limit: 50 })), "search");
+    const params = { query, sort, limit: SEARCH_BATCH, ...cursor };
+    const r: any = await this.wrap(() => (ch.searchWithUsers ? ch.searchWithUsers(params) : ch.search(params)), "search");
     return ((Array.isArray(r) ? r : r.messages) as any[]).map((m) => this.toMsg(m));
   }
   async pinned(cid: string) {
@@ -595,7 +630,8 @@ export class StoatBackend implements ChatBackend {
     return {
       id, name: s.name, description: s.description, iconUrl: s.iconURL, bannerUrl: s.bannerURL, ownerId: s.ownerId, isOwner: s.ownerId === this.sess.user_id,
       perms: { manageServer: has("ManageServer"), manageRoles: has("ManageRole"), manageChannels: has("ManageChannel"), manageEmoji: has("ManageCustomisation"),
-        kick: has("KickMembers"), ban: has("BanMembers"), invite: has("InviteOthers"), manageMessages: has("ManageMessages") },
+        kick: has("KickMembers"), ban: has("BanMembers"), invite: has("InviteOthers"), manageMessages: has("ManageMessages"),
+        muteMembers: has("MuteMembers"), deafenMembers: has("DeafenMembers"), moveMembers: has("MoveMembers") },
     };
   }
   editServer(id: string, p: { name?: string; description?: string; icon?: File | null; banner?: File | null }) {
@@ -647,6 +683,20 @@ export class StoatBackend implements ChatBackend {
   }
   unban(id: string, uid: string) { return this.wrap(async () => void (await this.server(id).unbanUser(uid)), "unban"); }
   kick(id: string, uid: string) { return this.wrap(async () => void (await this.server(id).kickUser(uid)), "kick them"); }
+  serverOfChannel(cid: string) { return (this.client.channels.get(cid) as any)?.serverId as string | undefined; }
+  async voiceModeration(sid: string, uid: string) {
+    // The library doesn't keep these two on the member, so ask Stoat (only when someone who can change them opens the menu).
+    const m: any = await (this.client as any).api.get(`/servers/${sid}/members/${uid}`).catch(() => null);
+    return { muted: m?.can_publish === false, deafened: m?.can_receive === false };
+  }
+  moderateVoice(sid: string, uid: string, p: { mute?: boolean; deaf?: boolean; channel?: string }) {
+    const body: Record<string, unknown> = {};
+    if (p.mute !== undefined) body.can_publish = !p.mute;
+    if (p.deaf !== undefined) body.can_receive = !p.deaf;
+    if (p.channel) body.voice_channel = p.channel;
+    return this.wrap(async () => void (await (this.client as any).api.patch(`/servers/${sid}/members/${uid}`, body)),
+      p.channel ? "move them" : p.mute !== undefined ? "change their server mute" : "change their server deafen");
+  }
   ban(id: string, uid: string, reason?: string) { return this.wrap(async () => void (await this.server(id).banUser(uid, reason ? { reason } : {})), "ban them"); }
   createChannel(id: string, p: { name: string; kind: "text" | "voice"; description?: string }) {
     return this.wrap(async () => (await this.server(id).createChannel({ type: "Text", name: p.name, description: p.description || undefined, ...(p.kind === "voice" ? { voice: {} } : {}) })).id as string, "create the channel");
@@ -1166,6 +1216,7 @@ export class StoatBackend implements ChatBackend {
     if (this.disposed) return;
     this.disposed = true;
     this.client.options.autoReconnect = false;
+    clearInterval(this.pruneTimer);
     try { this.client.events.disconnect(); } catch { /* already closed */ }
   }
 }

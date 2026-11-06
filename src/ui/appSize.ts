@@ -22,13 +22,26 @@ export const appZoom = () => {
 /** For code that turns pointer movement into positions: CSS pixels per screen pixel on a zoomed page. */
 export const zoomNow = () => parseFloat(document.documentElement.style.zoom) || 1;
 
+/**
+ * Put the page back to the chosen size. Android stacks another zoom on the root each time the app
+ * returns from the background or from picture-in-picture, and it stays until the process starts over.
+ * Clearing the zoom and writing the real size again drops that extra layer.
+ */
+function applyAppZoom() {
+  const z = Math.round(appZoom() * 100) / 100;
+  const el = document.documentElement;
+  el.style.zoom = "1";
+  if (z !== 1) el.style.zoom = String(z);
+}
+
 let started = false;
 export function startAppSize() {
   if (started) return;
   started = true;
+  (window as unknown as { __mustelaRefit?: () => void }).__mustelaRefit = applyAppZoom;
   new MutationObserver(() => setScale(readScale())).observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
-  createRoot(() => createEffect(() => {
-    const z = Math.round(appZoom() * 100) / 100;
-    document.documentElement.style.zoom = z === 1 ? "" : String(z);
-  }));
+  createRoot(() => createEffect(applyAppZoom));
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") applyAppZoom(); });
+  addEventListener("mustela:pip", () => applyAppZoom());
+  addEventListener("pageshow", () => applyAppZoom());
 }

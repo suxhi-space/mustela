@@ -34,6 +34,7 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn landscape(&self, p: SetMic) -> Result<()> { self.0.run_mobile_plugin("landscape", p).map_err(Into::into) }
   pub fn system_bars(&self, p: SetMic) -> Result<()> { self.0.run_mobile_plugin("systemBars", p).map_err(Into::into) }
   pub fn media_file(&self, p: MediaFile) -> Result<()> { self.0.run_mobile_plugin("mediaFile", p).map_err(Into::into) }
+  pub fn install_apk(&self, p: InstallApk) -> Result<()> { self.0.run_mobile_plugin("installApk", p).map_err(Into::into) }
   pub fn audio_outputs(&self) -> Result<AudioOutputs> { self.0.run_mobile_plugin("audioOutputs", ()).map_err(Into::into) }
   pub fn set_audio_output(&self, p: SetOutput) -> Result<()> { self.0.run_mobile_plugin("setAudioOutput", p).map_err(Into::into) }
   pub fn set_call_overlay(&self, p: Overlay) -> Result<()> { self.0.run_mobile_plugin("setCallOverlay", p).map_err(Into::into) }

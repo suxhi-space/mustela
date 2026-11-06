@@ -6,9 +6,15 @@ import { zoomNow } from "./appSize";
  */
 export function dragToClose(card: HTMLElement, close: () => void) {
   let y0 = 0, t0 = 0, dy = 0, dragging = false, armed = false;
-  // Pull it up, or scroll what's in it, and the card grows to the top of the screen (below the status bar).
-  const grow = () => card.classList.add("sheet-tall");
+  // Only when the contents are taller than the card. A short card stays its own height (no empty
+  // space under the text). A tall one eases up to just under the status bar, and you can still
+  // scroll to the top of what's in it.
+  const overflowing = () => card.scrollHeight > card.clientHeight + 12;
+  const grow = () => { if (overflowing()) card.classList.add("sheet-tall"); };
   card.addEventListener("scroll", () => { if (card.scrollTop > 4) grow(); }, { passive: true });
+  const watch = new ResizeObserver(() => grow());
+  watch.observe(card);
+  for (const child of card.children) watch.observe(child);
   const scroller = () => (card.scrollTop > 0 ? card : (card.querySelector<HTMLElement>("[data-sheet-scroll]") ?? card));
   card.addEventListener("touchstart", (e) => {
     if (e.touches.length !== 1) return;

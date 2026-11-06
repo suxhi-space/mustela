@@ -205,6 +205,11 @@ export function Appearance() {
         <Row label="Density"><Seg label="Density" value={device().density} onChange={(density) => updateDevice({ density })} options={[{ v: "compact", label: "Compact" }, { v: "default", label: "Default" }, { v: "comfy", label: "Comfy" }]} /></Row>
         <Row label="Messages"><Seg label="Message layout" value={device().layout} onChange={(layout) => updateDevice({ layout })} options={[{ v: "cozy", label: "Cozy" }, { v: "compact", label: "Compact" }]} /></Row>
         <Row label="Member list"><Switch label="Show member list" on={device().showMembers} onChange={(showMembers) => updateDevice({ showMembers })} /></Row>
+        <Show when={MOBILE_UI}>
+          <Row label="Rearrange by dragging" hint="Hold and drag servers, channels, favorites and DMs to move them. Off, holding something just opens its menu.">
+            <Switch label="Rearrange by dragging" on={device().rearrange} onChange={(rearrange) => updateDevice({ rearrange })} />
+          </Row>
+        </Show>
       </Group>
 
       <Show when={inTauri() && materials().length > 0}>

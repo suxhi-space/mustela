@@ -115,7 +115,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <button class="icon-btn snav-back" onClick={() => setNarrowNav(true)} aria-label="All settings"><Icon name="back" size={20} /></button>
             <h2>{TITLE[tab()]}</h2>
             <span class="grow" />
-            <button class="esc" onClick={props.onClose} aria-label="Close settings"><span class="esc-x"><Icon name="close" size={18} /></span><small>Esc</small></button>
+            <button class="esc" onClick={props.onClose} aria-label="Close settings"><span class="esc-x"><Icon name="close" size={18} /></span><small class="desk-only">Esc</small></button>
           </header>
           <Show when={demo() && (tab() === "account" || tab() === "sessions" || tab() === "bots")}>
             <p class="demo-note">This is the demo account. Changes here are pretend and reset when you leave.</p>

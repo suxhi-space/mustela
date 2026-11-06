@@ -52,7 +52,7 @@ export async function openReleasePage() {
 export async function installUpdate(quiet = false) {
   const u = available();
   if (!u) return;
-  if (!u.file || !["windows-nsis", "linux-appimage", "macos-dmg", "linux-deb"].includes(config()?.kind ?? "")) return openReleasePage();
+  if (!u.file || !["windows-nsis", "linux-appimage", "macos-dmg", "linux-deb", "android"].includes(config()?.kind ?? "")) return openReleasePage();
   const { listen } = await import("@tauri-apps/api/event");
   const off = await listen<[number, number]>("mustela:update-progress", (e) => setProgress(e.payload[1] ? e.payload[0] / e.payload[1] : null));
   setProgress(0);
@@ -64,7 +64,8 @@ export async function installUpdate(quiet = false) {
 /**
  * Like Discord: when Mustela starts (a real start, not a reload), it checks once. An update this system can
  * install itself is downloaded and installed straight away, with a small "Updating" screen, and Mustela
- * restarts on it. Anything else (a .deb, phones) shows the corner card instead. No checks while you use it.
+ * restarts on it. Anything else (a .deb, Android, where you confirm the install) shows the corner card instead.
+ * No checks while you use it.
  */
 const BOOT_KEY = "mustela:update-checked";
 const [updating, setUpdating] = createSignal(false);
@@ -115,7 +116,9 @@ export function UpdatePrompt() {
       <div class="ai-prompt" role="dialog" aria-label="Update Mustela">
         <span class="ai-ic"><Icon name="download" size={20} /></span>
         <strong>Mustela {available()!.version} is out</strong>
-        <p>{available()!.selfInstalls ? "Install it now and Mustela restarts on the new version. Your settings stay as they are." : "Download it from the release page. Your settings and profile stay as they are."}</p>
+        <p>{!available()!.selfInstalls ? "Download it from the release page. Your settings and profile stay as they are."
+          : config()?.kind === "android" ? "Install it here: Android asks you to confirm, then Mustela opens on the new version. Nothing is left in your downloads, and your settings stay."
+          : "Install it now and Mustela restarts on the new version. Your settings stay as they are."}</p>
         <Show when={progress() !== null}><progress class="up-progress" value={progress() ?? 0} max={1} /></Show>
         <div class="row end">
           <button class="btn ghost" onClick={skip}>Skip this version</button>

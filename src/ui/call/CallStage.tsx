@@ -4,9 +4,10 @@ import { Select, Slider, Switch } from "../controls";
 import { devices } from "../settings/VoiceVideo";
 import { Avatar, NameText } from "../Avatar";
 import { Icon } from "../icons";
-import { openMenu, type MenuItem } from "../menu";
-import { backToList, currentServer, setProfileOpen, setSettingsOpen } from "../nav";
-import { channelMenu } from "../menus";
+import { attempt, copy, openMenu, type MenuItem } from "../menu";
+import { backToList, currentServer, openChannel, setProfileOpen, setSettingsOpen } from "../nav";
+import { channelMenu, friendItems, voiceModItems } from "../menus";
+import { composer } from "../chat/Composer";
 import { backend, device, platform, updateDevice } from "../store";
 import { inTauri } from "../../lib/platform";
 import { landscapeTablet, phoneCall, setTabletFull, tabletFull } from "./tablet";
@@ -62,65 +63,58 @@ function VolumeRow(props: { label: string; value: number; onChange(v: number): v
   );
 }
 
-/** Right-click someone in the call: their volume, local mute, their stream's sound, watching. */
-export function callMemberMenu(e: MouseEvent, p: Person, opts: { focus?(): void; fullscreen?(): void } = {}) {
+/**
+ * Right-click (or hold) someone in a voice channel, laid out like Discord's: who they are, how they sound to you,
+ * what you see, friends, and (with the permissions) moving and server-muting them. Only what Stoat and Mustela can
+ * actually do.
+ */
+export async function callMemberMenu(e: MouseEvent, p: Person, opts: { focus?(): void; fullscreen?(): void; serverId?: string; channelId?: string } = {}) {
+  e.preventDefault(); e.stopPropagation();
+  const be = backend();
+  if (!be) return;
   const h = call.handle();
-  const self = p.id === backend()?.me.id;
+  const self = p.id === be.me.id;
+  const inMyCall = !!h && call.people().some((x) => x.id === p.id);
+  const channelId = opts.channelId ?? (inMyCall ? call.channel()?.id : undefined);
+  const serverId = opts.serverId ?? (channelId ? be.serverOfChannel?.(channelId) : undefined);
+  const person = be.person(p.id) ?? p;
   // Phones: a card from the bottom with their picture, instead of a little menu.
   const sheet = matchMedia("(max-width: 700px), (pointer: coarse) and (orientation: portrait)").matches;
   const items: MenuItem[] = sheet ? [] : [{ header: p.name }];
-  if (!self && h?.userAudio && h.setUserAudio) {
+  // Profiles open in the main window, so the pop-out leaves this out.
+  if ((e.target as Node | null)?.ownerDocument === document) items.push({ label: "Profile", icon: "user", onSelect: () => setProfileOpen(person) });
+  items.push({ label: "Mention", icon: "at", onSelect: () => composer.insert(`<@${p.id}> `) });
+  if (!self) items.push({ label: "Message", icon: "chat", onSelect: () => attempt(async () => openChannel(await be.openDM(p.id))) });
+  if (!self && inMyCall && h?.userAudio && h.setUserAudio) {
     const voice = h.userAudio(p.id, "voice");
+    items.push({ sep: true });
     items.push({ custom: () => <VolumeRow label="User volume" value={voice.volume} onChange={(volume) => h.setUserAudio!(p.id, "voice", { volume })} /> });
-    items.push({ label: voice.muted ? "Unmute (muted for you)" : "Mute for me", icon: voice.muted ? "volume-off" : "mic-off", checked: voice.muted, onSelect: () => h.setUserAudio!(p.id, "voice", { muted: !voice.muted }) });
+    items.push({ label: "Mute for me", icon: voice.muted ? "volume-off" : "mic-off", checked: voice.muted, onSelect: () => h.setUserAudio!(p.id, "voice", { muted: !voice.muted }) });
     const stream = h.streams?.().find((s) => s.id === p.id);
     if (stream) {
       const sa = h.userAudio(p.id, "stream");
       items.push({ sep: true }, { header: "Stream" });
       if (stream.hasAudio) {
         items.push({ custom: () => <VolumeRow label="Stream volume" value={sa.volume} onChange={(volume) => h.setUserAudio!(p.id, "stream", { volume })} /> });
-        items.push({ label: sa.muted ? "Unmute stream (muted for you)" : "Mute stream", icon: sa.muted ? "volume-off" : "volume", checked: sa.muted, onSelect: () => h.setUserAudio!(p.id, "stream", { muted: !sa.muted }) });
+        items.push({ label: "Mute stream for me", icon: sa.muted ? "volume-off" : "volume", checked: sa.muted, onSelect: () => h.setUserAudio!(p.id, "stream", { muted: !sa.muted }) });
       }
       items.push(stream.watching
         ? { label: "Stop watching", icon: "eye-off", onSelect: () => h.watch?.(p.id, false) }
         : { label: "Watch stream", icon: "screen", onSelect: () => h.watch?.(p.id, true) });
     }
   }
-  items.push({ sep: true });
+  if (opts.focus || opts.fullscreen) items.push({ sep: true });
   if (opts.focus) items.push({ label: "Focus", icon: "expand", onSelect: opts.focus });
   if (opts.fullscreen) items.push({ label: "Full screen", icon: "fullscreen", onSelect: opts.fullscreen });
-  // Profiles open in the main window, so the pop-out leaves this out.
-  if ((e.target as Node | null)?.ownerDocument === document) items.push({ label: "Profile", icon: "user", onSelect: () => setProfileOpen(backend()!.person(p.id)) });
+  if (!self) items.push(...friendItems(person));
+  items.push(...(await voiceModItems(person, serverId, channelId)));
+  items.push({ sep: true }, { label: "Copy user ID", icon: "id", onSelect: () => copy(p.id, "ID copied") });
   openMenu(e, items, sheet ? { sheet, head: () => (
     <div class="ctx-person"><Avatar person={p} size={56} presence={false} /><span><strong><NameText person={p} /></strong><Show when={p.username}><small>{p.username}</small></Show></span></div>
   ) } : {});
 }
 
-/**
- * Touch and hold: opens what right-click would. Android's web view sends a right-click on a long press by
- * itself, iPhones and iPads don't, so this does it everywhere; the tap that ends the hold doesn't count.
- */
-let heldAt = 0;
-const justHeld = () => Date.now() - heldAt < 800;
-function holdToOpen() {
-  let timer: ReturnType<typeof setTimeout> | undefined, x = 0, y = 0;
-  const cancel = () => clearTimeout(timer);
-  return {
-    onPointerDown: (e: PointerEvent) => {
-      if (e.pointerType !== "touch") return;
-      const el = e.currentTarget as HTMLElement;
-      x = e.clientX; y = e.clientY; cancel();
-      timer = setTimeout(() => {
-        if (justHeld()) return; // Android already opened it
-        heldAt = Date.now();
-        el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
-      }, 500);
-    },
-    onPointerMove: (e: PointerEvent) => { if (Math.hypot(e.clientX - x, e.clientY - y) > 10) cancel(); },
-    onPointerUp: cancel,
-    onPointerCancel: cancel,
-  };
-}
+import { holdToOpen, justHeld, markHeld } from "../hold";
 
 type Tile = { key: string; person: VoiceMember; kind: "person" | "stream"; ended?: boolean };
 
@@ -209,25 +203,33 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   createEffect(on(() => touchPhone() && here() && !props.popout && !!focused() && focused()!.startsWith("s:") && focused() !== `s:${backend()?.me.id}` && platform === "android" && inTauri(), (wide) => {
     void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|landscape", { payload: { on: wide } })).catch(() => {});
   }));
-  // The phone's status bar and nav buttons: hidden only while a stream you're focused on fills the screen.
-  createEffect(on(() => platform === "android" && inTauri() && touchPhone() && here() && !chrome() && !!focused()?.startsWith("s:") && focused() !== `s:${backend()?.me.id}`, (full) => {
-    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|system_bars", { payload: { on: !full } })).catch(() => {});
-  }));
   onCleanup(() => {
     if (platform !== "android" || !inTauri()) return;
     void import("@tauri-apps/api/core").then(({ invoke }) => { void invoke("plugin:mustela-native|landscape", { payload: { on: false } }); void invoke("plugin:mustela-native|system_bars", { payload: { on: true } }); }).catch(() => {});
   });
   onCleanup(() => { clearTimeout(chromeTimer); document.documentElement.classList.remove("call-immersive"); });
   const [full, setFull] = createSignal(false);
+  // Phones: the web view refuses the browser's full screen, so the stage covers the app. The video stays in Mustela.
+  const [fill, setFill] = createSignal(false);
   // The stage's own window: the main one, or the pop-out.
   const doc = () => stage?.ownerDocument ?? document;
   const sync = () => setFull(doc().fullscreenElement === stage);
   // A sideways tablet's full screen is the phone call screen across the whole tablet, not the browser's full screen.
   const tabletMode = () => landscapeTablet() && !props.popout && here();
   onMount(() => { const d = doc(); d.addEventListener("fullscreenchange", sync); onCleanup(() => d.removeEventListener("fullscreenchange", sync)); });
-  const toggleFull = () => (tabletMode() ? setTabletFull(!tabletFull())
-    : doc().fullscreenElement ? void doc().exitFullscreen() : void stage.requestFullscreen?.().catch(() => {}));
-  const isFull = () => (tabletMode() ? tabletFull() : full());
+  const toggleFull = () => {
+    if (tabletMode()) { setTabletFull(!tabletFull()); return; }
+    if (touchPhone() && !props.popout) {
+      const next = !fill();
+      setFill(next);
+      if (next) { clearTimeout(chromeTimer); setChrome(false); }
+      else wake();
+      return;
+    }
+    if (doc().fullscreenElement) void doc().exitFullscreen();
+    else void stage.requestFullscreen?.().catch(() => {});
+  };
+  const isFull = () => (tabletMode() ? tabletFull() : touchPhone() && !props.popout ? fill() : full());
 
   /** Someone has a camera on or is streaming: only then is there anything for "only video" to keep. */
   const anyVideo = createMemo(() => call.people().some((p) => p.camera || p.screen));
@@ -262,6 +264,16 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
     if (focus() && !tiles().some((t) => t.key === focus())) setFocus(null);
   });
   const focused = () => (focus() && byKey().has(focus()!) ? focus() : null);
+  // Only while a stream is full screen or its controls have stepped aside: the status bar leaves with Mustela's
+  // buttons and comes back with them. A tap that shows the buttons shows the clock and battery again.
+  createEffect(on(() => {
+    const key = focused();
+    const watching = !!key?.startsWith("s:") && key !== `s:${backend()?.me.id}`;
+    const inStream = fill() || (touchPhone() && here() && watching);
+    return platform === "android" && inTauri() && inStream && !chrome();
+  }, (hide) => {
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|system_bars", { payload: { on: !hide } })).catch(() => {});
+  }));
   // Enlarging or shrinking a tile starts (or stops) the controls' timer; the call updating many times a second doesn't.
   const hasFocus = createMemo(() => !!focused());
   createEffect(on(hasFocus, () => wake(), { defer: true }));
@@ -287,7 +299,7 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
         {...holdToOpen()}
         onClick={() => { if (!justHeld()) setFocus(focus() === tp.t.key ? null : tp.t.key); }}
         onDblClick={() => { setFocus(tp.t.key); toggleFull(); }}
-        onContextMenu={(e) => { heldAt = Date.now(); callMemberMenu(e, p(), { focus: () => setFocus(tp.t.key), fullscreen: () => { setFocus(tp.t.key); toggleFull(); } }); }}>
+        onContextMenu={(e) => { markHeld(); callMemberMenu(e, p(), { focus: () => setFocus(tp.t.key), fullscreen: () => { setFocus(tp.t.key); toggleFull(); } }); }}>
         <Show when={!tp.t.ended} fallback={
           <div class="ctile-ended">
             <Icon name="screen" size={30} />
@@ -322,6 +334,10 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
             onClick={(e) => { e.stopPropagation(); if (mine()) void toggleCall("screen"); else { call.handle()?.watch?.(p().id, false); if (focus() === tp.t.key) setFocus(null); } }}><Icon name="close" size={18} /></button>
           <button class="ctile-corner right" aria-label={tp.big ? "Make it smaller" : "Make it bigger"}
             onClick={(e) => { e.stopPropagation(); setFocus(focus() === tp.t.key ? null : tp.t.key); }}><Icon name={tp.big ? "collapse" : "expand"} size={18} /></button>
+          <Show when={tp.big && !mine() && watching() && hasVideo()}>
+            <button class="ctile-fs" aria-label={isFull() ? "Exit full screen" : "Full screen"}
+              onClick={(e) => { e.stopPropagation(); setFocus(tp.t.key); toggleFull(); }}><Icon name={isFull() ? "fullscreen-exit" : "fullscreen"} size={18} /></button>
+          </Show>
         </Show>
         <span class="ctile-name">
           <Show when={tp.t.kind === "stream"}><Show when={!tp.t.ended} fallback={<Icon name="screen" size={14} />}><span class="live-pill">LIVE</span></Show></Show>
@@ -339,8 +355,16 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   };
 
   return (
-    <section ref={stage} class="cstage" classList={{ compact: !!props.compact, full: full(), "chrome-off": !chrome() }} aria-label="Call"
-      onPointerDown={() => { if (!chrome()) swallow = true; wake(); }}>
+    <section ref={stage} class="cstage" classList={{ "has-sheet": phone() && !props.popout && here() && (!call.popped() || !!props.popout), compact: !!props.compact, full: full() || fill(), "stage-fill": fill(), "chrome-off": !chrome() }} aria-label="Call"
+      onPointerDown={(e) => {
+        const t = e.target as Element | null;
+        if (t?.closest("button, a, input, textarea, .call-sheet, .call-top, .cbar, .ctx, .soundboard")) { wake(); return; }
+        const key = focused();
+        const watching = touchPhone() && !!key?.startsWith("s:") && key !== `s:${backend()?.me.id}`;
+        if (watching && chrome()) { clearTimeout(chromeTimer); setChrome(false); swallow = true; return; }
+        if (!chrome()) swallow = true;
+        wake();
+      }}>
       <Show when={props.header}>{props.header}</Show>
       <Show when={here() && (!call.popped() || props.popout)} fallback={
         <div class="cstage-idle">
@@ -503,7 +527,7 @@ function CallSheet(props: { chatOpen?: boolean; onToggleChat?(): void; full: boo
           <ul class="sheet-people">
             <For each={call.people()}>{(p) => (
               <li><button {...holdToOpen()} onClick={() => { if (!justHeld()) act(() => setProfileOpen(backend()!.person(p.id)))(); }}
-                onContextMenu={(e) => { heldAt = Date.now(); setOpen(false); callMemberMenu(e, p); }}>
+                onContextMenu={(e) => { markHeld(); setOpen(false); callMemberMenu(e, p); }}>
                 <span classList={{ "sp-ring": true, talking: call.speaking().includes(p.id) }}><Avatar person={p} size={36} presence={false} still /></span>
                 <span class="cs-name"><NameText person={p} /></span>
                 <Show when={p.screen}><span class="live-pill">LIVE</span></Show>

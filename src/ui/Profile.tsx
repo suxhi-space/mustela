@@ -377,7 +377,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
               </Match>
               <Match when={tab() === "friends"}>
                 <For each={mutual()?.friends} fallback={<p class="empty">{mutual.loading ? "Loading…" : "No friends in common."}</p>}>{(f) => (
-                  <button class="pf-item tap" onClick={() => setProfileView({ person: f, full: true, x: 0, y: 0 })}><Avatar person={f} size={36} /><span class="pv-text"><strong>{f.name}</strong><Show when={f.status}><small>{f.status}</small></Show></span></button>
+                  <button class="pf-item tap" onClick={() => setProfileView({ person: f, full: true, x: 0, y: 0 })}><Avatar person={f} size={36} /><span class="pv-text"><strong><TextWithEmoji v={f.name} /></strong><Show when={f.status}><small><TextWithEmoji v={f.status!} /></small></Show></span></button>
                 )}</For>
               </Match>
               <Match when={tab() === "servers"}>

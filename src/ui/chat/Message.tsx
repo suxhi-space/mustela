@@ -1,9 +1,11 @@
 import { toast } from "../menu";
+import { MOBILE_UI } from "../target";
 import { useAutoplay } from "../autoplay";
 import { createMemo, createResource, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { createEditor, type ChipLookup } from "./Editor";
 import { openReactions } from "./Reactions";
-import { samePost, socialLinks as findSocialLinks, videoSite } from "../../lib/social";
+import { linkCards } from "../../lib/social";
+import { FormatBar, formatKey } from "./FormatBar";
 import type { ChannelRules, Attachment, Embed, Msg, Person, Reaction } from "../../lib/backend/types";
 import { plain } from "../../lib/markdown";
 import { fmtStamp, fmtTime } from "../../lib/time";
@@ -16,6 +18,7 @@ import { isFav, openEmojiPicker, openGallery, openLightbox, toggleFav } from "./
 import { messageMenu } from "../menus";
 import { copy } from "../menu";
 import { UEmoji } from "./UEmoji";
+import { VideoBox, ytEmbed } from "./videoFull";
 
 const time = (d: Date) => fmtTime(d);
 const stamp = (d: Date) => fmtStamp(d);
@@ -71,7 +74,7 @@ function GridTile(props: { a: Attachment; m: Msg; style: JSX.CSSProperties }) {
   const [revealed, setRevealed] = createSignal(!props.a.spoiler);
   return (
     <div class="mg-tile" classList={{ spoiled: !revealed() }} style={props.style}>
-      <Show when={props.a.type === "image"} fallback={<video controls preload="metadata" src={props.a.url} poster={props.a.previewUrl} />}>
+      <Show when={props.a.type === "image"} fallback={<VideoBox src={props.a.url} poster={props.a.previewUrl} class="media-vid" preload="metadata" open={(t) => showAll(props.a, props.m, t)} />}>
         <img src={props.a.previewUrl ?? props.a.url} alt={props.a.name} loading="lazy" onClick={() => (revealed() ? showAll(props.a, props.m) : setRevealed(true))} />
       </Show>
       <Show when={!revealed()}><button class="spoil-cover" onClick={() => setRevealed(true)}>Spoiler</button></Show>
@@ -80,19 +83,21 @@ function GridTile(props: { a: Attachment; m: Msg; style: JSX.CSSProperties }) {
 }
 
 /** A picture from a message, big, with the message's other pictures and videos to swipe through. */
-function showAll(a: Attachment, m?: Msg) {
+function showAll(a: Attachment, m?: Msg, start?: number) {
   const media = (m?.attachments ?? [a]).filter((x) => x.type === "image" || x.type === "video");
-  openGallery(media.map((x) => ({ url: x.url, name: x.name, spoiler: x.spoiler, video: x.type === "video", preview: x.previewUrl, from: m?.author, at: m?.at })), Math.max(0, media.indexOf(a)));
+  openGallery(media.map((x) => ({ url: x.url, name: x.name, spoiler: x.spoiler, video: x.type === "video", preview: x.previewUrl, from: m?.author, at: m?.at, start: x === a ? start : undefined })), Math.max(0, media.indexOf(a)));
 }
 
 function AttachmentView(props: { a: Attachment; m?: Msg }) {
   const [revealed, setRevealed] = createSignal(!props.a.spoiler);
+  const [gone, setGone] = createSignal(false);
   const dims = () => {
     const w = props.a.width ?? 400, h = props.a.height ?? 300;
     const s = Math.min(1, 400 / w, 300 / h);
     return { width: `${Math.round(w * s)}px`, "aspect-ratio": `${w} / ${h}` };
   };
   return (
+    <Show when={!gone()}>
     <Show when={props.a.type !== "file" && props.a.type !== "audio"} fallback={
       <Show when={props.a.type === "audio"} fallback={
         <a class="file-card panel-inset" href={props.a.url} target="_blank" rel="noopener noreferrer" download={props.a.name}>
@@ -105,30 +110,34 @@ function AttachmentView(props: { a: Attachment; m?: Msg }) {
       </Show>
     }>
       <div class="media" classList={{ spoiled: !revealed() }} style={dims()}>
-        <Show when={props.a.type === "image"} fallback={<video controls preload="metadata" src={props.a.url} poster={props.a.previewUrl} />}>
-          <img src={props.a.previewUrl ?? props.a.url} alt={props.a.name} loading="lazy" onClick={() => (revealed() ? showAll(props.a, props.m) : setRevealed(true))} />
+        <Show when={props.a.type === "image"} fallback={<VideoBox src={props.a.url} poster={props.a.previewUrl} class="media-vid" preload="metadata" onError={() => setGone(true)} open={(t) => showAll(props.a, props.m, t)} />}>
+          <img src={props.a.previewUrl ?? props.a.url} alt={props.a.name} loading="lazy" onError={() => setGone(true)} onClick={() => (revealed() ? showAll(props.a, props.m) : setRevealed(true))} />
         </Show>
         <Show when={!revealed()}><button class="spoil-cover" onClick={() => setRevealed(true)}>Spoiler</button></Show>
       </div>
+    </Show>
     </Show>
   );
 }
 
 /** A GIF plays like a GIF: looping, silent, no controls. Star it to keep it in your favorites. */
 function GifEmbed(props: { e: Embed }) {
+  const [gone, setGone] = createSignal(false);
   const src = () => props.e.video?.url ?? props.e.image?.url ?? "";
   const w = () => props.e.video?.width ?? props.e.image?.width ?? 300, h = () => props.e.video?.height ?? props.e.image?.height ?? 200;
   const fav = () => ({ url: props.e.url ?? src(), preview: src(), w: w(), h: h() });
   const scale = () => Math.min(1, 320 / w(), 280 / h());
   const play = useAutoplay();
   return (
+    <Show when={!gone()}>
     <div class="media gif" style={{ width: `${Math.round(w() * scale())}px`, "aspect-ratio": `${w()} / ${h()}` }}>
-      <Show when={props.e.video} fallback={<img src={src()} alt="GIF" loading="lazy" />}>
-        <video ref={play} src={src()} muted playsinline preload="metadata" aria-label="GIF" />
+      <Show when={props.e.video} fallback={<img src={src()} alt="GIF" loading="lazy" onError={() => setGone(true)} />}>
+        <video ref={play} src={src()} muted playsinline preload="metadata" aria-label="GIF" onError={() => setGone(true)} />
       </Show>
       <button class="gif-star" classList={{ on: isFav(fav().url) }} aria-pressed={isFav(fav().url)} aria-label={isFav(fav().url) ? "Remove from favorite GIFs" : "Add to favorite GIFs"}
         title={isFav(fav().url) ? "Remove from favorites" : "Add to favorites"} onClick={() => toggleFav(fav())}><Icon name="star" size={16} /></button>
     </div>
+    </Show>
   );
 }
 
@@ -145,8 +154,16 @@ function YouTubeInline(props: { id: string; thumb?: string; title?: string }) {
         <span class="em-play"><Icon name="play" size={22} /></span>
       </button>
     }>
-      <iframe class="em-frame" src={`https://www.youtube-nocookie.com/embed/${id()}?autoplay=1&rel=0`} title={props.title ?? "YouTube video"}
-        allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerPolicy="strict-origin-when-cross-origin" />
+      <div class="vid-box yt-box">
+        <iframe class="em-frame" src={ytEmbed(id(), false)} title={props.title ?? "YouTube video"}
+          allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerPolicy="strict-origin-when-cross-origin" />
+        {/* Opens in the media viewer, like pictures (YouTube's own full-screen button is turned off in the chat). */}
+        <button type="button" class="vid-fs" aria-label="Full screen" title="Full screen" onClick={(ev) => {
+          (ev.currentTarget.parentElement?.querySelector("iframe") as HTMLIFrameElement | null)?.setAttribute("src", "about:blank");
+          openGallery([{ url: `https://www.youtube.com/watch?v=${id()}`, name: props.title ?? "YouTube", video: true, preview: props.thumb ?? `https://i.ytimg.com/vi/${id()}/hqdefault.jpg`, frame: ytEmbed(id(), !MOBILE_UI) }]);
+          setOn(false);
+        }}><Icon name="fullscreen" size={18} /></button>
+      </div>
     </Show>
   );
 }
@@ -168,28 +185,47 @@ function SocialPreview(props: { url: string; fallback?: Embed }) {
         <Show when={x().site}><div class="em-site">{x().site}</div></Show>
         <Show when={x().title}><a class="em-title" href={props.url} target="_blank" rel="noopener noreferrer nofollow">{x().title}</a></Show>
         <Show when={x().description}><div class="em-desc">{x().description!.slice(0, 400)}</div></Show>
-        <Show when={x().video && !broken()} fallback={<Show when={x().image}>
-          <Show when={x().video} fallback={<img class="em-img" src={x().image} alt="" loading="lazy" onClick={() => openLightbox(x().image!, x().title ?? "image")} />}>
+        <Show when={x().video && !broken()} fallback={          <Show when={x().image && !broken()}>
+          <Show when={x().video} fallback={<img class="em-img" src={x().image} alt="" loading="lazy" onError={() => setBroken(true)} onClick={() => openLightbox(x().image!, x().title ?? "image")} />}>
             {/* The video wouldn't play here: open the post instead. */}
             <a class="em-player" href={props.url} target="_blank" rel="noopener noreferrer nofollow" aria-label="Open the video">
               <img class="em-img" src={x().image} alt="" loading="lazy" /><span class="em-play"><Icon name="play" size={22} /></span>
             </a>
           </Show>
         </Show>}>
-          <video class="em-video" controls playsinline preload="metadata" poster={x().image} src={x().video} ref={(v) => v.setAttribute("referrerpolicy", "no-referrer")} onError={() => setBroken(true)} />
+          <VideoBox src={x().video!} poster={x().image} onError={() => setBroken(true)} item={{ name: x().title ?? "Video" }} clickOpens />
         </Show>
       </div>
     )}</Show>
   );
 }
 
+/** A link preview from a ||spoilered|| link: blurred with a Spoiler button until you tap it. */
+function SpoilerCover(props: { on: boolean; children: JSX.Element }) {
+  const [shown, setShown] = createSignal(false);
+  const covered = () => props.on && !shown();
+  // The card is made once and only uncovered, so a video under it is the same player afterwards.
+  return (
+    <div class="embed-wrap" classList={{ "embed-spoiler": covered() }}
+      ref={(el) => el.addEventListener("click", (e) => { if (!covered()) return; e.stopPropagation(); e.preventDefault(); setShown(true); }, true)}>
+      <div class="es-inner" aria-hidden={covered() || undefined} inert={covered() || undefined}>{props.children}</div>
+      <Show when={covered()}><button type="button" class="spoil-cover">Spoiler</button></Show>
+    </div>
+  );
+}
+
+/** A card with nothing to show but the site's name (a mirror that gave Stoat no title, text or picture). */
+const emptyEmbed = (e: Embed) => (e.kind === "website" || e.kind === "text") && !e.title && !e.description && !e.image && !e.video && !e.special;
+
 function EmbedView(props: { e: Embed }) {
   const e = () => props.e;
+  const [mediaGone, setMediaGone] = createSignal(false);
   return (
+    <Show when={!emptyEmbed(e())}>
     <Show when={!e().gif} fallback={<GifEmbed e={e()} />}>
       <Show when={e().kind === "website" || e().kind === "text"} fallback={
-        <Show when={e().image} fallback={<Show when={e().video}><video class="media" controls preload="metadata" src={e().video!.url} /></Show>}>
-          <img class="media embed-img" src={e().image!.url} alt="" loading="lazy" onClick={() => openLightbox(e().image!.url, e().url ?? "image")} />
+        <Show when={!mediaGone() && e().image} fallback={<Show when={!mediaGone() && e().video}><VideoBox src={e().video!.url} class="media-vid" onError={() => setMediaGone(true)} item={{ name: e().title ?? "Video" }} clickOpens /></Show>}>
+          <img class="media embed-img" src={e().image!.url} alt="" loading="lazy" onError={() => setMediaGone(true)} onClick={() => openLightbox(e().image!.url, e().url ?? "image")} />
         </Show>
       }>
         <div class="embed panel-inset" style={e().colour && /^#[0-9a-f]{3,8}$/i.test(e().colour!) ? { "--embed": e().colour } : {}}>
@@ -203,8 +239,8 @@ function EmbedView(props: { e: Embed }) {
           {/* YouTube plays right here; a post with a video (an Instagram reel, a clip on X) plays inline. */}
           <Show when={e().kind === "website" && e().special?.type === "YouTube" && e().special?.id} fallback={
             <Show when={e().video && e().kind === "website" && !e().special} fallback={
-              <Show when={e().image && e().kind === "website"}>
-                <Show when={e().special && e().url} fallback={<img class="em-img" src={e().image!.url} alt="" loading="lazy" onClick={() => openLightbox(e().image!.url, e().title ?? "image")} />}>
+              <Show when={!mediaGone() && e().image && e().kind === "website"}>
+                <Show when={e().special && e().url} fallback={<img class="em-img" src={e().image!.url} alt="" loading="lazy" onError={() => setMediaGone(true)} onClick={() => openLightbox(e().image!.url, e().title ?? "image")} />}>
                   <a class="em-player" href={e().url} target="_blank" rel="noopener noreferrer nofollow" aria-label={SPECIAL_LABEL[e().special!.type] ?? "Open link"}>
                     <img class="em-img" src={e().image!.url} alt="" loading="lazy" />
                     <span class="em-play"><Icon name="play" size={22} /></span>
@@ -212,13 +248,14 @@ function EmbedView(props: { e: Embed }) {
                 </Show>
               </Show>
             }>
-              <video class="em-video" controls playsinline preload="none" poster={e().image?.url} src={e().video!.url} />
+              <Show when={!mediaGone()}><VideoBox src={e().video!.url} poster={e().image?.url} preload="none" onError={() => setMediaGone(true)} item={{ name: e().title ?? "Video" }} clickOpens /></Show>
             </Show>
           }>
             <YouTubeInline id={e().special!.id!} thumb={e().image?.url} title={e().title} />
           </Show>
         </div>
       </Show>
+    </Show>
     </Show>
   );
 }
@@ -318,22 +355,16 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
     if (!t || /\s/.test(t) || !/^https?:\/\//.test(t)) return false;
     return (m().embeds ?? []).some((e) => e.gif) || invites().length > 0;
   });
-  // Social posts in the text get their own preview unless Stoat's already shows it all (a video, or a
-  // picture where the post isn't likely a video). Stoat's card for the link is kept as the fallback.
-  const socialLinks = createMemo(() => {
-    const urls = findSocialLinks(m().text);
-    const stoatFor = (u: string) => (m().embeds ?? []).find((e) => !!e.url && !e.gif && (e.url === u || samePost(e.url, u)));
-    return urls.flatMap((u) => {
-      const e = stoatFor(u);
-      if (e && (e.video || (e.image && !videoSite(u)))) return [];
-      return [{ url: u, fallback: e }];
-    });
-  });
-  const ownEmbeds = createMemo(() => { const taken = new Set(socialLinks().map((x) => x.fallback).filter(Boolean)); return (m().embeds ?? []).filter((e) => !taken.has(e)); });
+  // One card per link: Stoat's, or Mustela's own preview of a social post when Stoat's has no video. Links inside
+  // ||spoiler|| marks cover their card until tapped. Invite links get the invite card instead.
+  const cards = createMemo(() => linkCards(m().text, m().embeds ?? [], (u) => inviteCodes(u).length > 0));
   const menu = (e: MouseEvent) => messageMenu(e, m(), { reply: props.act.onReply, edit: (x) => props.act.onEdit(x), askDelete: () => setConfirmDel(true) }, props.act.serverId);
   const fail = (e: unknown) => toast((e as Error)?.message || "That didn't work.", true);
   const react = (emoji: string, on: boolean) => void b().react(m().channelId, m().id, emoji, on).catch(fail);
 
+  let editApi: ReturnType<typeof createEditor> | undefined;
+  let editBox: HTMLDivElement | undefined;
+  const [editSel, setEditSel] = createSignal<{ from: number; to: number } | null>(null);
   async function saveEdit() {
     const t = draft().trim();
     if (!t) { setConfirmDel(true); return; }
@@ -384,27 +415,30 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
           }>
             {/* The message box's own editor, so mentions and #channels show as chips instead of their ids.
                 On phones it sits where the message box is, marked "Editing message". */}
-            <div class="edit-box">
+            <div class="edit-box" ref={editBox} classList={{ "fmt-open": !!editSel() }}>
+              <FormatBar ed={() => editApi} host={() => editBox} selection={editSel} />
               <div class="edit-head"><Icon name="pencil" size={14} /><span>Editing message</span><span class="grow" />
                 <button class="icon-btn" aria-label="Cancel editing" onClick={() => props.act.onEdit(null)}><Icon name="close" size={16} /></button></div>
               <div class="edit-row">
                 <div class="field-input editor edit-ed" ref={(host) => {
                   setDraft(m().text);
-                  const ed = createEditor(host, {
+                  const ed = editApi = createEditor(host, {
                     text: m().text, placeholder: "", label: "Edit message", look: chipLookup(),
                     on: {
                       onKey: (e) => {
                         if (e.key === "Escape") { props.act.onEdit(null); return true; }
+                        if (formatKey(e, editApi, editSel())) return true;
                         if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); void saveEdit(); return true; }
                         return false;
                       },
-                      onChange: setDraft, onCaret: () => {}, onSelection: () => {}, onPasteFiles: () => {},
+                      onChange: setDraft, onCaret: () => {}, onSelection: setEditSel, onPasteFiles: () => {},
                     },
                   });
                   queueMicrotask(() => { ed.focus(); ed.view.dispatch({ selection: { anchor: ed.text().length } }); });
                   onCleanup(() => ed.destroy());
                 }} />
-                <button class="btn small primary phone-only edit-save" onClick={() => void saveEdit()}>Save</button>
+                <button type="button" class="icon-btn" aria-label="Emoji" title="Emoji" onClick={(e) => openEmojiPicker(e.currentTarget, ({ text: x }) => editApi?.insertAtCaret(x))}><Icon name="smile" size={20} /></button>
+                <button class="btn small primary edit-save" onClick={() => void saveEdit()}>Save</button>
               </div>
               <small class="muted desk-only">Escape to <button class="link" onClick={() => props.act.onEdit(null)}>cancel</button>, Enter to <button class="link" onClick={() => void saveEdit()}>save</button></small>
             </div>
@@ -419,8 +453,11 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
             </div>
           </Show>
           <Show when={invites().length}><div class="embeds"><For each={invites()}>{(c) => <InviteCard code={c} />}</For></div></Show>
-          <Show when={ownEmbeds().length}><div class="embeds"><For each={ownEmbeds()}>{(e) => <EmbedView e={e} />}</For></div></Show>
-          <Show when={socialLinks().length}><div class="embeds"><For each={socialLinks()}>{(x) => <SocialPreview url={x.url} fallback={x.fallback} />}</For></div></Show>
+          <Show when={cards().length}>
+            <div class="embeds"><For each={cards()}>{(c) => (
+              <SpoilerCover on={c.spoiler}>{c.kind === "embed" ? <EmbedView e={c.e} /> : <SocialPreview url={c.url} fallback={c.fallback} />}</SpoilerCover>
+            )}</For></div>
+          </Show>
           <Show when={m().reactions?.length}>
             <div class="reactions">
               <For each={m().reactions}>{(r) => <ReactionChip r={r} onToggle={(on) => react(r.emoji, on)} onView={() => openReactions(m(), r.emoji)} />}</For>

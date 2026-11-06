@@ -1,5 +1,6 @@
 import { Cloud } from "../cloud";
-import type { AccountApi, BotRow, SessionRow, Attachment, BanRow, InviteRow, NotifyLevel, Role, ServerInfo, CustomEmoji, GifCategory, GifResult, InviteInfo, ChatBackend, ChatEvent, ChannelInfo, Friends, MeUpdate, MemberGroup, Msg, Person, ProfileInfo, SendOptions, Space, StoredSession, VoiceHandle, ServerFolder, CategoryInfo, ChannelDetails, DiscoverState, Override, ServerDetails, WebhookRow } from "./types";
+import type { AccountApi, BotRow, SessionRow, Attachment, BanRow, InviteRow, NotifyLevel, Role, ServerInfo, CustomEmoji, GifCategory, GifResult, InviteInfo, ChatBackend, ChatEvent, ChannelInfo, Friends, MeUpdate, MemberGroup, Msg, Person, ProfileInfo, SendOptions, Space, StoredSession, VoiceHandle, ServerFolder, CategoryInfo, ChannelDetails, DiscoverState, Override, ServerDetails, WebhookRow, SearchSort } from "./types";
+import { SEARCH_BATCH } from "./types";
 import { sanitizeProfile } from "../profile/model";
 import { parseRemote, type MustelaSettings } from "../sync/settings";
 
@@ -181,6 +182,39 @@ export class DemoBackend implements ChatBackend {
     this.store.c1 = [...old, ...this.store.c1!];
     // Where you'd stopped reading, so "new messages since…" has something to show.
     this.readUpTo = { c1: welcome.id, d1: this.store.d1![1]!.id };
+    if (globalThis.localStorage?.getItem("mustela.demoBig")) this.startBig(me);
+  }
+
+  /**
+   * A big, busy server for performance testing (localStorage "mustela.demoBig" = "1"): 240 channels in 12
+   * categories, 600 members, a deep history, and a message somewhere every 150ms (like a big public server).
+   */
+  private bigPeople: Person[] = [];
+  private startBig(me: Person) {
+    const sid = "big";
+    if (!extraServers.some((x) => x.id === sid)) {
+      const channels = Array.from({ length: 240 }, (_, i) => ({ id: `big${i}`, name: `channel-${i}`, kind: "text" as const }));
+      extraServers.push({ id: sid, name: "Big Server", channels });
+    }
+    const big = extraServers.find((x) => x.id === sid)!;
+    this.cats[sid] = Array.from({ length: 12 }, (_, k) => ({ id: `bigcat${k}`, title: `Category ${k + 1}`, channels: big.channels.slice(k * 20, k * 20 + 20).map((c) => c.id) }));
+    this.bigPeople = Array.from({ length: 600 }, (_, i) => ({ id: `bp${i}`, name: `Member ${i + 1}`, username: `member${i + 1}`, online: i % 2 === 0, status: i % 7 === 0 ? "busy busy" : undefined, badges: [] }) as Person);
+    const words = ["hello", "anyone here?", "lol", "check this out https://example.com", "**big** news", "gg", "😂😂", "that's wild", "brb", "same"];
+    const msg = (ch: string, i: number, ago: number): Msg => ({ id: `bm${ch}-${i}`, channelId: ch, author: this.bigPeople[(i * 7) % 600]!, text: `${words[i % words.length]} #${i}`, at: t(ago) });
+    for (const c of big.channels) this.store[c.id] = Array.from({ length: 60 }, (_, i) => msg(c.id, i, (60 - i) * 3));
+    this.store.big0 = Array.from({ length: 400 }, (_, i) => msg("big0", i, (400 - i)));
+    let k = 0;
+    setInterval(() => {
+      k++;
+      // Most messages land somewhere else; every few go to the first channel, so an open chat keeps moving.
+      const ch = k % 4 === 0 ? big.channels[0]! : big.channels[(k * 37) % big.channels.length]!;
+      const m: Msg = { ...msg(ch.id, 10_000 + k, 0), id: `bmlive${k}`, at: new Date() };
+      (this.store[ch.id] ??= []).push(m);
+      (ch as { unread?: boolean }).unread = true;
+      this.read.delete(ch.id);
+      this.emit({ t: "message", m });
+    }, 150);
+    void me;
   }
   private readUpTo: Record<string, string> = {};
   unreadCount(channelId: string) {
@@ -206,11 +240,19 @@ export class DemoBackend implements ChatBackend {
       // Like Stoat's orderedChannels: channels in no category first, then each category in order.
       const rank = (id: string) => { const i = cats.findIndex((c) => c.channels.includes(id)); return i < 0 ? -1 : i * 1000 + cats[i]!.channels.indexOf(id); };
       const chans = s.home ? s.channels : [...s.channels].sort((x, y) => rank(x.id) - rank(y.id));
-      return { ...s, channels: chans.map((c) => ({ ...(this.read.has(c.id) ? { ...c, unread: false, mentions: undefined } : c), category: s.home ? c.category : catOf(c.id)?.title, categoryId: catOf(c.id)?.id, muted: c.muted || this.isMuted("channel", c.id) || this.isMuted("server", s.id) })) };
+      const moved = (c: ChannelInfo) => {
+        if (!Object.keys(this.voiceMoves).length || c.kind !== "voice") return c.voice;
+        const here = (c.voice ?? []).filter((x) => !this.voiceMoves[x.id] || this.voiceMoves[x.id] === c.id);
+        const joined = Object.entries(this.voiceMoves).filter(([uid, to]) => to === c.id && !here.some((x) => x.id === uid)).map(([uid]) => ({ ...P(uid), muted: false }));
+        const all = [...here, ...joined];
+        return all.length ? all : undefined;
+      };
+      return { ...s, channels: chans.map((c) => ({ ...(this.read.has(c.id) ? { ...c, unread: false, mentions: undefined } : c), voice: moved(c), category: s.home ? c.category : catOf(c.id)?.title, categoryId: catOf(c.id)?.id, muted: c.muted || this.isMuted("channel", c.id) || this.isMuted("server", s.id) })) };
     });
   }
   async members(spaceId: string): Promise<MemberGroup[]> {
     if (spaceId === "home") return [];
+    if (spaceId === "big") return [{ title: "Online", people: this.bigPeople.filter((p) => p.online).slice(0, 300) }, { title: "Offline", people: this.bigPeople.filter((p) => !p.online).slice(0, 300) }];
     const all = [this.me, ...people.map((p) => P(p.id))];
     const groups = new Map<string, Person[]>();
     for (const p of all.filter((x) => x.online)) {
@@ -316,7 +358,7 @@ export class DemoBackend implements ChatBackend {
   serverInfo(id: string): ServerInfo | null {
     const s = spacesFor().find((x) => x.id === id && !x.home);
     return s ? { id, name: s.name, description: s.description, bannerUrl: s.bannerUrl, ownerId: "me", isOwner: id === "s1",
-      perms: { manageServer: true, manageRoles: true, manageChannels: true, manageEmoji: true, kick: true, ban: true, invite: true, manageMessages: true } } : null;
+      perms: { manageServer: true, manageRoles: true, manageChannels: true, manageEmoji: true, kick: true, ban: true, invite: true, manageMessages: true, muteMembers: true, deafenMembers: true, moveMembers: true } } : null;
   }
   async editServer() {}
   roles() { return [...this.roleList]; }
@@ -336,6 +378,17 @@ export class DemoBackend implements ChatBackend {
   async bans() { return [...this.banList]; }
   async unban(_s: string, uid: string) { this.banList = this.banList.filter((b) => b.person.id !== uid); }
   async kick() { throw new Error("Kicking needs a real Stoat account."); }
+  serverOfChannel(cid: string) { return spacesFor().concat(extraServers).find((s) => !s.home && s.channels.some((c) => c.id === cid))?.id; }
+  private voiceMod: Record<string, { muted: boolean; deafened: boolean }> = {};
+  /** People moved to another voice channel in the demo (applied when the channel lists are built). */
+  private voiceMoves: Record<string, string> = {};
+  async voiceModeration(_s: string, uid: string) { return { ...(this.voiceMod[uid] ?? { muted: false, deafened: false }) }; }
+  async moderateVoice(_s: string, uid: string, p: { mute?: boolean; deaf?: boolean; channel?: string }) {
+    const v = (this.voiceMod[uid] ??= { muted: false, deafened: false });
+    if (p.mute !== undefined) v.muted = p.mute;
+    if (p.deaf !== undefined) v.deafened = p.deaf;
+    if (p.channel) { this.voiceMoves[uid] = p.channel; this.emit({ t: "activity" }); }
+  }
   async ban() { throw new Error("Banning needs a real Stoat account."); }
   async createChannel(): Promise<string> { throw new Error("Creating channels needs a real Stoat account."); }
   async editChannel(cid: string, p: { name?: string; description?: string; slowmode?: number; mature?: boolean }) {
@@ -394,7 +447,14 @@ export class DemoBackend implements ChatBackend {
   async leaveServer() { throw new Error("You can't leave the demo servers."); }
   async closeDM() { throw new Error("Demo conversations stay open."); }
   async createServer(name: string) { const id = `s${Date.now()}`; extraServers.push({ id, name, channels: [{ id: `${id}-general`, name: "general", kind: "text" }] }); this.store[`${id}-general`] = []; this.emit({ t: "activity" }); return id; }
-  async search(cid: string, q: string) { const t = q.toLowerCase(); return (this.store[cid] ?? []).filter((m) => !m.system && m.text.toLowerCase().includes(t)).slice().reverse().slice(0, 50); }
+  async search(cid: string, q: string, sort: SearchSort = "Latest", cursor: { before?: string; after?: string } = {}) {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    let hits = (this.store[cid] ?? []).filter((m) => !m.system && words.some((w) => m.text.toLowerCase().includes(w)));
+    if (cursor.before) hits = hits.filter((m) => m.id < cursor.before!);
+    if (cursor.after) hits = hits.filter((m) => m.id > cursor.after!);
+    await new Promise((r) => setTimeout(r, 150));
+    return (sort === "Oldest" ? hits : hits.slice().reverse()).slice(0, SEARCH_BATCH);
+  }
   async pinned(cid: string) { return (this.store[cid] ?? []).filter((m) => m.pinned).slice().reverse(); }
   async mutual(uid: string) { return uid === this.me.id ? { friends: [], servers: [] } : { friends: ["u1", "u2", "u4"].filter((x) => x !== uid).map((x) => this.person(x)), servers: [{ id: "s1", name: "Glass Garden" }] }; }
   voiceOf(uid: string) { return uid === "u1" || uid === "u2" ? { channelId: "c3", channelName: "Lounge", serverId: "s1", serverName: "Glass Garden", screen: uid === "u2" } : null; }

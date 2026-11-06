@@ -131,7 +131,8 @@ tested. ✅ done · ⬜ to do · 🧪 built, needs testing on a real device
 - 🧪 Click someone's picture or name on a card to open the full profile; "View full profile" button only in the DM
   side profile
 - 🧪 Your own card from the bottom-left: right size, frames correct (measured after its opening animation), banner
-  and bio shown; your picture or name opens the profile editor
+  and bio shown; your picture or name opens your full profile on a computer (Edit profile is on the card), the
+  profile editor on a phone
 - 🧪 Profile editor: "Profile for" main or any server (opens on the server you're in): server nickname and avatar
 - 🧪 Nameplate preview in the profile editor
 - 🧪 Emoji style setting applies everywhere: quick reactions, call reactions, statuses, soundboard
@@ -238,3 +239,39 @@ Leave button, invite links opened from other apps, macOS in-place updates, Windo
 - 🧪 Call moved to another device banner; "you were in a call" banner; phone immersive call and landscape streams
 - 🧪 Emoji picker (continuous, server order, favorites synced), colour picker with Apply, Accessibility page,
   appearance sync off per device, view reactions, mark as unread fix, unread counts, Discover window
+
+## Nov: 0.1.5-build5
+Reviewed Cursor's build3/build4 changes and kept what worked. See docs/releases/0.1.5-build5.md. Checked in the demo at
+computer, phone, tablet-upright and tablet-sideways sizes; needs a real device for the Android camera and file picker,
+the Android launcher icon shape, the tablet status/navigation bars, and the macOS 26 glass icon (Xcode 26).
+- 🧪 Big servers: members fetched once (online only over 1,000), list refreshes throttled, old messages dropped from
+  memory, faster dates, freeze report in Advanced
+- 🧪 Recent chats saved on the device (last 50 messages of 20 chats per account) and shown instantly; Clear saved chats
+- 🧪 Emoji: system glyph first, chosen style swaps in when loaded and applies everywhere (names, statuses, channels,
+  message box); faster picker
+- 🧪 Phones/tablets: no jump when swiping back, hold menus stay open, tablet user/voice bar width, tablet search, mini
+  call eye button, status-bar overlap, profile card picture size, offline ring, Settings headers
+- 🧪 Dragging to rearrange off on phones/tablets unless turned on (Appearance)
+- 🧪 Discord-ordered right-click menus with only what Mustela can do; move people between voice channels (drag or
+  Move to), server mute/deafen
+- 🧪 Search filters on computers like Discord (typed filters with suggestions, Filters window, Sort)
+- 🧪 Phone attach sheet: take a photo, record a video, photos & videos, files
+- 🧪 Scheduled messages (right-click/hold Send), one-time tip
+- 🧪 Edit box has emoji and Save; spoilered links cover their previews; empty site-name cards hidden
+- 🧪 Videos and YouTube open in the media viewer from one full-screen button; whole-display only from the viewer on
+  computers
+- 🧪 Android launcher icon matches Windows/Linux (adaptive); updater repo baked into builds
+- 🧪 One card per link (Stoat's and Mustela's never both), spoilers cover every card of a ||link||, revealed videos play
+- 🧪 Formatting bar in the edit box; attachment spoiler keeps its buttons; "New" scheduled-messages tip
+- 🧪 Desktop: one search box with Discord's dropdown (filters, Search for, history), pages of 25, highlighted words,
+  results jump into the chat; search no longer waits on history; results use the chat's text size
+- 🧪 Clicking a link-preview video opens the viewer and plays; viewer closes on any empty spot (desktop)
+- 🧪 DMs only open at the New line when someone else wrote since; opening marks it read
+- 🧪 Undeafen restores the mic; rail buttons blurred with panels; saved profiles on desktop
+- 🧪 Updates only from releases with this platform's file; Android installs through PackageInstaller (needs a device)
+- 🧪 Emoji pictures kept on the device (emoji:// store), favorite GIFs kept on the device (gifs:// store, favorites only)
+- 🧪 One emoji/GIF picker with tabs; phones: bottom card (drag handle, chat moves up, emoji button becomes keyboard)
+- 🧪 Picker side buttons jump reliably; Insert timestamp; emoji style in hover card and suggestions
+- 🧪 Discover embedded in the main window on desktop (child web view over the content area; falls back to its window)
+- Not possible: disconnecting someone from voice (not in Stoat's API); holding Enter to schedule (keyboards don't
+  report a hold); changing an attachment's spoiler after sending (Stoat's edit only takes text and embeds)

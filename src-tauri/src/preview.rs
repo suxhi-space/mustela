@@ -66,13 +66,37 @@ pub fn sources_for(url: &str) -> Option<(Vec<String>, &'static str)> {
     Some((mirrors.iter().map(|m| format!("https://{m}{rest}")).collect(), name))
 }
 
-/// The first place to ask (kept for the tests and anything that only wants one).
+/// The first place to ask (used by the tests).
+#[cfg(test)]
 pub fn source_for(url: &str) -> Option<(String, &'static str)> {
     sources_for(url).map(|(v, n)| (v[0].clone(), n))
 }
 
-fn decode(s: &str) -> String {
-    s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&#x27;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&#x2F;", "/")
+/// HTML character references in a tag's text: the named few pages use, and every numbered one (&#x2019; &#8217;).
+pub fn decode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let end = rest[..rest.len().min(12)].find(';');
+        let ch = end.and_then(|e| {
+            let name = &rest[1..e];
+            let num = |n: &str, radix| u32::from_str_radix(n, radix).ok().and_then(char::from_u32);
+            match name {
+                "amp" => Some('&'), "quot" => Some('"'), "apos" => Some('\''), "lt" => Some('<'), "gt" => Some('>'), "nbsp" => Some(' '),
+                _ if name.starts_with("#x") || name.starts_with("#X") => num(&name[2..], 16),
+                _ if name.starts_with('#') => num(&name[1..], 10),
+                _ => None,
+            }.map(|c| (c, e))
+        });
+        match ch {
+            Some((c, e)) => { out.push(c); rest = &rest[e + 1..]; }
+            None => { out.push('&'); rest = &rest[1..]; }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The Open Graph (and Twitter card) tags of a page.
@@ -164,7 +188,7 @@ pub async fn link_preview(url: String) -> Option<LinkPreview> {
         let found = futures_util::future::join_all(tries.iter().map(|f| fetch_one(&c, &url, f, site))).await;
         let rank = |p: &LinkPreview| if p.video.is_some() { 2 } else if p.image.is_some() { 1 } else { 0 };
         for p in found.into_iter().flatten() {
-            if best.as_ref().map_or(true, |b| rank(&p) > rank(b)) { best = Some(p); }
+            if best.as_ref().is_none_or(|b| rank(&p) > rank(b)) { best = Some(p); }
         }
         if best.as_ref().is_some_and(|b| b.video.is_some()) { break; }
     }
@@ -229,6 +253,7 @@ mod tests {
         assert_eq!(source_for("https://staff.tumblr.com/post/1").unwrap().0, "https://tpmblr.com/staff/post/1");
         assert!(source_for("https://example.com/").is_none());
         assert!(source_for("http://x.com/a").is_none());
+        assert_eq!(decode("hab&#x2019;s &amp; spa&#xdf; &#8217; &bogus; a&b"), "hab\u{2019}s & spa\u{df} \u{2019} &bogus; a&b");
     }
 
     #[test]

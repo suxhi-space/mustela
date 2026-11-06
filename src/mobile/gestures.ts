@@ -12,6 +12,15 @@ import { backToChat, backToList, openMembersSheet } from "../ui/nav";
  */
 const IGNORE = "input, textarea, [contenteditable], .cm-editor, pre, code, input[type=range], .cstage, .reactions, .emoji-pop, .gif-pop, .soundboard, .scrim, .pop-scrim, .menu-scrim, .settings, .modal, .cp-scrim, .em-frame, video, .lightbox, .gallery-view, [data-no-swipe]";
 
+/** .swiped comes off once the screen changes again (into a chat), so later visits to the list animate as usual. */
+function untilViewChanges(app: HTMLElement) {
+  const was = app.dataset.view === "nav" ? "nav" : null;
+  const mo = new MutationObserver(() => {
+    if (app.dataset.view !== "nav" && (was === "nav" || app.dataset.view === "chat")) { app.classList.remove("swiped"); mo.disconnect(); }
+  });
+  mo.observe(app, { attributes: true, attributeFilter: ["data-view"] });
+}
+
 export function installGestures() {
   let start: { x: number; y: number; t: number; view: string } | null = null;
   let mode: "drawer" | "left" | null = null;
@@ -67,6 +76,10 @@ export function installGestures() {
       m.style.transform = go ? `translateX(${w / zoomNow()}px)` : "translateX(0)";
       start = null; mode = null; main = null; app = null; dx = 0;
       setTimeout(() => {
+        // The list is already on screen under the chat you swiped away: switching to it must not play its
+        // "slide in" again (it jumped left, faded and slid back). .settling holds the animations off for the switch.
+        // It stays until you leave the list: taking it off any sooner starts the animation at that moment instead.
+        if (go && a) { a.classList.add("swiped"); untilViewChanges(a); }
         if (go) backToList();
         m.style.transition = ""; m.style.transform = "";
         a?.classList.remove("swiping");

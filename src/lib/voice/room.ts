@@ -22,6 +22,7 @@ const SCREEN = {
   "1080p30": { resolution: ScreenSharePresets.h1080fps30.resolution, encoding: ScreenSharePresets.h1080fps30.encoding, contentHint: "motion" as const },
   "1080p60": { resolution: { ...ScreenSharePresets.h1080fps30.resolution, frameRate: 60 }, encoding: { maxBitrate: 6_000_000, maxFramerate: 60 }, contentHint: "motion" as const },
 };
+const shareOf = (quality?: keyof typeof SCREEN) => SCREEN[quality ?? "720p30"] ?? SCREEN["720p30"];
 
 /** Per-person volume and mute, remembered across calls like Discord. */
 type UserAudio = { v: number; m: boolean; sv: number; sm: boolean };
@@ -59,7 +60,7 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
     videoCaptureDefaults: { deviceId: prefs.videoDevice || undefined, resolution: VideoPresets.h720.resolution },
     publishDefaults: {
       videoEncoding: VideoPresets.h720.encoding,
-      screenShareEncoding: (SCREEN[prefs.screenQuality] ?? SCREEN["720p30"]).encoding,
+      screenShareEncoding: shareOf(prefs.screenQuality).encoding,
       dtx: true,
     },
   });
@@ -329,7 +330,7 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       if (!on) { await room.localParticipant.setScreenShareEnabled(false); ping(); return; }
       if (o?.native) {
         // Mustela's own capture: publish its tracks as a normal screen share (same presets as Stoat's).
-        const q = SCREEN[o.quality ?? prefs.screenQuality] ?? SCREEN["720p30"];
+        const q = shareOf(o.quality ?? prefs.screenQuality);
         const video = new LocalVideoTrack(o.native.video, undefined, true);
         await room.localParticipant.publishTrack(video, { source: Track.Source.ScreenShare, screenShareEncoding: q.encoding, simulcast: false, videoCodec: "vp8" });
         let audio: LocalAudioTrack | undefined;
@@ -345,7 +346,7 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
         return;
       }
       if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("NoDisplayMedia");
-      const q = SCREEN[o?.quality ?? prefs.screenQuality] ?? SCREEN["720p30"];
+      const q = shareOf(o?.quality ?? prefs.screenQuality);
       // Same capture settings as Stoat's client: raw stream audio, no voice processing on it.
       const share = (audio: boolean) => room.localParticipant.setScreenShareEnabled(true, {
         resolution: q.resolution, contentHint: q.contentHint,

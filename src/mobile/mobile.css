@@ -11,8 +11,12 @@
 }
 .ai-prompt { left: calc(12px + var(--sa-left)); right: calc(12px + var(--sa-right)); bottom: calc(12px + var(--sa-bottom)); width: auto; max-width: 480px; margin: 0 auto; }
 .toast { bottom: calc(24px + var(--sa-bottom)); }
+.esc small { display: none; }
 
 /* ---------- swipe a chat away to the channel list (src/mobile/gestures.ts) ---------- */
+/* What's under your finger is already where it belongs: no slide or fade-in animations while swiping or at the
+   hand-over from the swipe to the list (they made the list jump and fade). */
+.app:is(.swiping, .swiped) :is(.side, .main, .chans, .rail) { animation: none !important; }
 .app.swiping .rail, .app.swiping .side { display: flex !important; }
 .app.swiping .userpanel { display: flex !important; }
 .app.swiping .main { display: flex; position: absolute; inset: var(--sa-top) var(--sa-right) 0 var(--sa-left); z-index: 30;
@@ -35,8 +39,8 @@
   box-shadow: 0 -8px 22px -12px rgba(0, 0, 0, .55); }
 .chat .older-bar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .composer-wrap { z-index: 21; }
-.chat:has(.older-bar) .composer { background: linear-gradient(var(--well), var(--well)), var(--s2); }
-.chat:has(.older-bar) .typing { visibility: hidden; }
+.chat.older-on .composer { background: linear-gradient(var(--well), var(--well)), var(--s2); }
+.chat.older-on .typing { visibility: hidden; }
 
 /* ---------- "N new messages": one compact line ---------- */
 .since-bar { font-size: 12.5px; }
@@ -54,8 +58,10 @@
    pull it down to close (sheetDrag.ts). Sideways it stays centred. */
 @media (orientation: portrait), (max-width: 700px) {
   .profile-pop { place-items: end center; padding: calc(40px + var(--sa-top)) 0 0; }
-  .profile-pop .pp-sheet { width: min(600px, 100%); max-height: calc(100% - 8px); border-radius: 22px 22px 0 0; padding-bottom: var(--sa-bottom);
+  .profile-pop .pp-sheet { width: min(600px, 100%); height: fit-content; align-self: end; max-height: calc(100% - 8px); border-radius: 22px 22px 0 0; padding-bottom: var(--sa-bottom);
     animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+  .profile-full .pcard, .pf-card .pcard, .dm-profile .pcard { min-height: 0; height: auto; }
+  .modal.sheet { height: auto; max-height: min(80vh, calc(100% - var(--sa-top) - 8px)); align-self: end; }
   .profile-pop .pcard { border-radius: 22px 22px 0 0; }
   .profile-pop .pp-sheet::before { display: block; content: ""; position: absolute; top: 7px; left: 50%; z-index: 9; width: 40px; height: 5px; margin-left: -20px;
     border-radius: 3px; background: rgba(255, 255, 255, .6); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
@@ -174,11 +180,34 @@
 .soundboard .sb-mini { top: 6px; translate: none; }
 .soundboard .sb-sec { font-size: 13px; margin-top: 8px; }
 
-/* ---------- every card from the bottom grows to full height when pulled up or scrolled (sheetDrag.ts) ---------- */
-.sheet-tall { max-height: calc(100% - var(--sa-top) - 6px) !important; transition: max-height .22s cubic-bezier(.2, .8, .2, 1); }
-.ctx.ctx-sheet.sheet-tall, .soundboard.sheet-tall, .members-sheet.sheet-tall, .mecard.sheet-tall { height: calc(100% - var(--sa-top) - 6px); }
+/* ---------- a tall card eases up under the status bar. A short one stays as tall as its content. ---------- */
+.profile-pop { transition: padding-top .7s linear; }
+.sheet-tall { max-height: calc(100% - var(--sa-top) - 6px) !important; height: auto; transition: max-height .7s linear; }
 .profile-pop:has(.sheet-tall) { padding-top: calc(var(--sa-top) + 6px); }
-.profile-pop .pp-sheet.sheet-tall { height: 100%; max-height: 100% !important; }
+.profile-pop .pp-sheet.sheet-tall { height: auto; max-height: 100% !important; }
+
+/* Profile cards follow text size, density and the readable-text setting. App size already zooms the whole page. */
+.profile-pop .pcard, .mecard .pcard { font-size: calc(var(--font, 15px) * var(--ui-text, 1)); }
+.profile-pop .pc-name, .mecard .pc-name { font-size: 1.65em; }
+.profile-pop .pc-meta, .mecard .pc-meta,
+.profile-pop .pc-pronouns, .mecard .pc-pronouns,
+.profile-pop .pc-badge, .mecard .pc-badge { font-size: 0.95em; }
+.profile-pop .pc-bio, .mecard .pc-bio { font-size: var(--msg-font, 1em); line-height: 1.45; }
+.profile-pop .dmp-row, .mecard .dmp-row { min-height: 48px; font-size: 1.05em; }
+/* (The picture isn't enlarged on its own: its decoration is drawn for the normal size, so it ended up hidden behind
+   a bigger picture. App size already scales the whole card, decoration included.) */
+:root[data-readable] .pc-bio { letter-spacing: .015em; word-spacing: .04em; line-height: 1.55; }
+:root[data-layout="compact"] .profile-pop .pc-body { gap: 4px; }
+
+/* Settings and the emoji picker scroll on the normal page, without skipping paint per row (that stuttered). */
+.spage, .emoji-list { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+body, .settings, .settings-card { background-attachment: scroll !important; }
+/* A phone settings page fills the screen. The status bar gets padding, and the wallpaper does not show through. */
+@media (max-width: 900px) {
+  :root .settings, :root[data-material] .settings { background: var(--s1) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; padding: 0 !important; place-items: stretch !important; }
+  .settings-card { width: 100% !important; height: 100% !important; border-radius: 0 !important; box-shadow: none !important; padding-top: var(--sa-top); padding-bottom: var(--sa-bottom); padding-left: var(--sa-left); padding-right: var(--sa-right); background: var(--s1) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  .spage-head, .snav-top { max-width: none; margin-left: 0; margin-right: 0; border-radius: 0; background: var(--s1); }
+}
 
 /* ---------- the member list in a server: a card from the bottom like the others ---------- */
 .scrim:has(> .members-sheet) { place-items: end center; padding: 0; background: rgba(0, 0, 0, .45); }
@@ -197,9 +226,9 @@
    it shows the mini view, like Discord's tablet app. The same rules as phones (styles.css), for wider screens;
    CallStage sets .call-phone. */
 @media (min-width: 701px) {
-  :root.call-phone.call-top-on .app[data-view="chat"]:has(.cstage) { grid-template-columns: minmax(0, 1fr); padding: 0; gap: 0; }
-  :root.call-phone.call-top-on .app[data-view="chat"]:has(.cstage) :is(.rail, .side, .userpanel, .callpanel, .members-col) { display: none !important; }
-  :root.call-phone.call-top-on .app[data-view="chat"]:has(.cstage) .main { border-radius: 0; box-shadow: none; padding-top: var(--sa-top); padding-bottom: 0; }
+  :root.call-phone.call-top-on .app[data-view="chat"] { grid-template-columns: minmax(0, 1fr); padding: 0; gap: 0; }
+  :root.call-phone.call-top-on .app[data-view="chat"] :is(.rail, .side, .userpanel, .callpanel, .members-col) { display: none !important; }
+  :root.call-phone.call-top-on .app[data-view="chat"] .main { border-radius: 0; box-shadow: none; padding-top: var(--sa-top); padding-bottom: 0; }
   :root.call-phone.call-top-on .app[data-view="chat"] .main-bar { display: none; }
 
   :root.call-phone .cstage .phone-only, :root.call-phone .callpanel .phone-only { display: grid !important; }
@@ -248,3 +277,17 @@
   :root:not(.call-phone) .cstage .cbar { gap: 8px; padding: 10px 12px; }
   :root:not(.call-phone) .cstage .cbar-mid { gap: 8px; }
 }
+
+/* Editing a message on any phone or tablet: a Save button (the "Enter to save" hint is for keyboards). */
+.msg small.desk-only:has(> .link) { display: none !important; }
+
+/* Tablets held sideways: search (and pins) cover the chat like on a phone, instead of a column beside it. With the
+   keyboard up, the message box no longer rides up next to the search. */
+@media (min-width: 901px) {
+  .members-col.panel-col { display: block; position: absolute; inset: 0; z-index: 6; width: auto; background: var(--md-surface-container-low, var(--s1)); box-shadow: none; }
+  .main-body:has(> .members-col.panel-col) :is(.composer-wrap, .older-bar, .since-bar, .jump-present, .typing) { visibility: hidden; }
+}
+
+/* Videos: the player's own full-screen button can't open in the phone's web view, so it's hidden; Mustela's own
+   button (videoFull.tsx) is the one full-screen button. Inside Mustela's full-screen view there's nothing to enlarge. */
+video::-webkit-media-controls-fullscreen-button { display: none !important; }

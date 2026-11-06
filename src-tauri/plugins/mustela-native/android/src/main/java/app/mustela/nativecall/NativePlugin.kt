@@ -3,7 +3,10 @@ package app.mustela.nativecall
 import android.Manifest
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.ComponentCallbacks
 import android.content.Context
+import android.content.res.Configuration
+import android.graphics.Rect
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -67,6 +70,11 @@ class OverlayArgs {
 }
 
 @InvokeArg
+class InstallArgs {
+    var path: String = ""
+}
+
+@InvokeArg
 class MediaArgs {
     var url: String = ""
     var name: String = "file"
@@ -108,18 +116,21 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         // it made everything too big and cut off. Layout stays at 100%, the system scale just nudges the
         // page's base size (--font-scale) a little.
         val fontScale = activity.resources.configuration.fontScale
-        webView.settings.textZoom = 100
+        lockPageScale(webView)
         webView.post { webView.evaluateJavascript("document.documentElement.style.setProperty('--font-scale','${fontScale.coerceIn(0.85f, 1.3f)}')", null) }
         val density = activity.resources.displayMetrics.density
         ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
+            val status = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            if (hideStatus && status > 0) v.post { applyStatusBar() }
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             // Bottom: nav buttons or a pinned taskbar take their real height (they're "tappable"); with gesture
             // navigation only a slim strip for the handle is kept, not the whole gesture area (tablets left a big gap).
             val tappable = insets.getInsets(WindowInsetsCompat.Type.tappableElement()).bottom
             val bottom = if (tappable > 0) tappable else minOf(bars.bottom, (18 * density).toInt())
+            val top = if (hideStatus) 0 else bars.top
             val px = { n: Int -> "${(n / density).toInt()}px" }
-            val js = "(function(s){s.setProperty('--inset-top','${px(bars.top)}');s.setProperty('--inset-bottom','${px(maxOf(bottom, ime.bottom))}');" +
+            val js = "(function(s){s.setProperty('--inset-top','${px(top)}');s.setProperty('--inset-bottom','${px(maxOf(bottom, ime.bottom))}');" +
                 "s.setProperty('--inset-left','${px(bars.left)}');s.setProperty('--inset-right','${px(bars.right)}');s.setProperty('--keyboard','${px(ime.bottom)}');})(document.documentElement.style)"
             (v as WebView).evaluateJavascript(js, null)
             insets
@@ -131,9 +142,57 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         activity.intent?.data?.let { deliverLink(webView, it.toString()) }
         // The page loads after this; ask again once it's had time to start, so it gets the sizes too.
         for (delay in longArrayOf(300, 1200, 3000)) webView.postDelayed({ ViewCompat.requestApplyInsets(webView) }, delay)
+        // Gesture navigation and the 3-button bar change the insets without restarting the app.
+        activity.application.registerComponentCallbacks(object : ComponentCallbacks {
+            override fun onConfigurationChanged(newConfig: Configuration) { refreshChrome() }
+            override fun onLowMemory() {}
+        })
+    }
+
+    /** Re-read the bars and the system font size. Called when the app returns or the navigation mode changes. */
+    private fun refreshChrome() {
+        val webView = web ?: return
+        val fontScale = activity.resources.configuration.fontScale
+        // Coming back from the home screen or picture-in-picture makes Android zoom the page again on
+        // top of the size already set. Put text back to 100% a few times, after Android has had its turn.
+        webView.post {
+            lockPageScale(webView)
+            webView.evaluateJavascript("document.documentElement.style.setProperty('--font-scale','${fontScale.coerceIn(0.85f, 1.3f)}')", null)
+            webView.evaluateJavascript("window.__mustelaRefit&&window.__mustelaRefit()", null)
+            ViewCompat.requestApplyInsets(webView)
+            if (hideStatus) applyStatusBar()
+        }
+        for (delay in longArrayOf(200, 800)) webView.postDelayed({ refit() }, delay)
+    }
+
+    /**
+     * Stop Android's own zoom. Mustela's App size is the only scale. (No setInitialScale: on some tablets that put
+     * the page in screen pixels while the bar sizes stayed in dp, so the app slid under the status and nav bars.)
+     */
+    private fun lockPageScale(webView: WebView) {
+        webView.settings.textZoom = 100
+        webView.settings.setSupportZoom(false)
+        webView.settings.builtInZoomControls = false
+        webView.settings.displayZoomControls = false
+    }
+
+    private fun refit() {
+        val webView = web ?: return
+        lockPageScale(webView)
+        webView.evaluateJavascript("window.__mustelaRefit&&window.__mustelaRefit()", null)
     }
 
     private var web: WebView? = null
+    /** Set while a stream's controls are hidden. The page shows the status bar again with Mustela's own buttons. */
+    private var hideStatus = false
+
+    private fun applyStatusBar() {
+        val c = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        if (hideStatus) {
+            c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            c.hide(WindowInsetsCompat.Type.statusBars())
+        } else c.show(WindowInsetsCompat.Type.statusBars())
+    }
 
     private var lastPip: Boolean? = null
     /**
@@ -150,6 +209,7 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         val expanded = was == true && !inPip &&
             (activity as? androidx.lifecycle.LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) == true
         view.evaluateJavascript("document.documentElement.toggleAttribute('data-pip',$inPip);window.dispatchEvent(new CustomEvent('mustela:pip',{detail:{pip:$inPip,expanded:$expanded}}))", null)
+        if (!inPip) view.post { refit() }
     }
 
     /** A link opened while Mustela was already running (launchMode singleTask). */
@@ -247,19 +307,17 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
-     * The phone's status bar and nav buttons: hidden while a stream fills the screen (a swipe from the edge
-     * shows them for a moment, like video apps), shown the rest of the time.
+     * The phone's status bar. Full screen inside the app hides it until the page asks for it back.
+     * A swipe from the top edge shows it for a moment. The navigation bar stays.
      */
     @Command
     fun systemBars(invoke: Invoke) {
         val args = invoke.parseArgs(MicArgs::class.java)
         activity.runOnUiThread {
-            val c = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-            if (args.on) c.show(WindowInsetsCompat.Type.systemBars())
-            else {
-                c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                c.hide(WindowInsetsCompat.Type.systemBars())
-            }
+            // on: the bars are visible. Full screen asks for them off, which hides the status bar only.
+            hideStatus = !args.on
+            applyStatusBar()
+            ViewCompat.requestApplyInsets(web ?: activity.window.decorView)
             invoke.resolve()
         }
     }
@@ -335,6 +393,10 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
                 // Android only accepts shapes between 1:2.39 and 2.39:1.
                 val ratio = if (w.toFloat() / h > 2.39f) Rational(239, 100) else if (h.toFloat() / w > 2.39f) Rational(100, 239) else Rational(w, h)
                 val b = PictureInPictureParams.Builder().setAspectRatio(ratio)
+                // A small hint so a tablet can shrink the window as far as a phone (about 108dp).
+                val shortSide = (108 * activity.resources.displayMetrics.density).toInt()
+                val longSide = shortSide * 16 / 9
+                b.setSourceRectHint(Rect(0, 0, if (w >= h) longSide else shortSide, shortSide))
                 if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(args.auto).setSeamlessResizeEnabled(true)
                 val params = b.build()
                 activity.setPictureInPictureParams(params)
@@ -479,7 +541,7 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     override fun onResume() {
-        activity.runOnUiThread { Bubble.hide(activity); reportPip() }
+        activity.runOnUiThread { Bubble.hide(activity); reportPip(); refreshChrome() }
     }
 
     /* ---------- screen share ---------- */
@@ -560,5 +622,68 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         } catch (e: Exception) {
             invoke.reject(e.message ?: "couldn't save")
         }
+    }
+
+    /**
+     * Installs an update Mustela downloaded (and checked against GitHub's checksum) into its own folder. The file
+     * is streamed into Android's package installer and deleted straight away, so no APKs pile up in storage. Android
+     * asks the person to confirm (and, the first time, to allow Mustela to install apps). Only an APK signed with
+     * the same key as this one can replace it.
+     */
+    @Command
+    fun installApk(invoke: Invoke) {
+        val args = invoke.parseArgs(InstallArgs::class.java)
+        val file = java.io.File(args.path)
+        val home = java.io.File(activity.applicationInfo.dataDir).canonicalPath
+        if (!file.canonicalPath.startsWith("$home/") || !file.name.endsWith(".apk") || !file.isFile) { invoke.reject("not an update file"); return }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val installer = activity.packageManager.packageInstaller
+                val params = android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+                params.setAppPackageName(activity.packageName)
+                if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(android.content.pm.PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+                val id = installer.createSession(params)
+                installer.openSession(id).use { session ->
+                    file.inputStream().use { input ->
+                        session.openWrite("mustela.apk", 0, file.length()).use { out -> input.copyTo(out); session.fsync(out) }
+                    }
+                    file.delete()
+                    val action = "${activity.packageName}.MUSTELA_INSTALL_STATUS"
+                    registerInstallStatus(action)
+                    val flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) android.app.PendingIntent.FLAG_MUTABLE else 0)
+                    val pending = android.app.PendingIntent.getBroadcast(activity, id, Intent(action).setPackage(activity.packageName), flags)
+                    session.commit(pending.intentSender)
+                }
+                invoke.resolve()
+            } catch (e: Exception) {
+                file.delete()
+                invoke.reject(e.message ?: "couldn't install the update")
+            }
+        }
+    }
+
+    private var installStatus: android.content.BroadcastReceiver? = null
+
+    /** The installer's answers: it needs the person to confirm (shown here), or it failed (said in a toast). */
+    private fun registerInstallStatus(action: String) {
+        if (installStatus != null) return
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999)) {
+                    android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                        @Suppress("DEPRECATION")
+                        val confirm: Intent? = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) else intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                        confirm?.let { activity.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    }
+                    android.content.pm.PackageInstaller.STATUS_SUCCESS -> {}
+                    else -> {
+                        val why = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "unknown reason"
+                        activity.runOnUiThread { android.widget.Toast.makeText(activity, "The update wasn't installed ($why).", android.widget.Toast.LENGTH_LONG).show() }
+                    }
+                }
+            }
+        }
+        ContextCompat.registerReceiver(activity, receiver, android.content.IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
+        installStatus = receiver
     }
 }

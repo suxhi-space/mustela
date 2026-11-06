@@ -1,9 +1,10 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { MOBILE_UI } from "./target";
 import type { ServerFolder, Space } from "../lib/backend/types";
 import { Icon } from "./icons";
 import { attempt, openMenu, promptDialog, type MenuItem } from "./menu";
 import { serverMenu } from "./menus";
-import { backend } from "./store";
+import { backend, device } from "./store";
 
 type Entry = { type: "server"; id: string; s: Space } | { type: "folder"; id: string; f: ServerFolder; servers: Space[] };
 type Drop = { id: string; mode: "before" | "into" } | null;
@@ -38,6 +39,9 @@ const newId = () => `folder-${Date.now().toString(36).toUpperCase()}${Math.rando
  */
 const [orderTick, setOrderTick] = createSignal(0);
 export const orderChanged = () => setOrderTick((n) => n + 1);
+
+/** Phones and tablets: only with "Rearrange by dragging" on, so a long press is the menu. */
+const canDrag = () => !MOBILE_UI || device().rearrange;
 
 export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: string): void; onAdd(): void; refetch(): void }) {
   const [drop, setDrop] = createSignal<Drop>(null);
@@ -157,7 +161,7 @@ export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: stri
 
   const Orb = (op: { s: Space; inFolder?: boolean }) => (
     <button class="orb" classList={{ on: props.current === op.s.id, unread: unread(op.s) && props.current !== op.s.id, "drop-before": drop()?.id === op.s.id && drop()?.mode === "before", "drop-into": drop()?.id === op.s.id && drop()?.mode === "into" && !op.inFolder }}
-      title={op.s.name} aria-label={op.s.name} aria-current={props.current === op.s.id ? "true" : undefined} draggable={true}
+      title={op.s.name} aria-label={op.s.name} aria-current={props.current === op.s.id ? "true" : undefined} draggable={canDrag()}
       onDragStart={(e) => { e.dataTransfer!.setData(MIME, op.s.id); e.dataTransfer!.effectAllowed = "move"; setDragging(op.s.id); }}
       onDragEnd={() => { setDragging(null); setDrop(null); }}
       onDragOver={(e) => { if (!e.dataTransfer?.types.includes(MIME) || dragging() === op.s.id) return; e.preventDefault(); setDrop({ id: op.s.id, mode: op.inFolder || dragging()?.startsWith("folder-") ? "before" : zone(e) }); }}
@@ -187,7 +191,7 @@ export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: stri
           return (
             <div class="folder" classList={{ open: open(), "has-current": hasCurrent() }} style={{ "--fc": f().colour ?? "var(--pri)" }}>
               <button class="orb folder-orb" classList={{ unread: !open() && list().some(unread), "drop-before": drop()?.id === f().id && drop()?.mode === "before", "drop-into": drop()?.id === f().id && drop()?.mode === "into" }}
-                title={f().name || list().map((s) => s.name).join(", ")} aria-label={`Folder ${f().name || ""}`.trim()} aria-expanded={open()} draggable={true}
+                title={f().name || list().map((s) => s.name).join(", ")} aria-label={`Folder ${f().name || ""}`.trim()} aria-expanded={open()} draggable={canDrag()}
                 onClick={() => void editFolder(f().id, { collapsed: open() })} onContextMenu={(e) => folderMenu(e, f(), list())}
                 onDragStart={(e) => { e.dataTransfer!.setData(MIME, f().id); e.dataTransfer!.effectAllowed = "move"; setDragging(f().id); }}
                 onDragEnd={() => { setDragging(null); setDrop(null); }}

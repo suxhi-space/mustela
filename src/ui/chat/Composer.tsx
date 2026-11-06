@@ -1,4 +1,8 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, type Accessor } from "solid-js";
+import { openMenu, toast } from "../menu";
+import { holdToOpen, markHeld } from "../hold";
+import { quickTimes, schedule, scheduled, sendNow, unschedule } from "../schedule";
+import { MOBILE_UI } from "../target";
 import type { ChannelInfo, Msg, Person, Role } from "../../lib/backend/types";
 import { searchEmoji } from "../../lib/emoji";
 import { plain } from "../../lib/markdown";
@@ -8,7 +12,11 @@ import { Icon } from "../icons";
 import { backend } from "../store";
 import { createEditor, type ChipLookup, type EditorApi } from "./Editor";
 import { completionToken } from "./complete";
-import { openEmojiPicker, openGifPicker } from "./overlays";
+import { FormatBar, formatKey } from "./FormatBar";
+import { UEmoji } from "./UEmoji";
+import { closeExpr, exprOpen, openEmojiPicker, openGifPicker } from "./overlays";
+import { createPhone } from "../hooks";
+import { formatTime } from "../../lib/markdown";
 
 const MAX_FILES = 5;
 const MAX_BYTES = 20 * 1024 * 1024; // Stoat's default attachment limit
@@ -50,16 +58,6 @@ type Item =
   | { kind: "role"; label: string; insert: string; colour?: string }
   | { kind: "channel"; label: string; insert: string; voice: boolean };
 
-const FORMATS = [
-  { k: "bold", label: "Bold", icon: "bold", keys: "Ctrl+B", wrap: ["**", "**"] },
-  { k: "italic", label: "Italic", icon: "italic", keys: "Ctrl+I", wrap: ["*", "*"] },
-  { k: "strike", label: "Strikethrough", icon: "strike", wrap: ["~~", "~~"] },
-  { k: "spoiler", label: "Spoiler", icon: "eye-off", wrap: ["||", "||"] },
-  { k: "code", label: "Code", icon: "code", wrap: ["`", "`"] },
-  { k: "codeblock", label: "Code block", icon: "code-block" },
-  { k: "quote", label: "Quote", icon: "quote" },
-  { k: "link", label: "Link", icon: "link" },
-] as const;
 
 /**
  * Message box: Enter sends, Shift+Enter makes a new line, ↑ edits your last message.
@@ -95,6 +93,15 @@ export function Composer(props: {
   const [sentAt, setSentAt] = createSignal<Record<string, number>>({});
   let host!: HTMLDivElement, wrap!: HTMLDivElement;
   let fileInput!: HTMLInputElement;
+  let photoInput!: HTMLInputElement, videoInput!: HTMLInputElement, mediaInput!: HTMLInputElement;
+  /** Phones and tablets: what to add, as a card from the bottom (like Discord's): the camera, the photo picker, or any file. */
+  const attachSheet = (at: Element) => openMenu(at, [
+    { label: "Take a photo", icon: "image", onSelect: () => photoInput.click() },
+    { label: "Record a video", icon: "video", onSelect: () => videoInput.click() },
+    { label: "Photos & videos", icon: "image", onSelect: () => mediaInput.click() },
+    { label: "Files", icon: "file", onSelect: () => fileInput.click() },
+    { label: "Insert timestamp", icon: "calendar", onSelect: () => setStampOpen(true) },
+  ], { sheet: true });
   let ed: EditorApi | undefined;
   let typingOn = false, typingSent = 0, typingTimer: ReturnType<typeof setTimeout> | undefined;
   const cid = createMemo(() => props.channel.id);
@@ -223,6 +230,49 @@ export function Composer(props: {
     setDraft(c, { text: text(), reply: r ? { id: r.id, mention: mention() } : undefined });
   }));
 
+  /* ---------- scheduled messages (schedule.ts): right-click Send on a computer, hold it on a phone ---------- */
+  const [pickTime, setPickTime] = createSignal(false);
+  const phone = createPhone();
+  // Insert timestamp, like Discord: a time that shows in everyone's own time zone and format.
+  const [stampOpen, setStampOpen] = createSignal(false);
+  const [stampAt, setStampAt] = createSignal("");
+  const [stampStyle, setStampStyle] = createSignal("f");
+  const STAMP_STYLES = ["t", "T", "d", "D", "f", "F", "R"] as const;
+  const stampUnix = () => { const v = stampAt() ? new Date(stampAt()).getTime() : Date.now(); return Math.floor((Number.isNaN(v) ? Date.now() : v) / 1000); };
+  const insertStamp = () => { setStampOpen(false); ed?.insertAtCaret(`<t:${stampUnix()}:${stampStyle()}> `); ed?.focus(); };
+  const TIP = "mustela.tip.schedule";
+  const [tipShown, setTipShown] = createSignal((() => { try { return !localStorage.getItem(TIP); } catch { return false; } })());
+  const dismissTip = () => { setTipShown(false); try { localStorage.setItem(TIP, "1"); } catch { /* private mode */ } };
+  const localNow = (plusMin = 0) => { const d = new Date(Date.now() + plusMin * 60_000); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); };
+  const when = (at: number) => new Date(at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+  const scheduleAt = (at: number) => {
+    const t = text().trim();
+    if (!t) return;
+    schedule(cid(), t, at);
+    ed?.setText("");
+    setDraft(cid(), { text: "" });
+    dismissTip();
+    toast(`Scheduled for ${when(at)}`);
+  };
+  const scheduleMenu = (e: MouseEvent) => {
+    if (!text().trim()) { toast("Type a message first, then schedule it."); return; }
+    if (files().length) { toast("Scheduled messages can't carry files. Send the files now, or remove them to schedule the text.", true); return; }
+    openMenu(e, [
+      { header: "Schedule message" },
+      ...quickTimes().map((q) => ({ label: q.label, icon: "clock", hint: when(q.at), onSelect: () => scheduleAt(q.at) })),
+      { sep: true },
+      { label: "Pick a time…", icon: "clock", onSelect: () => setPickTime(true) },
+    ]);
+  };
+  const scheduledMenu = (at: Element) => openMenu(at, scheduled(cid()).map((x) => ({
+    label: `${when(x.at)} · ${x.text.length > 40 ? `${x.text.slice(0, 40)}…` : x.text}`, icon: "clock",
+    sub: [
+      { label: "Send now", icon: "send", onSelect: () => sendNow(x.id) },
+      { label: "Edit", icon: "pencil", onSelect: () => { unschedule(x.id); ed?.setText(x.text); ed?.focus(); } },
+      { label: "Delete", icon: "trash", danger: true, onSelect: () => unschedule(x.id) },
+    ],
+  })));
+
   async function submit() {
     const t = text().trim();
     if ((!t && !files().length) || busy()) return;
@@ -248,20 +298,6 @@ export function Composer(props: {
     } finally { setBusy(false); setProgress(null); ed?.focus(); }
   }
 
-  function format(k: (typeof FORMATS)[number]["k"]) {
-    if (!ed) return;
-    const f = FORMATS.find((x) => x.k === k)!;
-    if ("wrap" in f) { ed.wrap(f.wrap[0], f.wrap[1]); return; }
-    if (k === "codeblock" || k === "quote") { ed.block(k); return; }
-    // Link: wrap the selection as [text](https://), with the address selected for typing.
-    const s = selection();
-    if (!s) return;
-    const label = text().slice(s.from, s.to);
-    ed.replace(s.from, s.to, `[${label}](https://)`);
-    ed.view.dispatch({ selection: { anchor: s.from + label.length + 3, head: s.from + label.length + 11 } });
-    ed.focus();
-  }
-
   function key(e: KeyboardEvent): boolean {
     const list = items();
     if (list.length) {
@@ -270,8 +306,7 @@ export function Composer(props: {
       if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); accept(sel()); return true; }
       if (e.key === "Escape") { e.preventDefault(); const t = token(); if (t) setDismissed(`${t.start}:${t.sigil}`); return true; }
     }
-    const mod = e.ctrlKey || e.metaKey;
-    if (mod && !e.shiftKey && !e.altKey && (e.key === "b" || e.key === "i")) { e.preventDefault(); format(e.key === "b" ? "bold" : "italic"); return true; }
+    if (formatKey(e, ed, selection())) return true;
     // Phones: Enter makes a new line and the send button sends, like Discord and Stoat on mobile.
     const touch = matchMedia("(pointer: coarse)").matches && !matchMedia("(hover: hover)").matches;
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !touch) { e.preventDefault(); void submit(); return true; }
@@ -309,25 +344,46 @@ export function Composer(props: {
   createEffect(on(() => props.people().length, () => ed?.refresh(), { defer: true }));
   createEffect(on(placeholder, (p) => ed?.setPlaceholder(p), { defer: true }));
 
-  /** Where the formatting bar sits: just above the selection, inside the message box area. */
-  const toolbarPos = createMemo(() => {
-    const s = selection();
-    if (!s || !ed || !wrap) return null;
-    const a = ed.view.coordsAtPos(s.from), b = ed.view.coordsAtPos(s.to);
-    if (!a || !b) return null;
-    const box = wrap.getBoundingClientRect();
-    const x = Math.min(a.left, b.left) / 2 + Math.max(a.right, b.right) / 2 - box.left;
-    return { left: Math.max(110, Math.min(box.width - 110, x)), top: Math.min(a.top, b.top) - box.top };
-  });
-
   return (
-    <div class="composer-wrap" ref={wrap} classList={{ "fmt-open": !items().length && !!toolbarPos() }}>
+    <div class="composer-wrap" ref={wrap} classList={{ "fmt-open": !items().length && !!selection() }}>
+      <Show when={scheduled(cid()).length}>
+        <button type="button" class="sched-chip" onClick={(e) => scheduledMenu(e.currentTarget)}>
+          <Icon name="clock" size={14} />{scheduled(cid()).length === 1 ? "1 scheduled message" : `${scheduled(cid()).length} scheduled messages`}
+        </button>
+      </Show>
+      <Show when={pickTime()}>
+        <div class="scrim" onClick={(e) => e.target === e.currentTarget && setPickTime(false)}>
+          <form class="modal panel sched-dialog" role="dialog" aria-label="Schedule message" onSubmit={(e) => { e.preventDefault(); const v = (e.currentTarget.elements.namedItem("when") as HTMLInputElement).value; const at = v ? new Date(v).getTime() : NaN; if (at > Date.now()) { setPickTime(false); scheduleAt(at); } }}>
+            <h3>Schedule message</h3>
+            <p class="muted">Sent from this device at that time, while Mustela is running. If it's closed then, it goes out when you next open it.</p>
+            <input name="when" type="datetime-local" required min={localNow()} value={localNow(60)} />
+            <div class="dialog-actions"><button type="button" class="btn" onClick={() => setPickTime(false)}>Cancel</button><button class="btn primary">Schedule</button></div>
+          </form>
+        </div>
+      </Show>
+      <Show when={stampOpen()}>
+        <div class="scrim" onClick={(e) => e.target === e.currentTarget && setStampOpen(false)}>
+          <form class="modal panel sched-dialog stamp-dialog" role="dialog" aria-label="Insert timestamp" onSubmit={(e) => { e.preventDefault(); insertStamp(); }}>
+            <h3>Insert timestamp</h3>
+            <p class="muted">Everyone sees it in their own time zone.</p>
+            <input type="datetime-local" value={stampAt() || localNow()} onInput={(e) => setStampAt(e.currentTarget.value)} aria-label="Date and time" />
+            <div class="stamp-list" role="radiogroup" aria-label="How it shows">
+              <For each={STAMP_STYLES}>{(st) => (
+                <button type="button" role="radio" aria-checked={stampStyle() === st} classList={{ on: stampStyle() === st }} onClick={() => setStampStyle(st)}>
+                  <span>{formatTime(stampUnix(), st)}</span>
+                </button>
+              )}</For>
+            </div>
+            <div class="dialog-actions"><button type="button" class="btn" onClick={() => setStampOpen(false)}>Cancel</button><button class="btn primary">Insert</button></div>
+          </form>
+        </div>
+      </Show>
       <Show when={items().length && token()}>
         <div class="suggest panel" role="listbox" aria-label="Suggestions">
           <For each={items()}>{(it, i) => (
             <button role="option" aria-selected={sel() === i()} classList={{ on: sel() === i() }} onMouseDown={(e) => { e.preventDefault(); accept(i()); }}>
               {it.kind === "user" ? <Avatar person={it.person} size={22} presence={false} still profile={null} />
-                : it.kind === "emoji" ? <span class="sg-emoji"><Show when={it.img} fallback={it.char}><img class="cemoji" src={it.img} alt="" /></Show></span>
+                : it.kind === "emoji" ? <span class="sg-emoji"><Show when={it.img} fallback={<UEmoji e={it.char ?? ""} />}><img class="cemoji" src={it.img} alt="" /></Show></span>
                 : it.kind === "channel" ? <Icon name={it.voice ? "speaker" : "hash"} size={18} class="muted" />
                 : it.kind === "role" ? <span class="sg-role" style={{ "--role": it.colour && !it.colour.includes("gradient") ? it.colour : undefined }}>@</span>
                 : <Icon name="at" size={18} class="muted" />}
@@ -339,13 +395,7 @@ export function Composer(props: {
           )}</For>
         </div>
       </Show>
-      <Show when={items().length ? null : toolbarPos()}>{(p) => (
-        <div class="fmt-bar panel" role="toolbar" aria-label="Formatting" style={{ left: `${p().left}px`, top: `${p().top}px` }} onMouseDown={(e) => e.preventDefault()}>
-          <For each={FORMATS}>{(f) => (
-            <button type="button" class="icon-btn" aria-label={f.label} title={"keys" in f ? `${f.label} (${f.keys})` : f.label} onClick={() => format(f.k)}><Icon name={f.icon} size={17} /></button>
-          )}</For>
-        </div>
-      )}</Show>
+      <FormatBar ed={() => ed} host={() => wrap} selection={selection} hidden={!!items().length} />
       <Show when={props.replyTo}>{(r) => (
         <div class="reply-bar">
           <Icon name="reply" size={16} class="flip" />
@@ -359,7 +409,7 @@ export function Composer(props: {
       <Show when={files().length}>
         <div class="pending-files">
           <For each={files()}>{(p) => (
-            <div class="pf panel-inset" classList={{ spoiler: p.spoiler }}>
+            <div class="pf panel-inset" classList={{ "pf-spoiled": p.spoiler }}>
               <Show when={p.thumb} fallback={<Icon name="file" size={26} />}>
                 <img src={p.thumb} alt="" decoding="async" />
               </Show>
@@ -386,18 +436,44 @@ export function Composer(props: {
       </Show>
       <form class="composer" classList={{ locked: !rules().canSend }} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <Show when={rules().canSend && rules().canUpload}>
-          <button type="button" class="icon-btn" aria-label="Attach files" title="Attach files" onClick={() => fileInput.click()}><Icon name="plus-circle" size={22} /></button>
+          <button type="button" class="icon-btn" aria-label="Attach files" title="Attach files" onClick={(e) => (MOBILE_UI ? attachSheet(e.currentTarget) : fileInput.click())}><Icon name="plus-circle" size={22} /></button>
         </Show>
         <Show when={!rules().canSend}><Icon name="lock" size={20} class="muted lock-ic" /></Show>
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
+        {/* Phones and tablets: one picker per kind, so Android opens the right screen (camera, photo picker, files). */}
+        <Show when={MOBILE_UI}>
+          <input ref={photoInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
+          <input ref={videoInput} type="file" accept="video/*" capture="environment" hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
+          <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
+        </Show>
         <div class="editor" ref={host} classList={{ over: text().length > MAX_CHARS }} inert={!rules().canSend} />
         <Show when={text().length > MAX_CHARS - 200}><span class="char-count" classList={{ over: text().length > MAX_CHARS }}>{MAX_CHARS - text().length}</span></Show>
         <Show when={rules().canSend}>
-          <Show when={props.sendGif}>
-            <button type="button" class="icon-btn" aria-label="GIF" title="GIF" onClick={(e) => openGifPicker(e.currentTarget, (url) => void props.sendGif!(url))}><Icon name="gif" size={22} /></button>
+          <Show when={!phone()}>
+            <button type="button" class="icon-btn" aria-label="Insert timestamp" title="Insert timestamp" onClick={() => setStampOpen(true)}><Icon name="calendar" size={22} /></button>
           </Show>
-          <button type="button" class="icon-btn" aria-label="Emoji" title="Emoji" onClick={(e) => openEmojiPicker(e.currentTarget, ({ text: x }) => ed?.insertAtCaret(x))}><Icon name="smile" size={22} /></button>
-          <button class="send-btn" disabled={busy() || wait() > 0 || (!text().trim() && !files().length)} aria-label="Send"><Icon name="send" size={18} /></button>
+          <Show when={props.sendGif && !phone()}>
+            <button type="button" class="icon-btn" aria-label="GIF" title="GIF" onClick={(e) => openGifPicker(e.currentTarget, (url) => void props.sendGif!(url), { emoji: ({ text: x }) => ed?.insertAtCaret(x) })}><Icon name="gif" size={22} /></button>
+          </Show>
+          {/* Phones, like Discord: one button for emoji and GIFs; while their card is open it's a keyboard, to type again. */}
+          <Show when={phone() && exprOpen()} fallback={
+            <button type="button" class="icon-btn" aria-label={phone() ? "Emoji and GIFs" : "Emoji"} title="Emoji" onClick={(e) => {
+              if (phone()) (document.activeElement as HTMLElement | null)?.blur?.(); // the card takes the keyboard's place
+              openEmojiPicker(e.currentTarget, ({ text: x }) => ed?.insertAtCaret(x), props.sendGif ? { gif: (url) => void props.sendGif!(url) } : {});
+            }}><Icon name="smile" size={22} /></button>
+          }>
+            <button type="button" class="icon-btn" aria-label="Keyboard" title="Keyboard" onClick={() => { closeExpr(); ed?.focus(); }}><Icon name="keyboard" size={22} /></button>
+          </Show>
+          <button class="send-btn" disabled={busy() || wait() > 0 || (!text().trim() && !files().length)} aria-label="Send" title="Send (right-click to schedule)"
+            {...holdToOpen()} onContextMenu={(e) => { e.preventDefault(); markHeld(); scheduleMenu(e); }}><Icon name="send" size={18} /></button>
+          <Show when={tipShown()}>
+            <div class="sched-tip panel" role="note">
+              <Icon name="clock" size={18} />
+              <span class="st-text"><span class="st-head"><b class="st-new">New</b>Scheduled messages</span>
+                <span>{MOBILE_UI ? "Hold Send to pick when it goes out." : "Right-click Send to pick when it goes out."}</span></span>
+              <button type="button" class="icon-btn" aria-label="Got it" onClick={dismissTip}><Icon name="close" size={14} /></button>
+            </div>
+          </Show>
         </Show>
       </form>
     </div>

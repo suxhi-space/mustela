@@ -228,7 +228,57 @@ function install() {
   must(run(npm, ["install", "--no-audit", "--no-fund"]), "npm install", "Check your internet connection. If it keeps failing, delete node_modules and package-lock.json and try again.");
 }
 
-function icons() {
+/**
+ * Android's launcher icon: the same free-standing face as Windows and Linux (icons/app-icon.png), not the Mac tile
+ * and not cropped. Android 8+ gets an adaptive icon with a see-through background and the face kept inside the
+ * safe zone, so whatever shape the launcher masks with (circle, squircle…) the face shows whole. Older Android
+ * gets the plain face.
+ */
+async function androidIcon() {
+  const src = join(ROOT, "icons", "app-icon.png");
+  if (!existsSync(src)) return;
+  let sharp;
+  try { sharp = (await import("sharp")).default; }
+  catch { warn("Couldn't load sharp, so the Android launcher keeps Tauri's default icon."); return; }
+  const dp = [["mdpi", 1], ["hdpi", 1.5], ["xhdpi", 2], ["xxhdpi", 3], ["xxxhdpi", 4]];
+  const roots = [join(TAURI, "icons", "android")];
+  const genRes = join(TAURI, "gen", "android", "app", "src", "main", "res");
+  if (existsSync(genRes)) roots.push(genRes);
+  for (const root of roots) {
+    for (const [bucket, k] of dp) {
+      const dir = join(root, `mipmap-${bucket}`);
+      mkdirSync(dir, { recursive: true });
+      const legacy = await sharp(src).resize(Math.round(48 * k), Math.round(48 * k)).png().toBuffer();
+      writeFileSync(join(dir, "ic_launcher.png"), legacy);
+      writeFileSync(join(dir, "ic_launcher_round.png"), legacy);
+      // 108dp canvas; the face at 60dp in the middle, inside the 66dp circle every launcher keeps.
+      const canvas = Math.round(108 * k), face = Math.round(60 * k), off = Math.round((canvas - face) / 2);
+      const fg = await sharp({ create: { width: canvas, height: canvas, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+        .composite([{ input: await sharp(src).resize(face, face).png().toBuffer(), left: off, top: off }]).png().toBuffer();
+      writeFileSync(join(dir, "ic_launcher_foreground.png"), fg);
+    }
+    const any = join(root, "mipmap-anydpi-v26");
+    mkdirSync(any, { recursive: true });
+    const xml = `<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n  <background android:drawable="@color/ic_launcher_background" />\n  <foreground android:drawable="@mipmap/ic_launcher_foreground" />\n</adaptive-icon>\n`;
+    writeFileSync(join(any, "ic_launcher.xml"), xml);
+    writeFileSync(join(any, "ic_launcher_round.xml"), xml);
+    const values = join(root, "values");
+    mkdirSync(values, { recursive: true });
+    writeFileSync(join(values, "ic_launcher_background.xml"), `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <color name="ic_launcher_background">#00000000</color>\n</resources>\n`);
+  }
+  ok("Android launcher uses the free-standing face (adaptive, nothing cropped)");
+}
+
+/** Tablets were stuck at the desktop window's 360×520 minimum inside picture-in-picture. */
+function pipSmall(gen) {
+  const manifest = join(gen, "app", "src", "main", "AndroidManifest.xml");
+  if (!existsSync(manifest)) return;
+  let t = readFileSync(manifest, "utf8");
+  if (/android:minWidth=/.test(t)) t = t.replace(/android:minWidth="[^"]*"/g, 'android:minWidth="108dp"').replace(/android:minHeight="[^"]*"/g, 'android:minHeight="108dp"');
+  writeFileSync(manifest, t);
+}
+
+async function icons() {
   if (flag("skip-icons")) return;
   const src = ["app-icon.png", "app-icon.svg"].map((f) => join(ROOT, "icons", f)).find((p) => existsSync(p));
   if (!src) { warn("No icons/app-icon.png found; keeping the current icons."); return; }
@@ -254,6 +304,7 @@ function icons() {
     const p = join(ROOT, "icons", "overrides", from);
     if (existsSync(p)) { copyFileSync(p, join(TAURI, "icons", to)); ok(`Using icons/overrides/${from}`); }
   }
+  await androidIcon();
 }
 
 function collect(platform, files) {
@@ -262,10 +313,15 @@ function collect(platform, files) {
   mkdirSync(dest, { recursive: true });
   const out = [];
   for (const f of files) {
+    const baseName = f.split(/[/\\]/).pop() ?? "";
+    // bundle_dmg leaves rw.<name>.dmg beside the real image. It has the same
+    // "universal" tag, so copying it second replaced the icon-stamped image.
+    if (baseName.startsWith("rw.")) continue;
     const ext = f.endsWith(".app") ? ".app" : /\.(tar\.gz|[^.]+)$/.exec(f)?.[0] ?? "";
     const tag = /(arm64|aarch64|x86_64|amd64|x64|universal)/i.exec(f)?.[1];
     const name = `Mustela_${VERSION}_${platform}${tag ? `_${tag}` : ""}${f.includes("debug") ? "_debug" : ""}${ext}`;
     const target = join(dest, name);
+    if (existsSync(target)) continue;
     if (statSync(f).isDirectory()) run(IS_WIN ? "xcopy" : "cp", IS_WIN ? [f, target, "/E", "/I", "/Q"] : ["-R", f, target], { quiet: true });
     else copyFileSync(f, target);
     out.push(target);
@@ -290,22 +346,32 @@ function findFiles(dir, re, depth = 6) {
  * Returns a config file for `tauri build --config`, or null.
  */
 function macGlassIcon() {
+  // The Icon Composer file is used as-is. Nothing here redraws or edits it.
   const src = join(ROOT, "icons", "macos", "Mustela.icon");
   if (!existsSync(src)) return null;
   const out = join(ROOT, "release", ".mac-icon");
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
+  const partial = join(out, "partial.plist");
   const r = run("xcrun", ["actool", src, "--compile", out, "--output-format", "human-readable-text", "--notices", "--warnings", "--errors",
-    "--output-partial-info-plist", join(out, "partial.plist"), "--app-icon", "Mustela", "--include-all-app-icons",
+    "--output-partial-info-plist", partial, "--app-icon", "Mustela", "--include-all-app-icons",
     "--enable-on-demand-resources", "NO", "--development-region", "en", "--target-device", "mac", "--minimum-deployment-target", "11.0", "--platform", "macosx"], { quiet: true });
   const car = join(out, "Assets.car");
-  if (!r.ok || !existsSync(car)) { warn("Couldn't compile the macOS 26 glass icon (needs Xcode 26 or later); using the flat icon."); return null; }
-  // Info.plist: our usual keys plus the icon's name in the compiled catalogue (older macOS ignores it and uses icon.icns).
-  const plist = readFileSync(join(TAURI, "Info.plist"), "utf8").replace("</dict>", "  <key>CFBundleIconName</key>\n  <string>Mustela</string>\n</dict>");
+  if (!r.ok || !existsSync(car)) {
+    const tail = (r.out || "").trim().split("\n").slice(-12).join("\n");
+    warn("Couldn't compile the macOS 26 glass icon (needs Xcode 26 or later); using the flat icon.");
+    if (tail) console.log(dim(tail));
+    return null;
+  }
+  // actool names the icon in the catalogue. Use that name, not a guess, or macOS ignores Assets.car
+  // and keeps showing the flat icon.icns.
+  const named = (existsSync(partial) ? readFileSync(partial, "utf8") : "").match(/<key>CFBundleIconName<\/key>\s*<string>([^<]+)<\/string>/);
+  const iconName = named?.[1] || "Mustela";
+  const plist = readFileSync(join(TAURI, "Info.plist"), "utf8").replace("</dict>", `  <key>CFBundleIconName</key>\n  <string>${iconName}</string>\n</dict>`);
   writeFileSync(join(out, "Info.plist"), plist);
   const conf = join(out, "tauri.mac-icon.json");
   writeFileSync(conf, JSON.stringify({ bundle: { macOS: { files: { "Resources/Assets.car": car }, infoPlist: join(out, "Info.plist") } } }));
-  ok("macOS 26+ glass icon from icons/macos/Mustela.icon");
+  ok(`macOS 26+ glass icon from icons/macos/Mustela.icon (${iconName})`);
   return conf;
 }
 
@@ -321,7 +387,109 @@ function buildDesktop(platform) {
   const env = { ...releaseEnv(), ...(platform === "linux" ? { APPIMAGE_EXTRACT_AND_RUN: "1", NO_STRIP: "true" } : {}) };
   must(npx(a, { env }), "The build", "Scroll up for the first error. Most often it's a missing system library (see https://tauri.app/start/prerequisites/).");
   const base = join(TAURI, "target", platform === "macos" ? "universal-apple-darwin" : "", DEBUG ? "debug" : "release", "bundle");
-  return collect(platform, findFiles(base, /\.(AppImage|deb|rpm|exe|msi|dmg)$|\.app$/));
+  if (platform === "macos") {
+    // The disk-image script leaves an uncompressed rw.*.dmg beside the app. It shares the
+    // "universal" name, so copying every .dmg put that 39 MB file into release/ over the real one.
+    for (const f of findFiles(base, /^rw\..*\.dmg$/i)) rmSync(f, { force: true });
+    stampSharedDmgIcon(base);
+  }
+  return collect(platform, platform === "macos" ? macReleaseFiles(base) : findFiles(base, /\.(AppImage|deb|rpm|exe|msi|dmg)$|\.app$/));
+}
+
+/** The compressed image in bundle/dmg, plus the .app. Nothing else named .dmg. */
+function macReleaseFiles(base) {
+  const dmgDir = join(base, "dmg");
+  const dmgs = existsSync(dmgDir)
+    ? readdirSync(dmgDir).filter((n) => n.endsWith(".dmg") && !n.startsWith("rw.")).map((n) => join(dmgDir, n))
+    : [];
+  const apps = findFiles(join(base, "macos"), /\.app$/).filter((p) => p.endsWith(".app"));
+  return [...dmgs, ...apps];
+}
+
+/**
+ * The .app shows the macOS 26 glass icon from Assets.car. The disk image people download does not:
+ * Tauri stamps its volume icon, and the app's fallback icon, from the flat icon.icns.
+ * Take the picture Finder is already showing for the .app and put that on the image.
+ */
+function stampSharedDmgIcon(base) {
+  if (process.platform !== "darwin") return;
+  const app = findFiles(join(base, "macos"), /\.app$/).find((p) => p.endsWith(".app"));
+  const dmg = findFiles(join(base, "dmg"), /\.dmg$/).find((p) => p.endsWith(".dmg") && !p.includes("/rw."));
+  if (!app || !dmg || !existsSync(join(app, "Contents", "Resources", "Assets.car"))) return;
+  step("Putting the glass icon on the disk image");
+  const work = join(ROOT, "release", ".mac-icon");
+  mkdirSync(work, { recursive: true });
+  const png = join(work, "glass.png");
+  const swift = join(work, "snapshot.swift");
+  writeFileSync(swift, `import AppKit
+let app = CommandLine.arguments[1]
+let png = CommandLine.arguments[2]
+let dmg = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : ""
+let icon = NSWorkspace.shared.icon(forFile: app)
+let side: CGFloat = 1024
+let img = NSImage(size: NSSize(width: side, height: side))
+img.lockFocus()
+NSGraphicsContext.current?.imageInterpolation = .high
+icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+img.unlockFocus()
+guard let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+      let data = rep.representation(using: .png, properties: [:]) else { fputs("could not draw the app icon\\n", stderr); exit(1) }
+do { try data.write(to: URL(fileURLWithPath: png)) } catch { fputs("could not write the icon\\n", stderr); exit(1) }
+if !dmg.isEmpty { NSWorkspace.shared.setIcon(img, forFile: dmg, options: []) }
+`);
+  if (!run("swift", [swift, app, png], { quiet: true }).ok || !existsSync(png)) {
+    warn("Couldn't read the glass icon off the app, so the disk image keeps the flat icon.");
+    return;
+  }
+  const set = join(work, "glass.iconset");
+  rmSync(set, { recursive: true, force: true });
+  mkdirSync(set);
+  const sizes = [["icon_16x16.png", 16], ["icon_16x16@2x.png", 32], ["icon_32x32.png", 32], ["icon_32x32@2x.png", 64], ["icon_128x128.png", 128], ["icon_128x128@2x.png", 256], ["icon_256x256.png", 256], ["icon_256x256@2x.png", 512], ["icon_512x512.png", 512], ["icon_512x512@2x.png", 1024]];
+  for (const [name, px] of sizes) {
+    if (!run("sips", ["-z", String(px), String(px), png, "--out", join(set, name)], { quiet: true }).ok) {
+      warn("Couldn't make the disk-image icon.");
+      return;
+    }
+  }
+  const icns = join(work, "glass.icns");
+  if (!run("iconutil", ["-c", "icns", set, "-o", icns], { quiet: true }).ok) {
+    warn("Couldn't make the disk-image icon.");
+    return;
+  }
+  copyFileSync(icns, join(app, "Contents", "Resources", "icon.icns"));
+  const rw = join(work, "rw.dmg");
+  rmSync(rw, { force: true });
+  rmSync(`${rw}.dmg`, { force: true });
+  if (!run("hdiutil", ["convert", dmg, "-format", "UDRW", "-ov", "-o", rw], { quiet: true }).ok) {
+    warn("Couldn't open the disk image to replace its icon.");
+    return;
+  }
+  const rwFile = existsSync(rw) ? rw : `${rw}.dmg`;
+  const mnt = join(work, "mnt");
+  rmSync(mnt, { recursive: true, force: true });
+  mkdirSync(mnt);
+  if (!run("hdiutil", ["attach", rwFile, "-readwrite", "-noverify", "-noautoopen", "-mountpoint", mnt], { quiet: true }).ok) {
+    warn("Couldn't open the disk image to replace its icon.");
+    return;
+  }
+  try {
+    const inside = readdirSync(mnt).find((n) => n.endsWith(".app"));
+    if (inside) copyFileSync(icns, join(mnt, inside, "Contents", "Resources", "icon.icns"));
+    copyFileSync(icns, join(mnt, ".VolumeIcon.icns"));
+    run("SetFile", ["-a", "C", mnt], { quiet: true });
+  } finally {
+    if (!run("hdiutil", ["detach", mnt, "-quiet"], { quiet: true }).ok) run("hdiutil", ["detach", mnt, "-force"], { quiet: true });
+  }
+  const packed = join(work, "packed.dmg");
+  rmSync(packed, { force: true });
+  rmSync(`${packed}.dmg`, { force: true });
+  if (!run("hdiutil", ["convert", rwFile, "-format", "UDZO", "-ov", "-o", packed], { quiet: true }).ok) {
+    warn("Couldn't save the disk image after replacing its icon.");
+    return;
+  }
+  copyFileSync(existsSync(packed) ? packed : `${packed}.dmg`, dmg);
+  run("swift", [swift, app, png, dmg], { quiet: true });
+  ok("Disk image uses the same icon as the app");
 }
 
 /** A personal signing key, created once, so release APKs install and can be updated. */
@@ -406,7 +574,8 @@ async function buildAndroid() {
     copyFileSync(note, join(res, "ic_notification.png"));
     ok("Notification icon from icons/notification.png");
   }
-  icons(); // after init, so the launcher icons land in the Android project too
+  await icons(); // after init, so the launcher icons land in the Android project too
+  pipSmall(gen);
   step(`Building Mustela for Android${DEBUG ? " (debug)" : ""}`);
   const a = ["tauri", "android", "build", "--apk", "--aab"];
   if (DEBUG) a.push("--debug");
@@ -478,7 +647,7 @@ if (platform === "windows") await tc.ensureMsvc();
 if (platform === "macos") { await tc.ensureXcodeTools(); tc.ensureRustTargets(["aarch64-apple-darwin", "x86_64-apple-darwin"]); }
 
 if (platform !== "server") install();
-if (platform !== "android" && platform !== "web" && platform !== "server") icons();
+if (platform !== "android" && platform !== "web" && platform !== "server") await icons();
 
 const t0 = Date.now();
 const files = platform === "server" ? buildServer() : platform === "web" ? buildWeb() : platform === "android" ? await buildAndroid() : buildDesktop(platform);

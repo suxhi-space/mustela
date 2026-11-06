@@ -21,20 +21,8 @@ function Spoiler(props: { children: JSX.Element }) {
 }
 
 /** Wraps unicode emoji in spans so hovering one can say what it is, drawn in your emoji style. */
-export function TextWithEmoji(props: { v: string }) {
-  const parts = createMemo(() => {
-    const out: { t: string; e?: boolean }[] = [];
-    let last = 0;
-    for (const m of props.v.matchAll(PACKED_EMOJI_RE)) {
-      if (m.index! > last) out.push({ t: props.v.slice(last, m.index) });
-      out.push({ t: m[0], e: true });
-      last = m.index! + m[0].length;
-    }
-    if (last < props.v.length) out.push({ t: props.v.slice(last) });
-    return out;
-  });
-  return <For each={parts()}>{(p) => (p.e ? <span class="uemoji" data-emoji={p.t.replace(/^[\uE0E0-\uE0E6]/, "")}><UEmoji e={p.t} /></span> : p.t.replace(/[\uE0E0-\uE0E6]/g, ""))}</For>;
-}
+import { TextWithEmoji } from "./EmojiText";
+export { TextWithEmoji };
 const customName = (id: string) => backend()?.emojis().find((e) => e.id === id)?.name ?? "emoji";
 
 /** A custom emoji. Animated ones hold still when Performance says so, and play while you point at them. */

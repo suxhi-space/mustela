@@ -1,4 +1,6 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import { MOBILE_UI } from "./target";
+import { holdToOpen, justHeld, markHeld } from "./hold";
 import { createPhone, phoneLayout } from "./hooks";
 import { phoneCall, setTabletFull } from "./call/tablet";
 import type { ChannelInfo, Person, VoiceMember } from "../lib/backend/types";
@@ -22,16 +24,21 @@ function MemberIcons(props: { m: VoiceMember }) {
 }
 
 /** People in a voice channel, listed under it in the sidebar like Stoat and Discord. Right-click for volume. */
-export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string }) {
+/** Dragging someone from one voice channel to another (computers, with Move Members). */
+export const VOICE_MIME = "application/x-mustela-voice";
+
+export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string; serverId?: string; canMove?: boolean }) {
   // While you're in this call, show the live state (instant speaking, your own mute/deafen).
   const live = (m: VoiceMember) => (call.active() && call.channel()?.id === props.channelId ? call.people().find((p) => p.id === m.id) ?? m : m);
   return (
     <ul class="voice-members">
       <For each={props.members}>{(m) => (
-        <li classList={{ talking: call.speaking().includes(m.id) && !call.soundboard().includes(m.id), sound: call.soundboard().includes(m.id) }} onContextMenu={(e) => callMemberMenu(e, m)}>
+        <li classList={{ talking: call.speaking().includes(m.id) && !call.soundboard().includes(m.id), sound: call.soundboard().includes(m.id) }} {...holdToOpen()}
+          draggable={!MOBILE_UI && !!props.canMove && m.id !== backend()?.me.id}
+          onDragStart={(e) => { e.dataTransfer!.setData(VOICE_MIME, `${m.id}|${props.channelId ?? ""}`); e.dataTransfer!.effectAllowed = "move"; }} onContextMenu={(e) => { markHeld(); callMemberMenu(e, m, { serverId: props.serverId, channelId: props.channelId }); }}>
           {/* Their profile, like Discord: beside the list on desktop, the usual card on phones. */}
           <button class="vm-who" aria-label={`${m.name}'s profile`}
-            onClick={(e) => (phoneLayout() ? openProfile(backend()?.person(m.id) ?? m) : openProfileBeside(backend()?.person(m.id) ?? m, e.currentTarget))}>
+            onClick={(e) => justHeld() ? undefined : (phoneLayout() ? openProfile(backend()?.person(m.id) ?? m) : openProfileBeside(backend()?.person(m.id) ?? m, e.currentTarget))}>
             <Avatar person={m} size={22} presence={false} still={!(call.speaking().includes(m.id))} />
             <span class="vm-name"><NameText person={m} fontOnly /></span>
           </button>

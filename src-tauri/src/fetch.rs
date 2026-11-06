@@ -99,7 +99,7 @@ async fn fetch_typed(url: &str, max: usize) -> Result<(Vec<u8>, String), String>
     if !resp.status().is_success() {
         return Err(format!("http {}", resp.status().as_u16()));
     }
-    if resp.content_length().map_or(false, |n| n as usize > max) {
+    if resp.content_length().is_some_and(|n| n as usize > max) {
         return Err("too large".into());
     }
     let ctype = resp.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_ascii_lowercase();

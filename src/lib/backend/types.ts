@@ -58,7 +58,9 @@ export interface CustomEmoji { id: string; name: string; url: string; animated?:
 
 export interface VoicePresence { channelId: string; channelName: string; serverId?: string; serverName?: string; screen: boolean }
 export type NotifyLevel = "all" | "mention" | "none";
-export interface ServerPerms { manageServer: boolean; manageRoles: boolean; manageChannels: boolean; manageEmoji: boolean; kick: boolean; ban: boolean; invite: boolean; manageMessages: boolean }
+export interface ServerPerms { manageServer: boolean; manageRoles: boolean; manageChannels: boolean; manageEmoji: boolean; kick: boolean; ban: boolean; invite: boolean; manageMessages: boolean;
+  /** Voice moderation: server mute, server deafen, move someone to another voice channel. */
+  muteMembers?: boolean; deafenMembers?: boolean; moveMembers?: boolean }
 export interface CategoryInfo { id: string; title: string; channels: string[] }
 export interface Override { allow: number; deny: number }
 /** Everything on a channel's settings pages. */
@@ -209,6 +211,7 @@ export interface ProfileInfo {
   servers?: Record<string, { config?: ProfileConfig; bio?: string; bannerAt?: number }>;
 }
 
+export type SearchSort = "Latest" | "Oldest" | "Relevance";
 export type Presence = "online" | "idle" | "focus" | "busy" | "invisible";
 
 export interface MeUpdate {
@@ -427,6 +430,12 @@ export interface ChatBackend {
   bans(serverId: string): Promise<BanRow[]>;
   unban(serverId: string, userId: string): Promise<void>;
   kick(serverId: string, userId: string): Promise<void>;
+  /** Which server voice channel a channel id belongs to (for voice moderation from a call). */
+  serverOfChannel?(channelId: string): string | undefined;
+  /** Whether someone is server muted / server deafened (Stoat keeps this on the member). */
+  voiceModeration?(serverId: string, userId: string): Promise<{ muted: boolean; deafened: boolean }>;
+  /** Server mute or deafen someone, or move them to another voice channel (they must be in one). */
+  moderateVoice?(serverId: string, userId: string, p: { mute?: boolean; deaf?: boolean; channel?: string }): Promise<void>;
   ban(serverId: string, userId: string, reason?: string): Promise<void>;
   createChannel(serverId: string, p: { name: string; kind: "text" | "voice"; description?: string }): Promise<string>;
   editChannel(channelId: string, p: { name?: string; description?: string; icon?: File | null; slowmode?: number; mature?: boolean }): Promise<void>;
@@ -462,7 +471,9 @@ export interface ChatBackend {
   markRead(target: { channel?: string; server?: string }): void;
   createServer(name: string, description?: string): Promise<string>;
   /** Messages in a channel matching text; newest first */
-  search(channelId: string, query: string): Promise<Msg[]>;
+  /** Messages matching the words, newest first (or oldest first, or best match first, as Stoat's search sorts). */
+  /** Up to `SEARCH_BATCH` matches; `before`/`after` (message ids) fetch the next batch for newest/oldest first. */
+  search(channelId: string, query: string, sort?: SearchSort, cursor?: { before?: string; after?: string }): Promise<Msg[]>;
   pinned(channelId: string): Promise<Msg[]>;
   /** Friends and servers you share with someone */
   mutual(userId: string): Promise<{ friends: Person[]; servers: { id: string; name: string; iconUrl?: string }[] }>;
@@ -516,3 +527,6 @@ export interface ChatBackend {
   /** Close connections. Safe to call twice. */
   dispose(): void;
 }
+
+/** How many search results one request brings (Stoat's most). */
+export const SEARCH_BATCH = 100;

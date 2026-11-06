@@ -109,3 +109,8 @@ pub struct MediaFile {
   pub name: String,
   pub share: bool,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct InstallApk {
+  pub path: String,
+}
