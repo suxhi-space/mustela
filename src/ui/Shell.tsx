@@ -5,6 +5,8 @@ import type { CategoryInfo, ChannelInfo, Person, Space } from "../lib/backend/ty
 import { plain } from "../lib/markdown";
 import { notify } from "../lib/notify";
 import { NotifyPrompt } from "./NotifyPrompt";
+import { BannerHost, showBanner } from "./Banner";
+import { startClosedNotify } from "./closedNotify";
 import { InviteDialogHost } from "./InviteDialog";
 import { playSfx } from "../lib/sfx";
 import { inTauri } from "../lib/platform";
@@ -288,11 +290,17 @@ export function Shell() {
       : where?.c.kind === "group" ? `${e.m.author.name} (${where.c.name})`
       : `${e.m.author.name} (#${where?.c.name ?? "channel"}${where && !where.s.home ? `, ${where.s.name}` : ""})`;
     const body = plain(e.m.text, { user: (id) => backend()!.person(id).name, channel: (id) => backend()!.channelName(id) }) || "Sent an attachment";
-    void notify(title, device().notifyPreview ? body.slice(0, 180) : direct ? "Sent you a message" : "Mentioned you", { icon: e.m.author.avatarUrl, channel: e.m.channelId });
+    const text = device().notifyPreview ? body.slice(0, 180) : direct ? "Sent you a message" : "Mentioned you";
+    // Phones and tablets, in Mustela: a little card from the top. Otherwise (desktop, or the phone's home screen): the system's.
+    if (MOBILE_UI && !document.hidden && document.hasFocus()) {
+      const place = where?.c.kind === "dm" ? undefined : where?.c.kind === "group" ? where.c.name : `#${where?.c.name ?? "channel"}${where && !where.s.home ? ` · ${where.s.name}` : ""}`;
+      showBanner({ channel: e.m.channelId, name: e.m.author.name, where: place, text, icon: e.m.author.avatarUrl, color: e.m.author.colour });
+    } else void notify(title, text, { icon: e.m.author.avatarUrl, channel: e.m.channelId });
     if (device().sounds.message) playSfx("message");
   });
   onCleanup(off);
   startActivity();
+  startClosedNotify(() => channel()?.id);
   startDesktop();
   startUpdates();
   startPerf();
@@ -761,6 +769,7 @@ export function Shell() {
       <UpdateSplash />
       <NotifyPrompt />
       <InviteDialogHost />
+      <BannerHost />
       <Show when={pip() && call.active()}><PipView /></Show>
     </div>
     </>

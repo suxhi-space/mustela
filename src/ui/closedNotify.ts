@@ -1,0 +1,107 @@
+import { createEffect, on, onCleanup } from "solid-js";
+import { inTauri } from "../lib/platform";
+import { call } from "./call/state";
+import { openChannel } from "./nav";
+import { backend, device, platform } from "./store";
+
+/**
+ * Android: notifications while Mustela is closed, without looking online or draining the battery.
+ *
+ * While the app is open it handles notifications itself and tells the phone side so every ~20 s. After 30 s in the
+ * background (and not in a call) it closes its live connection, so Stoat shows you offline like when the app is
+ * closed, and pauses the page. From then on MessageWatch.kt checks Stoat over plain web requests now and then,
+ * using what's handed over here: your session, which channels notify and how, and their names.
+ */
+export function startClosedNotify(current: () => string | undefined) {
+  if (platform !== "android" || !inTauri()) return;
+  const b = backend();
+  if (!b?.watchInfo?.()) return; // the demo has nothing to check
+  const invoke = (cmd: string, payload: unknown) =>
+    import("@tauri-apps/api/core").then(({ invoke }) => invoke(`plugin:mustela-native|${cmd}`, { payload })).catch(() => {});
+
+  const wanted = () => device().notifications && device().closedNotify;
+
+  /** Everything the phone side needs, kept small: only channels that differ from the defaults get a level. */
+  async function profile(): Promise<string | null> {
+    const info = b!.watchInfo?.();
+    if (!info) return null;
+    const levels: Record<string, string> = {}, titles: Record<string, string> = {}, kinds: Record<string, string> = {};
+    const watch: string[] = [];
+    for (const s of await b!.spaces()) for (const c of s.channels) {
+      const direct = c.kind === "dm" || c.kind === "group";
+      if (s.home && !direct) continue; // Saved Notes: only you write there
+      const muted = c.muted || (!s.home && b!.isMuted("server", s.id));
+      const level = muted ? "none" : b!.notifyLevel("channel", c.id) ?? (!s.home ? b!.notifyLevel("server", s.id) : undefined) ?? (direct ? "all" : "mention");
+      if (level !== (direct ? "all" : "mention")) levels[c.id] = level;
+      kinds[c.id] = c.kind === "dm" ? "dm" : c.kind === "group" ? "group" : "server";
+      if (c.kind === "group") titles[c.id] = c.name;
+      else if (!direct) titles[c.id] = `#${c.name}, ${s.name}`;
+      if (!direct && level === "all") watch.push(c.id);
+    }
+    const blocked = (await b!.friends().catch(() => null))?.blocked.map((p) => p.id) ?? [];
+    const presence = b!.me.presence;
+    return JSON.stringify({
+      ...info, preview: device().notifyPreview, quiet: presence === "busy" ? "busy" : presence === "focus" ? "focus" : "",
+      levels, titles, kinds, watch: watch.slice(0, 15), blocked,
+    });
+  }
+
+  let syncTimer: ReturnType<typeof setTimeout> | undefined;
+  const sync = (delay = 3000) => {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(async () => {
+      if (!wanted()) return void invoke("watch", { on: false });
+      // (Permission to notify is asked by the "Don't miss a message" prompt; the phone side checks it before showing anything.)
+      const p = await profile().catch(() => null);
+      if (p) void invoke("watch", { on: true, profile: p });
+    }, delay);
+  };
+  createEffect(on(() => [device().notifications, device().closedNotify, device().notifyPreview], () => sync(500)));
+  // Mutes, levels, new DMs and groups: refreshed now and then while the app is open (it's only sent, not fetched).
+  const refresh = setInterval(() => sync(0), 5 * 60_000);
+  const off = b.onEvent((e) => { if (e.t === "reconnected" || e.t === "activity") sync(); });
+
+  /* ---------- open vs. in the background ---------- */
+  let paused = false;
+  let away: ReturnType<typeof setTimeout> | undefined;
+  const alive = () => { if (!paused) void invoke("watch_alive", { alive: true }); };
+  alive();
+  const beat = setInterval(alive, 20_000);
+  const letGo = () => {
+    // In a call the connection stays (the call needs it); try again later.
+    if (call.active()) { away = setTimeout(letGo, 60_000); return; }
+    paused = true;
+    b.pause?.();
+    void invoke("watch_alive", { alive: false });
+  };
+  const vis = () => {
+    clearTimeout(away);
+    if (document.hidden) { away = setTimeout(letGo, 30_000); return; }
+    if (paused) { paused = false; b.resume?.(); }
+    alive();
+    const ch = current();
+    if (ch) void invoke("watch_clear", { channel: ch });
+  };
+  document.addEventListener("visibilitychange", vis);
+  createEffect(on(current, (ch) => { if (ch && !document.hidden) void invoke("watch_clear", { channel: ch }); }));
+
+  /* ---------- tapping a notification opens its conversation ---------- */
+  const w = window as unknown as { __mustelaLink?: string; __mustelaChat?: string };
+  const take = (url: unknown) => {
+    const id = typeof url === "string" ? /^mustela:\/\/channel\/([0-9A-Za-z]{1,40})/.exec(url)?.[1] : undefined;
+    if (!id || url === w.__mustelaChat) return;
+    w.__mustelaChat = url as string; // the phone sends a link a few times in case the page wasn't ready
+    openChannel(id);
+  };
+  if (w.__mustelaLink) take(w.__mustelaLink);
+  const onLink = (e: Event) => take((e as CustomEvent<string>).detail);
+  addEventListener("mustela:open-link", onLink);
+
+  onCleanup(() => {
+    clearTimeout(syncTimer); clearTimeout(away); clearInterval(refresh); clearInterval(beat); off();
+    document.removeEventListener("visibilitychange", vis);
+    removeEventListener("mustela:open-link", onLink);
+    // Signed out or switched accounts: forget this session on the phone side (the next account starts its own).
+    void invoke("watch", { on: false });
+  });
+}

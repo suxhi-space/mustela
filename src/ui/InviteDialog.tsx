@@ -14,6 +14,7 @@ export function InviteDialogHost() {
   const w = window as unknown as { __mustelaLink?: string; __mustelaLinkDone?: string };
   const take = (url: unknown) => {
     if (typeof url !== "string" || url === w.__mustelaLinkDone) return;
+    if (url.startsWith("mustela://channel/")) return; // a tapped notification: closedNotify.ts opens the chat
     w.__mustelaLinkDone = url; // the app sends a link a few times in case the page wasn't ready; once is enough
     const c = inviteFromLink(url);
     if (c) setCode(c);

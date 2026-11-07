@@ -69,6 +69,8 @@ export interface DeviceSettings {
   notifications: boolean;
   /** Show the message text in notifications (off = "New message" only) */
   notifyPreview: boolean;
+  /** Android: check for messages while Mustela is closed (no live connection, so you stay offline) */
+  closedNotify: boolean;
   /** Sounds: new message, someone joins/leaves your call, mute/deafen clicks */
   sounds: { message: boolean; call: boolean; toggles: boolean; streams: boolean };
   /** Flash the taskbar / dock badge for unread mentions */
@@ -137,7 +139,7 @@ export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "fu
 
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
-  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, sounds: { message: true, call: true, toggles: true, streams: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, appSize: 0, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, lookKind: false, localLook: null, miniCall: true, rearrange: false, voice: { ...DEFAULT_VOICE_PREFS },
+  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, closedNotify: true, sounds: { message: true, call: true, toggles: true, streams: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, appSize: 0, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, lookKind: false, localLook: null, miniCall: true, rearrange: false, voice: { ...DEFAULT_VOICE_PREFS },
 };
 
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
@@ -159,6 +161,7 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     callOverlay: oneOf(r.callOverlay, ["bubble", "pip"], d.callOverlay),
     notifications: r.notifications !== false,
     notifyPreview: r.notifyPreview !== false,
+    closedNotify: r.closedNotify !== false,
     sounds: { message: (r.sounds as any)?.message !== false, call: (r.sounds as any)?.call !== false, toggles: (r.sounds as any)?.toggles !== false, streams: (r.sounds as any)?.streams !== false },
     badge: r.badge !== false,
     closeToTray: r.closeToTray !== false,

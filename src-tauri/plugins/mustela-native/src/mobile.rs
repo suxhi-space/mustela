@@ -43,4 +43,7 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn screen_start(&self, p: ScreenStart) -> Result<()> { self.0.run_mobile_plugin("screenStart", p).map_err(Into::into) }
   pub fn screen_ack(&self) -> Result<()> { self.0.run_mobile_plugin("screenAck", ()).map_err(Into::into) }
   pub fn screen_stop(&self) -> Result<()> { self.0.run_mobile_plugin("screenStop", ()).map_err(Into::into) }
+  pub fn watch(&self, p: Watch) -> Result<()> { self.0.run_mobile_plugin("watch", p).map_err(Into::into) }
+  pub fn watch_alive(&self, p: WatchAlive) -> Result<()> { self.0.run_mobile_plugin("watchAlive", p).map_err(Into::into) }
+  pub fn watch_clear(&self, p: WatchClear) -> Result<()> { self.0.run_mobile_plugin("watchClear", p).map_err(Into::into) }
 }

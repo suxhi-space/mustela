@@ -23,6 +23,9 @@ Accent color and native voice call commands
 - `allow-audio-outputs`
 - `allow-set-audio-output`
 - `allow-media-file`
+- `allow-watch`
+- `allow-watch-alive`
+- `allow-watch-clear`
 
 ## Permission Table
 
@@ -523,6 +526,84 @@ Enables the system_bars command without any pre-configured scope.
 <td>
 
 Denies the system_bars command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-watch`
+
+</td>
+<td>
+
+Enables the watch command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-watch`
+
+</td>
+<td>
+
+Denies the watch command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-watch-alive`
+
+</td>
+<td>
+
+Enables the watch_alive command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-watch-alive`
+
+</td>
+<td>
+
+Denies the watch_alive command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-watch-clear`
+
+</td>
+<td>
+
+Enables the watch_clear command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-watch-clear`
+
+</td>
+<td>
+
+Denies the watch_clear command without any pre-configured scope.
 
 </td>
 </tr>

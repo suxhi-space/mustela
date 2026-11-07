@@ -20,6 +20,10 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Lets an update install without the confirm screen on Android 12+ when Mustela itself installed this copy -->
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+    <!-- Notifications while Mustela is closed: a quiet service that checks for messages now and then (MessageWatch.kt),
+         and starts again after the phone restarts -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application>
         <!-- Merged into the app's own activity: calls can continue in a floating
@@ -66,5 +70,20 @@
             android:name="app.mustela.nativecall.ScreenService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+        <!-- Checks for messages while Mustela is closed; stays when the app is swiped away (that's when it's needed). -->
+        <service
+            android:name="app.mustela.nativecall.MessageWatchService"
+            android:exported="false"
+            android:foregroundServiceType="remoteMessaging"
+            android:stopWithTask="false" />
+        <!-- The 15-minute check while the screen is off, and starting again after a restart or an update. -->
+        <receiver
+            android:name="app.mustela.nativecall.MessageWatchReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

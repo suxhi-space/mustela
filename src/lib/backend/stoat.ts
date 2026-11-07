@@ -1212,6 +1212,25 @@ export class StoatBackend implements ChatBackend {
     catch (e) { throw new Error(`Couldn't connect to the voice server${e instanceof Error && e.message ? `: ${e.message}` : "."}`); }
   }
 
+  private paused = false;
+  pause() {
+    if (this.disposed || this.paused) return;
+    this.paused = true;
+    this.client.options.autoReconnect = false;
+    try { this.client.events.disconnect(); } catch { /* already closed */ }
+  }
+  resume() {
+    if (this.disposed || !this.paused) return;
+    this.paused = false;
+    this.client.options.autoReconnect = true;
+    try { this.client.connect(); } catch { /* the SDK retries */ }
+  }
+  watchInfo() {
+    const api = normalizeBase((this.client as any).options?.baseURL) ?? DEFAULT_API;
+    const autumn = (this.client.configuration as any)?.features?.autumn?.url ?? "";
+    return this.sess?.token ? { api, autumn, token: this.sess.token, me: this.sess.user_id } : null;
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;

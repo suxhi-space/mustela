@@ -66,3 +66,15 @@ pub(crate) async fn screen_stop<R: Runtime>(app: AppHandle<R>) -> Result<()> { a
 /// Phones: save a picture or video to Downloads (share false), or hand its link to the share sheet (share true).
 #[command]
 pub(crate) async fn media_file<R: Runtime>(app: AppHandle<R>, payload: MediaFile) -> Result<()> { app.mustela_native().media_file(payload) }
+
+/// Android: check for messages while Mustela is closed (see MessageWatch.kt).
+#[command]
+pub(crate) async fn watch<R: Runtime>(app: AppHandle<R>, payload: Watch) -> Result<()> { app.mustela_native().watch(payload) }
+
+/// Android: the page is connected and notifying itself (true), or let go in the background (false).
+#[command]
+pub(crate) async fn watch_alive<R: Runtime>(app: AppHandle<R>, payload: WatchAlive) -> Result<()> { app.mustela_native().watch_alive(payload) }
+
+/// Android: a conversation was opened, so its notification goes.
+#[command]
+pub(crate) async fn watch_clear<R: Runtime>(app: AppHandle<R>, payload: WatchClear) -> Result<()> { app.mustela_native().watch_clear(payload) }

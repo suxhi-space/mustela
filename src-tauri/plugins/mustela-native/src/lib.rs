@@ -37,7 +37,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     .invoke_handler(tauri::generate_handler![
       commands::accent, commands::start_call, commands::end_call, commands::set_mic, commands::call_state, commands::pip, commands::background,
       commands::call_audio, commands::landscape, commands::system_bars, commands::audio_outputs, commands::set_audio_output, commands::set_call_overlay, commands::overlay_allowed, commands::request_overlay,
-      commands::screen_start, commands::screen_ack, commands::screen_stop, commands::media_file
+      commands::screen_start, commands::screen_ack, commands::screen_stop, commands::media_file, commands::watch, commands::watch_alive, commands::watch_clear
     ])
     .setup(|app, api| {
       #[cfg(mobile)]

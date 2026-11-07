@@ -32,4 +32,7 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn screen_start(&self, _: ScreenStart) -> Result<()> { Err(Error::Unsupported) }
   pub fn screen_ack(&self) -> Result<()> { Ok(()) }
   pub fn screen_stop(&self) -> Result<()> { Ok(()) }
+  pub fn watch(&self, _: Watch) -> Result<()> { Ok(()) }
+  pub fn watch_alive(&self, _: WatchAlive) -> Result<()> { Ok(()) }
+  pub fn watch_clear(&self, _: WatchClear) -> Result<()> { Ok(()) }
 }

@@ -526,6 +526,11 @@ export interface ChatBackend {
   joinVoice(channelId: string, engine?: VoiceEngine, prefs?: VoicePrefs): Promise<VoiceHandle>;
   /** Close connections. Safe to call twice. */
   dispose(): void;
+  /** Phones in the background: closes the live connection (you show as offline) until resume(). */
+  pause?(): void;
+  resume?(): void;
+  /** What checking for messages while the app is closed needs (Android): the server, your session, the file server. */
+  watchInfo?(): { api: string; autumn: string; token: string; me: string } | null;
 }
 
 /** How many search results one request brings (Stoat's most). */

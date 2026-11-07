@@ -114,3 +114,23 @@ pub struct MediaFile {
 pub struct InstallApk {
   pub path: String,
 }
+
+/// Notifications while Mustela is closed (Android): on with the page's profile as JSON, or off.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Watch {
+  pub on: bool,
+  pub profile: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchAlive {
+  pub alive: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchClear {
+  pub channel: String,
+}

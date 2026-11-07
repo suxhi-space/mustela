@@ -70,6 +70,22 @@ class OverlayArgs {
 }
 
 @InvokeArg
+class WatchArgs {
+    var on: Boolean = false
+    var profile: String? = null
+}
+
+@InvokeArg
+class AliveArgs {
+    var alive: Boolean = false
+}
+
+@InvokeArg
+class ClearArgs {
+    var channel: String = ""
+}
+
+@InvokeArg
 class InstallArgs {
     var path: String = ""
 }
@@ -556,6 +572,40 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun onResume() {
         activity.runOnUiThread { Bubble.hide(activity); reportPip(); refreshChrome() }
+        // Back from the background: the page runs again (it was paused when it let go, see watchAlive).
+        if (pagePaused) { pagePaused = false; web?.post { runCatching { web?.onResume(); web?.resumeTimers() } } }
+    }
+
+    /* ---------- notifications while Mustela is closed (MessageWatch.kt) ---------- */
+
+    private var pagePaused = false
+
+    /** Turns checking on with the page's profile (session, channel settings, names), or off (forgets the session). */
+    @Command
+    fun watch(invoke: Invoke) {
+        val args = invoke.parseArgs(WatchArgs::class.java)
+        MessageWatch.configure(activity.applicationContext, args.on, args.profile)
+        invoke.resolve()
+    }
+
+    /**
+     * The page is connected and notifying (true, every ~20 s), or it disconnected after a while in the background
+     * (false): checking takes over, and the page is paused so it costs nothing until you come back.
+     */
+    @Command
+    fun watchAlive(invoke: Invoke) {
+        val args = invoke.parseArgs(AliveArgs::class.java)
+        MessageWatch.alive(activity.applicationContext, args.alive)
+        if (!args.alive && !inCall) { pagePaused = true; web?.post { runCatching { web?.onPause(); web?.pauseTimers() } } }
+        invoke.resolve()
+    }
+
+    /** You opened this conversation in the app: its notification goes. */
+    @Command
+    fun watchClear(invoke: Invoke) {
+        val args = invoke.parseArgs(ClearArgs::class.java)
+        if (args.channel.isNotEmpty()) MessageWatch.clear(activity.applicationContext, args.channel)
+        invoke.resolve()
     }
 
     /* ---------- screen share ---------- */
