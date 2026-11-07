@@ -28,7 +28,7 @@ futures-util = "0.3"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 # Discover shown inside Mustela's window needs Tauri's "unstable" child web views. Computers only: on Android and iOS
 # that feature makes the main page a child view too, which they don't support (the app opens to a white screen).
-tauri = { version = "2", features = ["unstable"] }
+tauri = { version = "2", features = ["macos-private-api", "unstable"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-window-state = "2"

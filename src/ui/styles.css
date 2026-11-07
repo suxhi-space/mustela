@@ -2566,14 +2566,15 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 .embed .em-video { width: auto; max-width: 100%; max-height: min(360px, 55vh); }
 .embed .em-img, .social-embed .em-img { width: auto; max-width: 100%; max-height: min(320px, 50vh); object-fit: contain; background: color-mix(in srgb, #000 25%, transparent); }
 .embeds > .embed-wrap, .embeds > .embed { max-width: min(440px, 100%); }
-/* Computers: the member list a little wider and more compact, like Discord's */
+/* Computers: the member list a little wider and more compact, like Discord's (not the profile beside a DM, which
+   shares its column styles) */
 @media (hover: hover) and (min-width: 901px) {
-  .members-col:not(.panel-col) { width: 264px; padding-inline: 2px; }
+  .members-col:not(.panel-col):not(.dmp-col) { width: 264px; padding-inline: 2px; }
   .member { gap: 9px; min-height: 42px; padding: 1px 8px; border-radius: 8px; }
   .member-name { font-size: 14.5px; }
   .members-col .member .member-sub, .members-col .member small { font-size: 12px; }
 }
-@media (hover: hover) and (min-width: 901px) and (max-width: 1100px) { .members-col:not(.panel-col) { width: 236px; } }
+@media (hover: hover) and (min-width: 901px) and (max-width: 1100px) { .members-col:not(.panel-col):not(.dmp-col) { width: 236px; } }
 .role-chip .rc-icon { width: 14px; height: 14px; object-fit: contain; flex: none; }
 
 /* ---------- Computers: Settings is a full page of the window, like Discord (not a card over a dimmed app) ---------- */
@@ -2647,3 +2648,13 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 /* A card that lets clicks outside it reach the app (your card from the nameplate, on computers) */
 .pop-scrim.pass-through { pointer-events: none; }
 .pop-scrim.pass-through > * { pointer-events: auto; }
+
+/* ---------- Computers: popups over the app (a full profile, dialogs) ---------- */
+/* The title bar dims with the app behind them, like it does for Settings, instead of staying bright on top */
+:root:not([data-ui="mobile"]):has(.scrim) .titlebar:not(.on-settings) { background: color-mix(in srgb, #03050c 55%, var(--world, #000)); }
+/* The app behind them is blurred as well as dimmed whenever panel blur is on, not only with a material picked */
+:root:not([data-material]):not([data-noblur]) .scrim:not(.full) { -webkit-backdrop-filter: blur(10px) saturate(1.05); backdrop-filter: blur(10px) saturate(1.05); }
+/* About square windows, where Settings is a full page of the window: Settings keeps its own title bar and isn't blurred */
+@media (min-width: 701px) and (max-aspect-ratio: 4/3) {
+  :root:not([data-ui="mobile"]):has(.settings) .scrim:not(.full) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
