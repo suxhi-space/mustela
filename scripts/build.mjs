@@ -339,6 +339,31 @@ function pipSmall(gen) {
   writeFileSync(manifest, t);
 }
 
+/**
+ * No Android backups of Mustela's data. Android backs app data up to Google and puts it back on a reinstall (or a new
+ * phone), so uninstalling and installing again still had you signed in. Your Stoat account and its synced settings
+ * come back when you sign in; nothing else needs to survive an uninstall.
+ */
+function noBackup(gen) {
+  const manifest = join(gen, "app", "src", "main", "AndroidManifest.xml");
+  if (!existsSync(manifest)) return;
+  // Android 12 and newer: nothing goes to the cloud or to a new phone.
+  const xml = join(gen, "app", "src", "main", "res", "xml");
+  mkdirSync(xml, { recursive: true });
+  writeFileSync(join(xml, "mustela_no_backup.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup><exclude domain="root" path="." /><exclude domain="file" path="." /><exclude domain="database" path="." /><exclude domain="sharedpref" path="." /><exclude domain="external" path="." /></cloud-backup>
+    <device-transfer><exclude domain="root" path="." /><exclude domain="file" path="." /><exclude domain="database" path="." /><exclude domain="sharedpref" path="." /><exclude domain="external" path="." /></device-transfer>
+</data-extraction-rules>
+`);
+  let t = readFileSync(manifest, "utf8");
+  t = t.replace(/<application\b([^>]*)>/, (_, attrs) => {
+    const rest = attrs.replace(/\s+android:(allowBackup|fullBackupContent|dataExtractionRules)="[^"]*"/g, "");
+    return `<application android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/mustela_no_backup"${rest}>`;
+  });
+  writeFileSync(manifest, t);
+}
+
 async function icons() {
   if (flag("skip-icons")) return;
   const src = ["app-icon.png", "app-icon.svg"].map((f) => join(ROOT, "icons", f)).find((p) => existsSync(p));
@@ -637,6 +662,7 @@ async function buildAndroid() {
   }
   await icons(); // after init, so the launcher icons land in the Android project too
   pipSmall(gen);
+  noBackup(gen);
   step(`Building Mustela for Android${DEBUG ? " (debug)" : ""}`);
   const a = ["tauri", "android", "build", "--apk", "--aab"];
   if (DEBUG) a.push("--debug");

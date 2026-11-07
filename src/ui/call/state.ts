@@ -30,14 +30,7 @@ export const call = {
   channel, busy, error: err, popped, on, reactions,
   active: () => handle() !== null,
   handle,
-  // Someone switching devices drops out for a moment and comes straight back: they're held in the list meanwhile
-  // (see attach), so their tile doesn't blink out and back.
-  people: createMemo<VoiceMember[]>(() => {
-    tick();
-    const now = handle()?.participants() ?? [];
-    const held = [...switching.values()].filter((m) => !now.some((p) => p.id === m.id));
-    return held.length ? [...now, ...held] : now;
-  }),
+  people: createMemo<VoiceMember[]>(() => (tick(), handle()?.participants() ?? [])),
   speaking: createMemo<string[]>(() => (tick(), handle()?.speaking() ?? [])),
   streams: createMemo(() => (tick(), handle()?.streams?.() ?? [])),
   /** Streams you were watching that ended, until you close them */
@@ -122,36 +115,15 @@ export function checkLastCall(find: (id: string) => ChannelInfo | undefined) {
 /** Channels we've just rejoined after a drop (once a minute at most, so a broken call doesn't loop). */
 const rejoined = new Set<string>();
 
-/** People who just dropped out of the call, held for 2 s in case they're only switching devices (see attach). */
-const switching = new Map<string, VoiceMember>();
-const switchTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
 function attach(h: VoiceHandle, c: ChannelInfo) {
-  for (const t of switchTimers.values()) clearTimeout(t);
-  switching.clear(); switchTimers.clear();
   // Who's here and who's streaming, to play a sound when that changes (by id, so a swap still counts).
   const snap = () => { const ps = h.participants(); return { ids: new Set(ps.map((p) => p.id)), live: new Set(ps.filter((p) => p.screen).map((p) => p.id)) }; };
   let was = snap();
-  let lastPeople = h.participants();
   h.onChange(() => {
     setTick((t) => t + 1); const s = h.state?.(); if (s) setOn(s);
     const now = snap();
-    // Someone switching their call to another device leaves and is back within moments: that's not a leave and a
-    // join, so it plays nothing and they stay in the list. A leave only counts once they've been gone 2 seconds.
-    const back = [...now.ids].filter((id) => switching.has(id));
-    for (const id of back) { clearTimeout(switchTimers.get(id)); switchTimers.delete(id); switching.delete(id); }
-    const joined = [...now.ids].some((id) => !was.ids.has(id) && !back.includes(id));
-    for (const id of [...was.ids].filter((x) => !now.ids.has(x))) {
-      const m = lastPeople.find((p) => p.id === id);
-      if (!m) continue;
-      switching.set(id, m);
-      switchTimers.set(id, setTimeout(() => {
-        switching.delete(id); switchTimers.delete(id);
-        if (handle() === h) { setTick((t) => t + 1); if (device().sounds.call) playSfx("leave"); }
-      }, 2000));
-    }
-    lastPeople = h.participants();
-    if (device().sounds.call && joined) playSfx("join");
+    const joined = [...now.ids].some((id) => !was.ids.has(id)), left = [...was.ids].some((id) => !now.ids.has(id));
+    if (device().sounds.call) { if (left) playSfx("leave"); else if (joined) playSfx("join"); }
     if (device().sounds.streams) {
       // Someone who just left took their stream with them; the leave sound covers that.
       if ([...now.live].some((id) => !was.live.has(id))) playSfx("streamStart");
@@ -163,10 +135,6 @@ function attach(h: VoiceHandle, c: ChannelInfo) {
     if (handle() !== h) return;
     // Joined from somewhere else with this account: let it go (no rejoining, which would kick the other device).
     // You answered on another device: this one says so with the leave sound (only you hear it; the call goes on).
-    // Some call engines (Linux's own) don't say why a call ended: if Stoat still has you in this call, it carries on
-    // on another of your devices, so it moved (rejoining here would pull it back from there).
-    // (Only when there's no reason at all: right after a real drop Stoat can still list you, and that must rejoin.)
-    if (reason === undefined && backend()?.voiceOf(backend()!.me.id)?.channelId === c.id) reason = "moved";
     if (reason === "moved") { setHandle(null); setTick((t) => t + 1); rememberCall(null); setCallBanner({ kind: "moved", channel: c }); playSfx("leave"); return; }
     dropped();
   });

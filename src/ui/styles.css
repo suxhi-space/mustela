@@ -54,7 +54,7 @@
   --drop: 0 1px 2px rgba(20, 30, 50, .08), 0 12px 32px -14px rgba(20, 30, 50, .28);
   --lip-dark: rgba(0, 0, 0, .18);
 
-  font: 500 var(--font)/1.45 "Nunito Variable", Nunito, ui-rounded, system-ui, "Segoe UI", Roboto, sans-serif;
+  font: 500 var(--font)/1.45 "Mustela Marks", "Nunito Variable", Nunito, ui-rounded, system-ui, "Segoe UI", Roboto, sans-serif;
   color: var(--fg); background: var(--world);
   color-scheme: light dark;
 }
@@ -181,11 +181,11 @@ small, .small { font-size: 12.5px; }
 .btn.link { background: none; box-shadow: none; color: var(--pri); min-height: 32px; }
 [data-style="flat"] .btn { box-shadow: inset 0 0 0 1px var(--edge); }
 [data-style="flat"] .btn:active:not(:disabled) { transform: none; }
-.icon-btn { width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 10px; color: var(--fg2); flex: none; transition: background .12s, color .12s; }
+.icon-btn { width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 10px; color: color-mix(in srgb, var(--fg2) 45%, var(--fg)); flex: none; transition: background .12s, color .12s; }
 .icon-btn:hover, .icon-btn.on { background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--fg); }
 .icon-btn.on { color: var(--pri); }
 .icon-btn.danger { color: var(--err); }
-.round-btn { width: 36px; height: 36px; display: inline-grid; place-items: center; border-radius: 50%; background: var(--s3); color: var(--fg2); flex: none;
+.round-btn { width: 36px; height: 36px; display: inline-grid; place-items: center; border-radius: 50%; background: var(--s3); color: color-mix(in srgb, var(--fg2) 45%, var(--fg)); flex: none;
   box-shadow: inset 0 0 0 1px var(--edge), 0 2px 0 var(--lip-dark); }
 .round-btn:hover { color: var(--fg); } .round-btn.ok:hover { color: var(--online); } .round-btn.danger:hover { color: var(--busy); }
 .tag { font-size: 10px; font-weight: 900; padding: 1px 5px; border-radius: 5px; background: var(--pri); color: var(--on-pri); vertical-align: middle; letter-spacing: .04em; text-transform: uppercase; }
@@ -241,7 +241,7 @@ small, .small { font-size: 12.5px; }
 .chan.unread:not(.on)::before { content: ""; position: absolute; left: -8px; top: 50%; width: 4px; height: 8px; margin-top: -4px; border-radius: 0 4px 4px 0; background: var(--fg); }
 .chan.muted { opacity: .5; }
 .chan-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chan-ic { opacity: .7; }
+.chan-ic { opacity: .85; }
 .chan-icon { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
 .live-ic { color: var(--online); }
 
@@ -797,7 +797,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .voice-members li.talking .av-img { box-shadow: 0 0 0 2px var(--online); }
 .vm-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .vm-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vm-icons { display: inline-flex; align-items: center; gap: 4px; color: var(--fg2); }
+.vm-icons { display: inline-flex; align-items: center; gap: 4px; color: color-mix(in srgb, var(--fg2) 45%, var(--fg)); }
 .live-pill { font-size: 9.5px; font-weight: 900; letter-spacing: .06em; padding: 1px 5px; border-radius: 5px; background: var(--busy); color: #fff; }
 
 /* ============================================================ soundboard */
@@ -1376,7 +1376,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .up-name { font-weight: 850; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .up-text small { color: var(--fg2); font-weight: 650; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .up-ctl { display: flex; align-items: center; }
-.up-btn { width: 32px; height: 32px; border-radius: 8px; border: 0; background: none; color: var(--fg2); display: grid; place-items: center; }
+.up-btn { width: 32px; height: 32px; border-radius: 8px; border: 0; background: none; color: color-mix(in srgb, var(--fg2) 45%, var(--fg)); display: grid; place-items: center; }
 .up-btn:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
 .up-btn.off { color: var(--busy); background: color-mix(in srgb, var(--busy) 16%, transparent); }
 .up-chev { width: 14px; height: 32px; margin: 0 2px 0 -2px; border-radius: 6px; border: 0; background: none; color: var(--fg2); display: grid; place-items: center; padding: 0; }
@@ -1512,7 +1512,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .msg.head:not(.tight) { margin-top: calc(var(--msg-gap, 8px) + 6px); }
 :root[data-font="system"] body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
 :root[data-font="serif"] .msg .md { font-family: Georgia, "Iowan Old Style", "Noto Serif", serif; }
-:root[data-font="rounded"] body { font-family: ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; }
+:root[data-font="rounded"] body { font-family: "Mustela Marks", ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; }
 .emoji-packs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 12px; }
 .emoji-pack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 14px; border: 0; background: var(--well); color: var(--fg); font-weight: 800; text-align: left; }
 .emoji-pack:hover { background: color-mix(in srgb, var(--fg) 8%, var(--well)); }
@@ -1603,7 +1603,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 }
 .chan-wrap { position: relative; }
 .chan-acts { position: absolute; right: 6px; top: 0; bottom: 0; display: none; align-items: center; gap: 1px; }
-.chan-acts .icon-btn { width: 26px; height: 26px; color: var(--fg2); }
+.chan-acts .icon-btn { width: 26px; height: 26px; color: color-mix(in srgb, var(--fg2) 45%, var(--fg)); }
 .chan-acts .icon-btn:hover { color: var(--fg); }
 @media (hover: hover) { .chan-wrap:hover .chan-acts, .chan-wrap:focus-within .chan-acts { display: flex; } .chan-wrap:hover .chan .badge { visibility: hidden; } }
 .chan-wrap > .chan { width: 100%; }
@@ -2580,3 +2580,18 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 :is(.ctx, .menu, .emoji-pop, .gif-pop, .ss-pop, .fmt-bar, .soundboard, .suggest, .modal, .inbox, .members-sheet, .m-tip, .sched-tip, .gv-menu) {
   background-color: var(--md-surface-container-high, var(--s2)) !important; }
 :root[data-mode="dark"] :is(.emoji-pop, .gif-pop) { background-color: var(--md-surface-container-high, var(--s2)) !important; }
+
+/* Nunito's ^ is tiny and sits high (^^ looked off): this one character comes from the system's own sans instead. */
+@font-face { font-family: "Mustela Marks"; unicode-range: U+005E; font-weight: 100 1000;
+  src: local("Segoe UI"), local("SegoeUI"), local("Roboto"), local("Helvetica Neue"), local("HelveticaNeue"), local("Noto Sans"), local("NotoSans-Regular"), local("DejaVu Sans"), local("Arial"); }
+
+/* Message being edited: drawn in full (message text normally skips drawing what sticks out of it, which cut the
+   formatting bar off above the edit box) and above the messages around it. */
+.msg-body:has(.edit-box) { content-visibility: visible; }
+.msg:has(.edit-box) { z-index: 6; }
+
+/* Channel list a little tighter (desktop). */
+@media (min-width: 701px) {
+  .chan { min-height: calc(var(--row) - 4px); }
+  .chan.big, .chan.dm { min-height: var(--row); }
+}

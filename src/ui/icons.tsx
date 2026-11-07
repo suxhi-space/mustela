@@ -105,7 +105,7 @@ const P: Record<string, string> = {
 export function Icon(props: { name: keyof typeof P | string; size?: number; class?: string; style?: JSX.CSSProperties }) {
   return (
     <svg class={`ic ${props.class ?? ""}`} width={props.size ?? 20} height={props.size ?? 20} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={props.style}>
+      stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={props.style}>
       <path d={P[props.name] ?? ""} />
     </svg>
   );
