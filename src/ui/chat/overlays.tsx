@@ -1,3 +1,4 @@
+import { MOBILE_UI } from "../target";
 import { useAutoplay } from "../autoplay";
 import { phoneLayout } from "../hooks";
 import { useBack } from "../back";
@@ -238,13 +239,15 @@ function GifTile(props: { g: FavGif; onPick(): void; saved?: boolean }) {
   // Favorites come from the copy kept on this device (lib/gifStore.ts); if that's missing, from the web as usual.
   const [local, setLocal] = createSignal(!!props.saved);
   const src = (u: string) => (local() ? savedGif(u) : u);
-  const isImage = () => /\.(gif|png|jpe?g|webp)(\?|$)/i.test(props.g.preview);
+  // Phones and tablets show the small animated GIF instead of a video per tile: a phone can only decode a few videos
+  // at once, so a screen of video tiles queued up and took ages to appear. (Computers keep the lighter video.)
+  const isImage = () => /\.(gif|png|jpe?g|webp)(\?|$)/i.test(props.g.preview) || (MOBILE_UI && !!props.g.still);
   const ratio = () => (props.g.w && props.g.h ? `${props.g.w} / ${props.g.h}` : undefined);
   const play = useAutoplay();
   return (
     <div class="gif-tile" style={{ "aspect-ratio": ratio() }}>
       <button class="gif-play" onClick={props.onPick} aria-label="Send GIF">
-        <Show when={!isImage() && !failed()} fallback={<img src={src(failed() ? props.g.still ?? props.g.preview : props.g.preview)} alt="" loading="lazy" onError={() => local() && setLocal(false)} />}>
+        <Show when={!isImage() && !failed()} fallback={<img src={src(failed() || (MOBILE_UI && props.g.still) ? props.g.still ?? props.g.preview : props.g.preview)} alt="" loading="lazy" decoding="async" onError={() => local() && setLocal(false)} />}>
           <video ref={play} src={src(props.g.preview)} muted playsinline preload="metadata" onError={() => { if (local()) setLocal(false); else if (props.g.still) setFailed(true); }} />
         </Show>
       </button>
@@ -324,30 +327,20 @@ export function GifPicker() {
 export { Lightbox, openGallery, openLightbox } from "./Gallery";
 
 /**
- * A section of the emoji picker. Only the first ones are built when the picker opens (building all ~1,900 buttons at
- * once made it slow to open); the rest are built one at a time while nothing else is happening, or straight away
- * if you scroll to them first. 8 across, so each one's height is known beforehand and jumping to a section lands in
- * the right place.
+ * A section of the emoji picker, built only when you scroll near it (or jump past it): building all ~1,900 buttons
+ * made the picker slow to open and kept the phone busy afterwards. 8 across, so each one's height is known
+ * beforehand and jumping to a section lands in the right place.
  */
-const idleQueue: (() => void)[] = [];
-let idleRunning = false;
-function whenIdle(f: () => void) {
-  idleQueue.push(f);
-  if (idleRunning) return;
-  idleRunning = true;
-  const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: object) => void }).requestIdleCallback ?? ((g: () => void) => setTimeout(g, 16));
-  const next = () => { const g = idleQueue.shift(); if (!g) { idleRunning = false; return; } g(); ric(next, { timeout: 300 }); };
-  ric(next, { timeout: 300 });
-}
 function LazyGrid(props: { count: number; root: HTMLElement | undefined; now?: boolean; children: JSX.Element }) {
   const [seen, setShow] = createSignal(false);
   const show = () => seen() || !!props.now;
   let el!: HTMLDivElement;
   onMount(() => {
     let done = false;
-    const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { done = true; setShow(true); io.disconnect(); } }, { root: props.root ?? null, rootMargin: "300px 0px" });
+    // Drawn when it comes near (a screen or so ahead), not all in the background after opening: filling in every
+    // section kept the phone busy for a second or more after the card opened, which felt like lag.
+    const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { done = true; setShow(true); io.disconnect(); } }, { root: props.root ?? null, rootMargin: "700px 0px" });
     io.observe(el);
-    whenIdle(() => { if (!done) { done = true; setShow(true); io.disconnect(); } });
     onCleanup(() => { done = true; io.disconnect(); });
   });
   return (

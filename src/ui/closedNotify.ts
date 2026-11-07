@@ -59,7 +59,8 @@ export function startClosedNotify(current: () => string | undefined) {
   createEffect(on(() => [device().notifications, device().closedNotify, device().notifyPreview], () => sync(500)));
   // Mutes, levels, new DMs and groups: refreshed now and then while the app is open (it's only sent, not fetched).
   const refresh = setInterval(() => sync(0), 5 * 60_000);
-  const off = b.onEvent((e) => { if (e.t === "reconnected" || e.t === "activity") sync(); });
+  // (Not on every "activity": those come in storms on busy servers.)
+  const off = b.onEvent((e) => { if (e.t === "reconnected") sync(); });
 
   /* ---------- open vs. in the background ---------- */
   let paused = false;
@@ -68,12 +69,16 @@ export function startClosedNotify(current: () => string | undefined) {
   alive();
   const beat = setInterval(alive, 20_000);
   const letGo = () => {
-    // In a call the connection stays (the call needs it); try again later.
-    if (call.active()) { away = setTimeout(letGo, 60_000); return; }
+    // Only when really away: still hidden now, and not in (or joining) a call, which needs the connection.
+    if (!document.hidden) return;
+    if (call.active() || call.busy()) { away = setTimeout(letGo, 60_000); return; }
     paused = true;
     b.pause?.();
     void invoke("watch_alive", { alive: false });
   };
+  // Safety net: any touch or key while let go means you're here, so connect again straight away.
+  const back = () => { if (paused) { clearTimeout(away); paused = false; b.resume?.(); alive(); } };
+  for (const ev of ["pointerdown", "keydown", "focus"]) addEventListener(ev, back, true);
   const vis = () => {
     clearTimeout(away);
     if (document.hidden) { away = setTimeout(letGo, 30_000); return; }
@@ -100,6 +105,7 @@ export function startClosedNotify(current: () => string | undefined) {
   onCleanup(() => {
     clearTimeout(syncTimer); clearTimeout(away); clearInterval(refresh); clearInterval(beat); off();
     document.removeEventListener("visibilitychange", vis);
+    for (const ev of ["pointerdown", "keydown", "focus"]) removeEventListener(ev, back, true);
     removeEventListener("mustela:open-link", onLink);
     // Signed out or switched accounts: forget this session on the phone side (the next account starts its own).
     void invoke("watch", { on: false });

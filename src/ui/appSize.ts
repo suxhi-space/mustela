@@ -1,23 +1,18 @@
-import { createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot } from "solid-js";
 import { device } from "./store";
 
 /**
  * App size (phones and tablets): the whole interface scaled together, text, buttons, icons and spacing, like a
- * browser's zoom. It follows the phone's own font size unless you pick a size in Accessibility.
+ * browser's zoom. 100% unless you pick a size in Accessibility.
  */
 
-/** The phone's font size setting (Android tells the page, NativePlugin.kt: --font-scale); 1 elsewhere. */
-const readScale = () => {
-  const v = parseFloat(document.documentElement.style.getPropertyValue("--font-scale"));
-  return Number.isFinite(v) && v > 0 ? Math.min(2, Math.max(0.8, v)) : 1;
-};
-const [scale, setScale] = createSignal(typeof document === "undefined" ? 1 : readScale());
-export const phoneFontScale = scale;
-
-/** The size in use now, as a factor (1 = 100%). */
+/**
+ * The size in use now, as a factor (1 = 100%): 100% unless you pick another. (There used to be "Match my phone",
+ * following the phone's font size; it made the app come back from the background bigger than it started.)
+ */
 export const appZoom = () => {
   const n = device().a11y.appSize;
-  return n ? n / 100 : scale();
+  return n ? n / 100 : 1;
 };
 /** For code that turns pointer movement into positions: CSS pixels per screen pixel on a zoomed page. */
 export const zoomNow = () => parseFloat(document.documentElement.style.zoom) || 1;
@@ -40,7 +35,6 @@ export function startAppSize() {
   if (started) return;
   started = true;
   (window as unknown as { __mustelaRefit?: () => void }).__mustelaRefit = applyAppZoom;
-  new MutationObserver(() => setScale(readScale())).observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
   createRoot(() => createEffect(applyAppZoom));
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") applyAppZoom(); });
   addEventListener("mustela:pip", () => applyAppZoom());

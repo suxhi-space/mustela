@@ -1,14 +1,49 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { MOBILE_UI } from "../target";
 
 /**
  * Phones: the emoji and GIF pickers are a card from the bottom, like Discord's: a handle you drag up for more room
  * (or down to close), Emoji and GIFs tabs when both make sense, and the chat with its message box moves up above the
  * card instead of being covered by it.
  */
+/**
+ * Tall or half height, shared by the Emoji and GIFs cards: switching tabs swaps one card for the other, and the new
+ * one keeps the height you dragged it to. A real close (no other card taking over straight away) starts fresh.
+ */
+const [tall, setTall] = createSignal(false);
+let handoff: ReturnType<typeof setTimeout> | undefined;
+let gen = 0;
+
+/*
+ * The card is as tall as your keyboard, like Discord's: swapping between the keyboard and the card then leaves the
+ * message box where it is instead of the whole chat jumping. Where the message box sits with the keyboard up is
+ * measured whenever the keyboard settles (Android tells the page its height as --keyboard) and remembered.
+ */
+const KB_KEY = "mustela:xs-kb";
+const kbNow = () => (typeof document === "undefined" ? 0 : parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--keyboard")) || 0);
+let kbSpace = (() => { try { return Number(localStorage.getItem(KB_KEY)) || 0; } catch { return 0; } })();
+function measureKeyboard() {
+  const root = document.documentElement;
+  if (kbNow() < 120 || root.classList.contains("xs-open")) return;
+  const box = document.querySelector(".composer");
+  if (!box) return;
+  // The card's top sits 8px under the message box (see .xs-open in styles.css), so this keeps the box in place.
+  const space = Math.round(innerHeight - box.getBoundingClientRect().bottom) - 8;
+  if (space > 150 && space < innerHeight * 0.7 && Math.abs(space - kbSpace) > 2) {
+    kbSpace = space;
+    try { localStorage.setItem(KB_KEY, String(space)); } catch { /* remembered for this run only */ }
+  }
+}
+if (MOBILE_UI && typeof MutationObserver !== "undefined" && typeof document !== "undefined") {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  new MutationObserver(() => { clearTimeout(t); t = setTimeout(measureKeyboard, 350); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+}
+
 export function useExprSheet(close: () => void) {
-  const half = () => Math.round(Math.min(innerHeight * 0.48, 460));
+  const half = () => (kbSpace > 0 ? Math.round(Math.min(Math.max(kbSpace, 220), innerHeight * 0.62)) : Math.round(Math.min(innerHeight * 0.48, 460)));
   const full = () => Math.round(innerHeight - 64 - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sa-top")) || 0));
-  const [big, setBig] = createSignal(false);
+  const big = tall, setBig = setTall;
   const [drag, setDrag] = createSignal(0);
   const height = () => Math.max(160, (big() ? full() : half()) - drag());
   const root = document.documentElement;
@@ -20,8 +55,27 @@ export function useExprSheet(close: () => void) {
     if (!t || t.closest(".emoji-pop, .gif-pop, .composer button[aria-label='Keyboard'], .menu, .ctx, .toast")) return;
     close();
   };
-  onMount(() => { root.classList.add("xs-open"); sync(); document.addEventListener("pointerdown", outside, true); });
-  onCleanup(() => { root.classList.remove("xs-open"); root.style.removeProperty("--xs-h"); document.removeEventListener("pointerdown", outside, true); });
+  onMount(() => {
+    // Another tab's card just closed: take over its size (and the chat above doesn't jump). Otherwise a fresh card.
+    gen++;
+    if (handoff !== undefined) { clearTimeout(handoff); handoff = undefined; } else setTall(false);
+    root.classList.add("xs-open"); sync(); document.addEventListener("pointerdown", outside, true);
+  });
+  onCleanup(() => {
+    document.removeEventListener("pointerdown", outside, true);
+    handoff = setTimeout(() => {
+      handoff = undefined;
+      const mine = gen;
+      const end = () => { if (gen !== mine) return; setTall(false); root.classList.remove("xs-open"); root.style.removeProperty("--xs-h"); };
+      // Back to the keyboard: keep the room until the keyboard is up, so the message box doesn't drop and jump back.
+      const typing = !!(document.activeElement as Element | null)?.closest?.(".composer");
+      if (!MOBILE_UI || !typing || kbNow() > 120) return end();
+      if (tall()) root.style.setProperty("--xs-h", `${half()}px`);
+      const started = performance.now();
+      const wait = () => { if (gen !== mine) return; if (kbNow() > 120 || performance.now() - started > 900) end(); else requestAnimationFrame(wait); };
+      requestAnimationFrame(wait);
+    }, 0);
+  });
   let from: number | null = null, at = 0;
   const grip = {
     onPointerDown: (e: PointerEvent) => {

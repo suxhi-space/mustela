@@ -6,6 +6,12 @@ import { UEmoji } from "./UEmoji";
 // one of these (most names) is shown as it is, with no extra work.
 const MAYBE = /[©®‼-㊙\uD83C-\uDBFF-⃣]/;
 
+/** Nunito's ^ is big and sits low (^^ looked like two capital Λs): runs of it are drawn smaller and raised, like Discord's. */
+const CARETS = /(\^+)/;
+function Carets(props: { t: string }) {
+  return <>{props.t.includes("^") ? props.t.split(CARETS).map((s, i) => (i % 2 ? <span class="crt">{s}</span> : s)) : props.t}</>;
+}
+
 /**
  * Plain text (a name, a status, a channel name) with its emoji drawn in your chosen style, like in messages.
  */
@@ -24,8 +30,8 @@ export function TextWithEmoji(props: { v: string }) {
     return out.some((p) => p.e) ? out : null;
   });
   return (
-    <Show when={parts()} fallback={props.v}>{(ps) => (
-      <For each={ps()}>{(p) => (p.e ? <span class="uemoji" data-emoji={p.t.replace(/^[-]/, "")}><UEmoji e={p.t} /></span> : p.t.replace(/[-]/g, ""))}</For>
+    <Show when={parts()} fallback={<Carets t={props.v ?? ""} />}>{(ps) => (
+      <For each={ps()}>{(p) => (p.e ? <span class="uemoji" data-emoji={p.t.replace(/^[-]/, "")}><UEmoji e={p.t} /></span> : <Carets t={p.t.replace(/[-]/g, "")} />)}</For>
     )}</Show>
   );
 }

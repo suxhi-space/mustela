@@ -16,6 +16,9 @@ import { FormatBar, formatKey } from "./FormatBar";
 import { UEmoji } from "./UEmoji";
 import { closeExpr, exprOpen, openEmojiPicker, openGifPicker } from "./overlays";
 import { createPhone } from "../hooks";
+import { Portal } from "solid-js/web";
+import { dragToClose } from "../sheetDrag";
+import { useBack } from "../back";
 import { formatTime } from "../../lib/markdown";
 
 const MAX_FILES = 5;
@@ -95,13 +98,10 @@ export function Composer(props: {
   let fileInput!: HTMLInputElement;
   let photoInput!: HTMLInputElement, videoInput!: HTMLInputElement, mediaInput!: HTMLInputElement;
   /** Phones and tablets: what to add, as a card from the bottom (like Discord's): the camera, the photo picker, or any file. */
-  const attachSheet = (at: Element) => openMenu(at, [
-    { label: "Take a photo", icon: "image", onSelect: () => photoInput.click() },
-    { label: "Record a video", icon: "video", onSelect: () => videoInput.click() },
-    { label: "Photos & videos", icon: "image", onSelect: () => mediaInput.click() },
-    { label: "Files", icon: "file", onSelect: () => fileInput.click() },
-    { label: "Insert timestamp", icon: "calendar", onSelect: () => setStampOpen(true) },
-  ], { sheet: true });
+  const [attachOpen, setAttachOpen] = createSignal(false);
+  const attachSheet = (_at: Element) => setAttachOpen(true);
+  /** One of the card's choices: the card closes first, then the camera, picker or files open. */
+  const attachPick = (f: () => void) => () => { setAttachOpen(false); f(); };
   let ed: EditorApi | undefined;
   let typingOn = false, typingSent = 0, typingTimer: ReturnType<typeof setTimeout> | undefined;
   const cid = createMemo(() => props.channel.id);
@@ -445,6 +445,16 @@ export function Composer(props: {
           <input ref={photoInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
           <input ref={videoInput} type="file" accept="video/*" capture="environment" hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
           <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
+          <Show when={attachOpen()}>
+            <AttachCard onClose={() => setAttachOpen(false)} big={[
+              { label: "Camera", icon: "camera", run: attachPick(() => photoInput.click()) },
+              { label: "Video", icon: "video", run: attachPick(() => videoInput.click()) },
+              { label: "Photos", icon: "image", run: attachPick(() => mediaInput.click()) },
+            ]} small={[
+              { label: "Files", icon: "file", run: attachPick(() => fileInput.click()) },
+              { label: "Timestamp", icon: "calendar", run: attachPick(() => setStampOpen(true)) },
+            ]} />
+          </Show>
         </Show>
         <div class="editor" ref={host} classList={{ over: text().length > MAX_CHARS }} inert={!rules().canSend} />
         <Show when={text().length > MAX_CHARS - 200}><span class="char-count" classList={{ over: text().length > MAX_CHARS }}>{MAX_CHARS - text().length}</span></Show>
@@ -478,5 +488,28 @@ export function Composer(props: {
         </Show>
       </form>
     </div>
+  );
+}
+
+/**
+ * Phones and tablets: the + button's card, like Discord's. Big tiles for the camera, a video and your photos (Android's
+ * own photo picker), and buttons for any file or a timestamp. Swipe it down or tap outside to close.
+ */
+function AttachCard(props: { onClose(): void; big: { label: string; icon: string; run(): void }[]; small: { label: string; icon: string; run(): void }[] }) {
+  useBack(props.onClose);
+  return (
+    <Portal>
+      <div class="pop-scrim att-scrim" onClick={props.onClose}>
+        <div class="att-card panel" role="dialog" aria-label="Add to your message" ref={(el) => onMount(() => dragToClose(el, props.onClose))} onClick={(e) => e.stopPropagation()}>
+          <span class="att-handle" aria-hidden="true" />
+          <div class="att-big">
+            <For each={props.big}>{(x) => <button type="button" onClick={x.run}><Icon name={x.icon} size={30} /><span>{x.label}</span></button>}</For>
+          </div>
+          <div class="att-small">
+            <For each={props.small}>{(x) => <button type="button" onClick={x.run}><Icon name={x.icon} size={22} /><span>{x.label}</span></button>}</For>
+          </div>
+        </div>
+      </div>
+    </Portal>
   );
 }

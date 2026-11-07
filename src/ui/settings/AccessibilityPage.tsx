@@ -2,7 +2,6 @@ import type { A11yPrefs } from "../../lib/device";
 import { Show } from "solid-js";
 import { Group, Row, Seg, Select, Slider, Switch } from "../controls";
 import { MOBILE_UI } from "../target";
-import { phoneFontScale } from "../appSize";
 import { device, look, updateDevice, updateLook } from "../store";
 
 /**
@@ -17,10 +16,10 @@ export function AccessibilityPage() {
     <div class="page">
       {/* Phones and tablets: everything bigger or smaller at once, like the app's own zoom */}
       <Show when={MOBILE_UI}>
-        <Group title="App size" hint="Text, buttons, icons and spacing, all together. Following your phone uses its font size setting.">
+        <Group title="App size" hint="Text, buttons, icons and spacing, all together.">
           <Row icon="eye" label="App size">
             <Select label="App size" value={String(a().appSize)} onChange={(v) => set({ appSize: +v })}
-              options={[{ v: "0", label: `Match my phone (${Math.round(phoneFontScale() * 100)}%)` }, ...[80, 90, 100, 115, 130, 150, 175].map((n) => ({ v: String(n), label: `${n}%` }))]} />
+              options={[{ v: "0", label: "Default (100%)" }, ...[80, 90, 115, 130, 150, 175].map((n) => ({ v: String(n), label: `${n}%` }))]} />
           </Row>
         </Group>
       </Show>

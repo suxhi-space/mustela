@@ -54,7 +54,7 @@
   --drop: 0 1px 2px rgba(20, 30, 50, .08), 0 12px 32px -14px rgba(20, 30, 50, .28);
   --lip-dark: rgba(0, 0, 0, .18);
 
-  font: 500 var(--font)/1.45 "Mustela Marks", "Nunito Variable", Nunito, ui-rounded, system-ui, "Segoe UI", Roboto, sans-serif;
+  font: 500 var(--font)/1.45 "Nunito Variable", Nunito, ui-rounded, system-ui, "Segoe UI", Roboto, sans-serif;
   color: var(--fg); background: var(--world);
   color-scheme: light dark;
 }
@@ -1512,7 +1512,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .msg.head:not(.tight) { margin-top: calc(var(--msg-gap, 8px) + 6px); }
 :root[data-font="system"] body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
 :root[data-font="serif"] .msg .md { font-family: Georgia, "Iowan Old Style", "Noto Serif", serif; }
-:root[data-font="rounded"] body { font-family: "Mustela Marks", ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; }
+:root[data-font="rounded"] body { font-family: ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; }
 .emoji-packs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 12px; }
 .emoji-pack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 14px; border: 0; background: var(--well); color: var(--fg); font-weight: 800; text-align: left; }
 .emoji-pack:hover { background: color-mix(in srgb, var(--fg) 8%, var(--well)); }
@@ -1676,26 +1676,45 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .userpanel { bottom: calc(var(--gapx) + var(--sa-bottom)); }
 .callpanel { bottom: calc(var(--gapx) + var(--sa-bottom) + 58px + 6px); }
 @media (max-width: 700px) {
-  .userpanel { left: 10px; width: calc(100% - 20px); bottom: calc(10px + var(--sa-bottom)); height: 62px; padding: 0 10px 0 10px; border-radius: 18px; }
-  .up-ctl > :not(.up-bell) { display: none; }
-  .up-bell { display: grid; width: 42px; height: 42px; border-radius: 50%; }
+  /* Phones: a taller nameplate with a bigger picture, name and status, and the bell then Settings on the right */
+  .userpanel { left: 10px; width: calc(100% - 20px); bottom: calc(10px + var(--sa-bottom)); height: 68px; padding: 0 8px 0 10px; border-radius: 19px; }
+  .up-me { gap: 10px; }
+  .up-name { font-size: 16px; }
+  .up-text { line-height: 1.25; }
+  .up-text small { font-size: 13.5px; }
+  .up-ctl { gap: 10px; }
+  .up-ctl > :not(.up-bell):not(.up-gear) { display: none; }
+  .up-ctl .up-gear { order: 2; }
+  .up-bell, .up-ctl .up-gear { display: grid; width: 44px; height: 44px; border-radius: 50%; color: var(--fg); }
+  .up-ctl .up-btn .ic { stroke-width: 2.3; }
   .me-settings { display: flex; }
-  .callpanel { left: 10px; width: calc(100% - 20px); bottom: calc(10px + var(--sa-bottom) + 62px + 6px); }
-  .app .rail { padding-bottom: calc(80px + var(--sa-bottom)); }
-  .app .side { padding-bottom: calc(76px + var(--sa-bottom)); }
-  .app.in-call .rail { padding-bottom: calc(136px + var(--sa-bottom)); }
-  .app.in-call .side { padding-bottom: calc(132px + var(--sa-bottom)); }
+  .callpanel { left: 10px; width: calc(100% - 20px); bottom: calc(10px + var(--sa-bottom) + 68px + 6px); }
+  .app .rail { padding-bottom: calc(86px + var(--sa-bottom)); }
+  .app .side { padding-bottom: calc(82px + var(--sa-bottom)); }
+  .app.in-call .rail { padding-bottom: calc(146px + var(--sa-bottom)); }
+  .app.in-call .side { padding-bottom: calc(142px + var(--sa-bottom)); }
   .app { padding-left: var(--sa-left); padding-right: var(--sa-right); }
   .composer-wrap { padding-bottom: calc(10px + var(--sa-bottom)); }
-  .mecard { left: 10px; right: 10px; width: auto; bottom: calc(10px + var(--sa-bottom) + 68px); }
+  .mecard { left: 10px; right: 10px; width: auto; bottom: calc(10px + var(--sa-bottom) + 74px); }
 }
 /* Tablets: the desktop layout with touch sizes, and the bell on the card (there's no title bar). */
 @media (pointer: coarse) and (min-width: 701px) {
-  .up-bell { display: grid; }
+  /* Sideways tablets: the inbox is the bell in the top corner, so the nameplate doesn't repeat it */
+  .up-bell { display: none; }
   .up-chev { display: none; }
-  .up-btn { width: 38px; height: 38px; }
-  .userpanel { height: 62px; }
-  .callpanel { bottom: calc(var(--gapx) + var(--sa-bottom) + 62px + 6px); }
+  /* Between the computer and the phone: a little taller, bigger buttons with room between them, bell then Settings */
+  .up-btn { width: 40px; height: 40px; border-radius: 12px; }
+  .up-btn .ic { width: 21px; height: 21px; stroke-width: 2.3; }
+  .up-ctl { gap: 4px; }
+  .up-ctl .up-gear { order: 2; }
+  .up-name { font-size: 15px; }
+  .up-text small { font-size: 13px; }
+  .userpanel { height: 66px; border-radius: 17px; }
+  .callpanel { bottom: calc(var(--gapx) + var(--sa-bottom) + 66px + 6px); }
+  .rail { padding-bottom: 80px; }
+  .side { padding-bottom: 74px; }
+  .main-bar { gap: 6px; }
+  .main-bar .icon-btn { width: 42px; height: 42px; }
   .chan { min-height: 40px; }
 }
 .modal.cropper { padding: 18px 20px; width: min(560px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 12px; }
@@ -2508,7 +2527,11 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
   box-shadow: 0 -1px 0 var(--edge), 0 -18px 40px -20px rgba(0,0,0,.65); transition: height .22s cubic-bezier(.2,.8,.2,1); animation: sheet-up .2s cubic-bezier(.2,.8,.2,1); }
 :is(.emoji-sheet, .gif-sheet).xs-dragging { transition: none; }
 /* The chat and its message box move up above the card */
-:root.xs-open .app { padding-bottom: calc(var(--xs-h, 0px) + var(--gapx)) !important; transition: padding-bottom .22s cubic-bezier(.2,.8,.2,1); }
+:root.xs-open .app { padding-bottom: calc(var(--xs-h, 0px) - 22px) !important; }
+/* The chat's panel runs down behind the card's rounded top (no strip of wallpaper between them), and the message
+   box sits just above the card: the card already covers the gesture bar, so the box doesn't leave room for it. */
+:root.xs-open .main { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+:root.xs-open .composer-wrap { padding-bottom: 30px !important; }
 .emoji-sheet .emoji-top { padding: 0 12px 8px; }
 .emoji-sheet .emoji-main { flex-direction: column-reverse; }
 .emoji-sheet .emoji-rail { width: auto; height: 56px; flex-direction: row; align-items: center; overflow-x: auto; overflow-y: hidden; padding: 6px 10px; box-shadow: 0 -1px 0 var(--edge); }
@@ -2581,9 +2604,8 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
   background-color: var(--md-surface-container-high, var(--s2)) !important; }
 :root[data-mode="dark"] :is(.emoji-pop, .gif-pop) { background-color: var(--md-surface-container-high, var(--s2)) !important; }
 
-/* Nunito's ^ is tiny and sits high (^^ looked off): this one character comes from the system's own sans instead. */
-@font-face { font-family: "Mustela Marks"; unicode-range: U+005E; font-weight: 100 1000;
-  src: local("Segoe UI"), local("SegoeUI"), local("Roboto"), local("Helvetica Neue"), local("HelveticaNeue"), local("Noto Sans"), local("NotoSans-Regular"), local("DejaVu Sans"), local("Arial"); }
+/* ^ in text (EmojiText.tsx): Nunito's shape, smaller and raised, like Discord's ^^ */
+.crt { font-size: .76em; vertical-align: .17em; line-height: 0; letter-spacing: -.03em; }
 
 /* Message being edited: drawn in full (message text normally skips drawing what sticks out of it, which cut the
    formatting bar off above the edit box) and above the messages around it. */
@@ -2622,3 +2644,6 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 .ibn-x:hover { background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--fg); }
 @media (hover: none) and (max-width: 700px) { .ibn-x { display: none; } }
 @media (prefers-reduced-motion: reduce) { .ibn, .ibn.out, .ibn-av { animation-duration: .01s; } }
+/* A card that lets clicks outside it reach the app (your card from the nameplate, on computers) */
+.pop-scrim.pass-through { pointer-events: none; }
+.pop-scrim.pass-through > * { pointer-events: auto; }

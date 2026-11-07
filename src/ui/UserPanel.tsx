@@ -77,7 +77,7 @@ export function UserPanel() {
         <PlateCanvas slot={() => profile()!.plate} w={size().w} h={size().h} animate={anim()} />
       </Show>
       <button class="up-me" onClick={() => { setInboxOpen(false); setOpen(!open()); }} aria-haspopup="dialog" aria-expanded={open()} aria-label="Your profile and status">
-        <span class="up-av" classList={{ talking: talking() && !sound(), sound: sound() }}><Avatar person={me()} size={34} profile={mine()} /></span>
+        <span class="up-av" classList={{ talking: talking() && !sound(), sound: sound() }}><Avatar person={me()} size={MOBILE_UI ? 40 : 34} profile={mine()} /></span>
         <span class="up-text"><NameText person={me()} profile={mine()} class="up-name" /><small><TextWithEmoji v={sub() ?? ""} /></small></span>
       </button>
       <span class="up-ctl">
@@ -85,10 +85,10 @@ export function UserPanel() {
         <button class="up-chev" aria-label="Microphone options" onClick={(e) => void deviceMenu(e.currentTarget, "audioinput")}><Icon name="down" size={12} /></button>
         <button class="up-btn" classList={{ off: deaf() }} aria-pressed={deaf()} title={deaf() ? "Undeafen" : "Deafen"} onClick={() => toggle("deaf")}><Icon name={deaf() ? "headphones-off" : "headphones"} size={18} /></button>
         <button class="up-chev" aria-label="Output options" onClick={(e) => void deviceMenu(e.currentTarget, "audiooutput")}><Icon name="down" size={12} /></button>
-        <button class="up-btn up-gear" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen("account")}><Icon name="gear" size={18} /></button>
+        <button class="up-btn up-gear" title="Settings" aria-label="Settings" onClick={() => setSettingsOpen("account")}><Icon name="gear" size={MOBILE_UI ? 22 : 18} /></button>
         {/* Phones and tablets (no title bar to hold it): the inbox bell, like Discord mobile's card. */}
         <button class="up-btn up-bell" classList={{ on: inboxOpen() }} aria-pressed={inboxOpen()} title="Inbox" aria-label="Inbox" onClick={() => { setMeCardOpen(false); setInboxOpen(!inboxOpen()); }}>
-          <Icon name="bell" size={20} /><Show when={inboxBadge()}><span class="badge up-badge">{inboxBadge() > 99 ? "99+" : inboxBadge()}</span></Show>
+          <Icon name="bell" size={MOBILE_UI ? 22 : 20} /><Show when={inboxBadge()}><span class="badge up-badge">{inboxBadge() > 99 ? "99+" : inboxBadge()}</span></Show>
         </button>
       </span>
     </div>
@@ -124,9 +124,22 @@ function MeCard(props: { onClose(): void }) {
   // Phones and tablets: a sheet from the bottom; pull it down to close.
   let card!: HTMLDivElement;
   onMount(() => { if (MOBILE_UI) dragToClose(card, props.onClose, { full: true }); });
+  // Computers: a click outside closes the card and still does what you clicked (a text box gets the cursor straight
+  // away). Menus opened from the card and the nameplate itself (which toggles the card) don't count as outside.
+  if (!MOBILE_UI) {
+    const outside = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t || card.contains(t) || t.closest(".up-me, .ctx, .ctx-scrim, .scrim, .modal, .toast")) return;
+      props.onClose();
+    };
+    onMount(() => document.addEventListener("pointerdown", outside, true));
+    onCleanup(() => document.removeEventListener("pointerdown", outside, true));
+  }
   return (
-    <div class="pop-scrim clear" onClick={props.onClose}>
+    <div class="pop-scrim clear" classList={{ "pass-through": !MOBILE_UI }} onClick={props.onClose}>
       <div ref={card} class="mecard" role="dialog" aria-label="Your profile" onClick={(e) => { e.stopPropagation(); edit(e); }}>
+        {/* Phones and tablets: a way out at the top too, besides swiping down */}
+        <Show when={MOBILE_UI}><button class="icon-btn me-back" aria-label="Close" title="Close" onClick={(e) => { e.stopPropagation(); props.onClose(); }}><Icon name="back" size={22} /></button></Show>
         <ProfileCard person={me()} profile={info()?.config ?? settings().profile} bio={info()?.bio} banner={info()?.bannerUrl} marked={!!info()?.bannerUrl} compact>
           <div class="me-list">
             <button class="me-row" onClick={() => { props.onClose(); openProfileEditor(editTarget()); }}><Icon name="pencil" size={17} /><span>Edit profile</span></button>

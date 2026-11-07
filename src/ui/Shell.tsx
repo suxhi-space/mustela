@@ -693,7 +693,7 @@ export function Shell() {
                     onClick={() => (phoneLayout() ? setProfileView({ person: c().peer!, full: false, x: 0, y: 0 }) : updateDevice({ dmProfile: !device().dmProfile }))}><Icon name="profile-side" size={20} /></button>
                 </Show>
                 <Show when={!hasTitleBar()}>
-                  <button class="icon-btn inbox-btn not-phone" classList={{ on: inboxOpen() }} aria-label="Inbox" title="Inbox" onClick={() => setInboxOpen(!inboxOpen())}><Icon name="inbox" size={20} /><Show when={inboxBadge()}><span class="tb-dot" /></Show></button>
+                  <button class="icon-btn inbox-btn not-phone" classList={{ on: inboxOpen() }} aria-label="Inbox" title="Inbox" onClick={() => setInboxOpen(!inboxOpen())}><Icon name={MOBILE_UI ? "bell" : "inbox"} size={20} /><Show when={inboxBadge()}><span class="tb-dot" /></Show></button>
                 </Show>
                 <Show when={canMembers()}>
                   <button class="icon-btn" classList={{ on: device().showMembers }} aria-pressed={device().showMembers} aria-label="Members" title="Members"

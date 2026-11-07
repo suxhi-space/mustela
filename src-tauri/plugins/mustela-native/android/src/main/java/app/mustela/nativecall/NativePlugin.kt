@@ -239,7 +239,9 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         val expanded = was == true && !inPip &&
             (activity as? androidx.lifecycle.LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) == true
         view.evaluateJavascript("document.documentElement.toggleAttribute('data-pip',$inPip);window.dispatchEvent(new CustomEvent('mustela:pip',{detail:{pip:$inPip,expanded:$expanded}}))", null)
-        if (!inPip) view.post { refit() }
+        // Back to full size: make sure the page runs and lays itself out for the big window again (it could stay
+        // drawn at the little window's size).
+        if (!inPip) view.post { runCatching { view.onResume(); view.resumeTimers(); view.requestLayout(); view.invalidate() }; refit() }
     }
 
     /** A link opened while Mustela was already running (launchMode singleTask). */
@@ -572,13 +574,11 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun onResume() {
         activity.runOnUiThread { Bubble.hide(activity); reportPip(); refreshChrome() }
-        // Back from the background: the page runs again (it was paused when it let go, see watchAlive).
-        if (pagePaused) { pagePaused = false; web?.post { runCatching { web?.onResume(); web?.resumeTimers() } } }
+        // Anything paused before (an older build paused timers when letting go): always running again on return.
+        web?.post { runCatching { web?.resumeTimers() } }
     }
 
     /* ---------- notifications while Mustela is closed (MessageWatch.kt) ---------- */
-
-    private var pagePaused = false
 
     /** Turns checking on with the page's profile (session, channel settings, names), or off (forgets the session). */
     @Command
@@ -590,13 +590,12 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
 
     /**
      * The page is connected and notifying (true, every ~20 s), or it disconnected after a while in the background
-     * (false): checking takes over, and the page is paused so it costs nothing until you come back.
+     * (false): checking takes over. (The page itself isn't paused: that froze timers for the whole app.)
      */
     @Command
     fun watchAlive(invoke: Invoke) {
         val args = invoke.parseArgs(AliveArgs::class.java)
         MessageWatch.alive(activity.applicationContext, args.alive)
-        if (!args.alive && !inCall) { pagePaused = true; web?.post { runCatching { web?.onPause(); web?.pauseTimers() } } }
         invoke.resolve()
     }
 

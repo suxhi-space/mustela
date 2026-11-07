@@ -85,13 +85,14 @@
 
 /* ---------- in a call: the voice bar sits on the profile bar as one card, with bigger buttons ---------- */
 @media (max-width: 700px) {
-  .callpanel { left: 10px; width: calc(100% - 20px); height: 60px; bottom: calc(10px + var(--sa-bottom) + 62px); padding: 8px 10px 6px 16px; gap: 6px;
+  .callpanel { left: 10px; width: calc(100% - 20px); height: 63px; bottom: calc(10px + var(--sa-bottom) + 68px); padding: 8px 10px 6px 16px; gap: 8px;
     border-radius: 18px 18px 0 0; box-shadow: inset 0 -1px 0 var(--edge); }
-  .callpanel .icon-btn { width: 42px; height: 42px; border-radius: 12px; }
-  .callpanel .icon-btn .ic { width: 20px; height: 20px; }
-  .cp-text strong { font-size: 14.5px; }
-  .cp-text small { font-size: 13px; }
-  .app.in-call .userpanel { border-radius: 0 0 18px 18px; }
+  .callpanel .icon-btn { width: 44px; height: 44px; border-radius: 13px; }
+  .callpanel .icon-btn .ic { width: 21px; height: 21px; stroke-width: 2.3; }
+  .cp-text strong { font-size: 15.5px; }
+  .cp-text small { font-size: 13.5px; }
+  .callpanel { border-radius: 19px 19px 0 0; }
+  .app.in-call .userpanel { border-radius: 0 0 19px 19px; }
 }
 
 /* ---------- motion: screens slide, cards and sheets ease in, buttons give under your thumb ----------
@@ -302,11 +303,12 @@ body, .settings, .settings-card { background-attachment: scroll !important; }
    button (videoFull.tsx) is the one full-screen button. Inside Mustela's full-screen view there's nothing to enlarge. */
 video::-webkit-media-controls-fullscreen-button { display: none !important; }
 
-/* Phones: on the call screen the call's black runs up behind the status bar instead of stopping short of it */
+/* Phones: when the call's controls hide (and the status bar with them), black runs up behind the status bar.
+   Everywhere else the screen's own top shows there. */
 @media (max-width: 700px) {
-  body:has(.app[data-view="chat"] .main .voice-view .cstage)::before {
+  body:has(.app[data-view="chat"] .main .voice-view .cstage.chrome-off)::before {
     content: ""; position: fixed; left: 0; right: 0; top: 0; height: calc(var(--sa-top) + var(--gapx) + 2px); z-index: 3; background: #070809; pointer-events: none; }
-  :root[data-mode="light"] body:has(.app[data-view="chat"] .main .voice-view .cstage)::before { background: #101215; }
+  :root[data-mode="light"] body:has(.app[data-view="chat"] .main .voice-view .cstage.chrome-off)::before { background: #101215; }
 }
 
 /* ---------- One header style for every screen on phones (and tablets held upright): the same height, title size and
@@ -326,4 +328,36 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
   .userpanel, .callpanel, .members-col:not(.panel-col), .since-bar, .server-banner { display: none !important; }
   .side .chans { padding-bottom: 8px !important; }
   .chat .messages { min-height: 48px; }
+}
+
+/* Your card (from the nameplate): rows a little bigger to tap */
+.mecard .me-row { min-height: 46px; font-size: 1.05em; }
+.mecard .me-row .ic { width: 20px; height: 20px; }
+.mecard { left: 0; right: 0; }
+/* Opened full height: the card itself reaches the bottom (no lighter strip under its content) */
+.mecard.sheet-full { display: flex; flex-direction: column; }
+.mecard.sheet-full > .pcard { flex: 1 0 auto; border-radius: 22px 22px 0 0; }
+
+/* The + button's card (Composer.tsx AttachCard): big tiles to tap, like Discord's */
+.att-scrim { position: fixed; inset: 0; z-index: 95; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .4); }
+.att-card { width: 100%; max-width: 600px; margin: 0 auto; padding: 10px 14px calc(16px + var(--sa-bottom)); border-radius: 24px 24px 0 0;
+  background: var(--md-surface-container-high, var(--s2)) !important; display: flex; flex-direction: column; gap: 12px; animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+.att-handle { align-self: center; width: 40px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--fg) 35%, transparent); }
+.att-big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.att-big button { aspect-ratio: 1 / .82; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 18px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); font-weight: 800; font-size: 15px; }
+.att-small { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.att-small button { min-height: 54px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 0; border-radius: 16px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); font-weight: 800; font-size: 15px; }
+.att-big button:active, .att-small button:active { background: color-mix(in srgb, var(--pri) 22%, transparent); }
+/* The way out at the top of your card, over the banner */
+.mecard .me-back { position: absolute; top: 12px; left: 12px; z-index: 10; width: 40px; height: 40px; border-radius: 50%; color: #fff;
+  background: rgba(0, 0, 0, .45); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.mecard.sheet-full .me-back { top: calc(12px + var(--sa-top)); }
+
+/* Phones: a little more room between icons, so each is easier to hit */
+@media (max-width: 700px) {
+  .main-bar { gap: 8px; }
+  .main-bar .icon-btn { width: 44px; height: 44px; }
+  .composer > .icon-btn, .composer .c-actions .icon-btn { margin: 0 3px; }
 }
