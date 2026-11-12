@@ -139,6 +139,8 @@ export interface Msg {
   mentionsMe?: boolean;
   /** System message text ("Mika joined"), rendered without an author */
   system?: string;
+  /** Which kind of system message (user_joined, user_left, message_pinned…), for its icon */
+  systemType?: string;
   pinned?: boolean;
   /** Not yet confirmed by the server */
   pending?: boolean;
@@ -245,6 +247,8 @@ export type ChatEvent =
   | { t: "typing"; channelId: string; people: Person[] }
   /** Unread state, channel list, servers or friends may have changed */
   | { t: "activity" }
+  /** Someone went online or offline, or changed their status (lists of people can refresh) */
+  | { t: "presence"; id: string }
   /** The connection dropped and came back: anything sent meanwhile needs loading */
   | { t: "reconnected" };
 

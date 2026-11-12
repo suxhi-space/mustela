@@ -4,6 +4,23 @@ import { formatTime, inline, isJumbo, parse, plain, safeHref } from "./markdown"
 const U = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
 
 describe("inline markdown", () => {
+  it("treats @everyone and @online as mentions, but not inside words or emails", () => {
+    const nodes = (t: string) => (parse(t)[0] as { c: { t: string; v?: string }[] }).c;
+    expect(nodes("@everyone hi").map((n) => n.t)).toEqual(["mass", "text"]);
+    expect(nodes("hey @online")[1]).toEqual({ t: "mass", v: "online" });
+    expect(nodes("me@everyone.com").every((n) => n.t === "text")).toBe(true);
+    expect(nodes("@everyones").every((n) => n.t === "text")).toBe(true);
+    expect(plain("@everyone look")).toBe("@everyone look");
+  });
+
+  it("reads GitHub-style embeds: #### headings and links with [brackets] in their text", () => {
+    const b = parse("#### [[owner/repo] New comment on issue #60](https://github.com/owner/repo/issues/60)\nbody");
+    expect(b[0]).toMatchObject({ t: "h", level: 3 });
+    const link = (b[0] as { c: { t: string; href?: string }[] }).c[0]!;
+    expect(link).toMatchObject({ t: "link", href: "https://github.com/owner/repo/issues/60" });
+    expect(plain("#### [[a] b](https://x.y)")).toBe("[a] b");
+  });
+
   it("parses emphasis, strike, spoiler and code", () => {
     expect(inline("**b** *i* ~~s~~ ||x|| `c`")).toEqual([
       { t: "b", c: [{ t: "text", v: "b" }] }, { t: "text", v: " " },

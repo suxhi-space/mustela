@@ -5,7 +5,7 @@ import { quickTimes, schedule, scheduled, sendNow, unschedule } from "../schedul
 import { MOBILE_UI } from "../target";
 import type { ChannelInfo, Msg, Person, Role } from "../../lib/backend/types";
 import { searchEmoji } from "../../lib/emoji";
-import { plain } from "../../lib/markdown";
+import { PlainLine } from "./Markdown";
 import { Avatar, NameText } from "../Avatar";
 import { getDraft, getFiles, setDraft, setFiles, type PendingFile } from "../drafts";
 import { Icon } from "../icons";
@@ -452,7 +452,7 @@ export function Composer(props: {
       <Show when={props.replyTo}>{(r) => (
         <div class="reply-bar">
           <Icon name="reply" size={16} class="flip" />
-          <span class="rb-text">Replying to <NameText person={r().author} /> <span class="muted">{plain(r().text).slice(0, 80)}</span></span>
+          <span class="rb-text">Replying to <NameText person={r().author} /> <span class="muted"><PlainLine text={r().text} max={80} /></span></span>
           <button class={`rb-mention ${mention() ? "on" : ""}`} aria-pressed={mention()} onClick={() => { setMention(!mention()); setDraft(cid(), { text: text(), reply: { id: r().id, mention: mention() } }); }} title="Notify the author">
             <Icon name="at" size={15} />{mention() ? "On" : "Off"}
           </button>

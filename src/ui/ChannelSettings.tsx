@@ -41,11 +41,10 @@ function Overview(props: { d: ChannelDetails; bump(): void }) {
         </Row>
         <div class="row col"><label class="field">Channel name<input value={name()} maxLength={32} disabled={!can()} onInput={(e) => setName(e.currentTarget.value)} /></label></div>
         <div class="row col"><label class="field">Description<textarea class="text-input area" maxLength={1024} disabled={!can()} value={desc()} onInput={(e) => setDesc(e.currentTarget.value)} placeholder="Tell people what this channel is for" /></label></div>
-        <Show when={props.d.kind === "text"}>
-          <Row label="Slowmode" hint="How long people wait between messages. People who can skip slowmode aren't affected.">
-            <Select label="Slowmode" value={slow()} options={SLOW.map((s) => ({ v: String(s), label: slowLabel(s) }))} onChange={setSlow} />
-          </Row>
-        </Show>
+        {/* Voice channels have a chat too, so slowmode is offered for every channel. */}
+        <Row label="Slowmode" hint="How long people wait between messages. People who can skip slowmode aren't affected.">
+          <Select label="Slowmode" value={slow()} disabled={!can()} options={SLOW.map((s) => ({ v: String(s), label: slowLabel(s) }))} onChange={setSlow} />
+        </Row>
         <Row label="Mature" hint="People are asked to confirm their age before opening this channel.">
           <Switch label="Mature channel" on={props.d.mature} disabled={!can()} onChange={(mature) => void attempt(() => b().editChannel(props.d.id, { mature })).then(props.bump)} />
         </Row>

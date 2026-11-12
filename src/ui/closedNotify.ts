@@ -1,4 +1,4 @@
-import { createEffect, on, onCleanup } from "solid-js";
+import { createEffect, getOwner, on, onCleanup, runWithOwner } from "solid-js";
 import { inTauri } from "../lib/platform";
 import { call } from "./call/state";
 import { openChannel, requestJump } from "./nav";
@@ -15,7 +15,42 @@ import { backend, device, platform } from "./store";
 export function startClosedNotify(current: () => string | undefined) {
   if (platform !== "android" || !inTauri()) return;
   const b = backend();
-  if (!b?.watchInfo?.()) return; // the demo has nothing to check
+  if (!b?.watchInfo) return; // the demo has nothing to check
+  // Tapping a notification works from the very first moment (it used to wait for the connection too, see below).
+  listenForTaps();
+  // Mustela opens straight away from what was on screen last time and connects meanwhile; until then there's no
+  // session to hand over. This used to give up right there, so on most starts the phone side never heard from the
+  // app (no "open"/"away", no fresh settings): notifications only came once you opened Mustela. Now it waits.
+  if (b.watchInfo()) return void begin(b, current);
+  // (Started later from an event, so it's run under Shell's owner: its effects and clean-up belong to Shell.)
+  const owner = getOwner();
+  let started = false;
+  const off = b.onEvent((e) => {
+    if (started || e.t !== "reconnected" || !b.watchInfo?.()) return;
+    started = true; off();
+    runWithOwner(owner, () => begin(b, current));
+  });
+  onCleanup(() => off());
+}
+
+/* ---------- tapping a notification opens its conversation, at the message ---------- */
+function listenForTaps() {
+  const w = window as unknown as { __mustelaLink?: string; __mustelaChat?: string };
+  const take = (url: unknown) => {
+    const id = typeof url === "string" ? /^mustela:\/\/channel\/([0-9A-Za-z]{1,40})/.exec(url)?.[1] : undefined;
+    if (!id || url === w.__mustelaChat) return;
+    w.__mustelaChat = url as string; // the phone sends a link a few times in case the page wasn't ready
+    // At the message the notification was about, when it says which.
+    const msg = /[?&]message=([0-9A-Za-z]{1,40})/.exec(url as string)?.[1];
+    if (msg) requestJump(id, msg); else openChannel(id);
+  };
+  if (w.__mustelaLink) take(w.__mustelaLink);
+  const onLink = (e: Event) => take((e as CustomEvent<string>).detail);
+  addEventListener("mustela:open-link", onLink);
+  onCleanup(() => removeEventListener("mustela:open-link", onLink));
+}
+
+function begin(b: NonNullable<ReturnType<typeof backend>>, current: () => string | undefined) {
   const invoke = (cmd: string, payload: unknown) =>
     import("@tauri-apps/api/core").then(({ invoke }) => invoke(`plugin:mustela-native|${cmd}`, { payload })).catch(() => {});
 
@@ -90,25 +125,10 @@ export function startClosedNotify(current: () => string | undefined) {
   document.addEventListener("visibilitychange", vis);
   createEffect(on(current, (ch) => { if (ch && !document.hidden) void invoke("watch_clear", { channel: ch }); }));
 
-  /* ---------- tapping a notification opens its conversation ---------- */
-  const w = window as unknown as { __mustelaLink?: string; __mustelaChat?: string };
-  const take = (url: unknown) => {
-    const id = typeof url === "string" ? /^mustela:\/\/channel\/([0-9A-Za-z]{1,40})/.exec(url)?.[1] : undefined;
-    if (!id || url === w.__mustelaChat) return;
-    w.__mustelaChat = url as string; // the phone sends a link a few times in case the page wasn't ready
-    // At the message the notification was about, when it says which.
-    const msg = /[?&]message=([0-9A-Za-z]{1,40})/.exec(url as string)?.[1];
-    if (msg) requestJump(id, msg); else openChannel(id);
-  };
-  if (w.__mustelaLink) take(w.__mustelaLink);
-  const onLink = (e: Event) => take((e as CustomEvent<string>).detail);
-  addEventListener("mustela:open-link", onLink);
-
   onCleanup(() => {
     clearTimeout(syncTimer); clearTimeout(away); clearInterval(refresh); clearInterval(beat); off();
     document.removeEventListener("visibilitychange", vis);
     for (const ev of ["pointerdown", "keydown", "focus"]) removeEventListener(ev, back, true);
-    removeEventListener("mustela:open-link", onLink);
     // Signed out or switched accounts: forget this session on the phone side (the next account starts its own).
     void invoke("watch", { on: false });
   });

@@ -1164,7 +1164,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .pe-preview { position: relative; overflow-y: auto; padding: 22px 28px 90px; display: flex; flex-direction: column; gap: 10px; align-items: center;
   background: radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--pri) 10%, transparent), transparent 70%); }
 .pe-preview > .pe-label { align-self: stretch; max-width: 380px; margin: 6px auto 0; width: 100%; }
-.pe-close { position: absolute; top: 14px; right: 14px; }
+.pe-close { position: absolute; top: 14px; right: 14px; z-index: 6; } /* above the preview beside it (it covered the X, so clicks never reached it) */
 .pe-card { width: min(380px, 100%); }
 .pe-chat { width: min(380px, 100%); display: flex; gap: 10px; padding: 12px; border-radius: 14px; background: var(--md-surface-container-lowest); box-shadow: inset 0 0 0 1px var(--edge); font-size: 14px; line-height: 1.45; }
 .pe-chat small { color: var(--fg2); font-size: 11.5px; }
@@ -1374,7 +1374,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .pc-dot.pdot { position: absolute; right: 6px; bottom: 6px; width: 20px; height: 20px; box-shadow: 0 0 0 4px var(--pc-bg); z-index: 7; }
 /* Offline / invisible: a grey ring (the separating outline above replaced the ring, so it showed nothing). */
 .pc-dot.pdot:is(.p-offline, .p-invisible) { background: var(--pc-bg); box-shadow: inset 0 0 0 5px var(--off), 0 0 0 4px var(--pc-bg); }
-.pc-bubble { align-self: center; margin-top: 46px; max-width: calc(100% - 120px); display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px; border-radius: 14px 14px 14px 4px;
+.pc-bubble { align-self: center; margin-top: 46px; max-width: calc(100% - 120px); display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px; border-radius: 4px 14px 14px 14px;
   background: color-mix(in srgb, var(--pc-fg) 9%, var(--pc-bg)); color: var(--pc-fg); font-size: 12.5px; font-weight: 750; box-shadow: 0 2px 8px rgba(0,0,0,.18);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pc-bubble .pdot { flex: none; }
@@ -2412,7 +2412,10 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 .chan-sub.in-voice { color: var(--online); }
 /* A role's icon next to someone's name (their highest role that has one), like Stoat */
 .role-icon { width: 18px; height: 18px; margin-left: 4px; border-radius: 4px; object-fit: contain; vertical-align: -3px; flex: none; }
-.msg header .role-icon { margin-left: 2px; }
+/* In a message header the row lines up by text baseline, and a picture's baseline is its bottom edge, so it rode high:
+   centre it on the name instead, and sit it closer than the header's usual gap. */
+.msg header .role-icon, .mp-msg-body header .role-icon { align-self: center; margin-left: -4px; vertical-align: middle; }
+.member-name .role-icon { align-self: center; margin-left: 0; }
 .sb-title { display: none; }
 /* Soundboard settings on a phone: name, play and delete on one line, the volume under it */
 @media (max-width: 700px) {
@@ -3091,3 +3094,163 @@ a.mp-item.hs-link { display: flex; align-items: center; gap: 12px; margin-bottom
   .settings-card .spage:has(> .spage-scroll) > .spage-head { flex: none; width: calc(100% - 32px); }
   .settings-card .spage > .spage-scroll { display: block; flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 40px; }
 }
+
+/* A server channel's own picture in the channel list, beside its # or speaker */
+.chan .chan-pic { width: 20px; height: 20px; flex: none; border-radius: 6px; object-fit: cover; margin-left: -2px; }
+
+
+/* Server and channel settings on wide windows: the page title is hidden there (the bar on top says it), so the page
+   keeps its own room at the top instead of its first header touching the bar. */
+@media (min-width: 901px) {
+  .settings.stepped .spage { padding-top: 22px; }
+  .settings.stepped .spage .page > :first-child:not(.group) { margin-top: 0; }
+}
+
+/* Custom emoji in the one-line reply previews: text-sized, like Discord's */
+:is(.reply-ref, .reply-bar) .cemoji { width: 1.3em; height: 1.3em; margin: 0 1px; vertical-align: -0.3em; object-fit: contain; }
+
+/* Activity on profile cards, like Discord's: one soft box (no divider lines), its buttons full width in the card's own
+   colours, stacked in a narrow card and side by side where there's room (the full profile's Activity tab). */
+.pcard :is(.pc-activity, .pc-box) { margin-top: 12px; padding: 12px; border-top: 0; border-radius: 14px; align-items: stretch;
+  background: color-mix(in srgb, var(--pc-fg, var(--fg)) 8%, transparent); }
+.pcard :is(.pc-activity, .pc-box) + .pc-section { border-top: 0; }
+.pcard :is(.pc-activity, .pc-box) + :is(.pc-activity, .pc-box) { margin-top: 8px; }
+/* The full profile's Activity tab: the same boxes on the app's own colours */
+.pf-body .pc-box { margin: 0; padding: 12px; border: 0; border-radius: 12px; background: var(--well); align-items: stretch; }
+/* In voice: the channel, who's with them, then Join voice / Open voice full width (like the activity buttons) */
+.pc-box .pv-row { gap: 12px; align-items: center; }
+.pc-box .pv-text { gap: 1px; }
+.pv-chan { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 14.5px; font-weight: 850; }
+.pv-chan > span:not(.live-pill) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-chan svg { flex: none; color: var(--online); }
+.pv-chan .live-pill { flex: none; margin-left: 2px; }
+.pc-box .pv-with { opacity: .85; }
+.pc-box .pv-frame { margin: 2px 0 6px; }
+.pc-box .pv-go { width: 100%; justify-content: center; margin-top: 10px; min-height: 36px; padding: 8px 14px; border: 0; border-radius: 10px; box-shadow: none;
+  font-size: 13.5px; font-weight: 800; background: color-mix(in srgb, var(--pc-fg, var(--fg)) 13%, transparent); color: var(--pc-fg, var(--fg)); }
+.pc-box .pv-go:hover { background: color-mix(in srgb, var(--pc-fg, var(--fg)) 21%, transparent); }
+.pc-activity .label { margin: 0 0 2px; }
+.pa-buttons { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-top: 12px; width: 100%; }
+.pa-buttons .btn { min-height: 36px; padding: 8px 14px; border: 0; border-radius: 10px; box-shadow: none; font-size: 13.5px; font-weight: 800;
+  background: color-mix(in srgb, var(--pc-fg, var(--fg)) 13%, transparent); color: var(--pc-fg, var(--fg)); }
+.pa-buttons .btn:hover { background: color-mix(in srgb, var(--pc-fg, var(--fg)) 21%, transparent); }
+.pa-buttons .btn:active { transform: translateY(1px); }
+
+/* Tab rows look the same everywhere (full profile, message search, Home search, Inbox, reactions): soft pills, the
+   chosen one tinted with your colour. (The full profile had an underline of its own.) */
+.pf-tabs { gap: 4px; border-bottom: 0; padding-bottom: 6px; }
+.pf-tabs button { padding: 6px 12px; border-radius: 999px; font-size: calc(13px * var(--ui-text, 1)); transition: background-color .2s, color .15s; }
+.pf-tabs button:hover:not(.on), .mp-tabs button:hover:not(.on), .rv-tabs button:hover:not(.on) { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.pf-tabs button.on::after { content: none; }
+:is(.pf-tabs, .mp-tabs, .inbox-tabs, .rv-tabs) button.on { background: color-mix(in srgb, var(--pri) 22%, transparent); color: var(--fg); }
+:is(.inbox-tabs, .rv-tabs) button { border-radius: 999px; }
+
+/* Every plain button on a profile card (Join, Add friend, ⋯) takes the card's own colours, like the activity buttons;
+   the main action (Message, Edit profile) keeps its accent. */
+.pcard .btn:not(.primary, .danger) { border: 0; box-shadow: none; background: color-mix(in srgb, var(--pc-fg, var(--fg)) 13%, transparent); color: var(--pc-fg, var(--fg)); }
+.pcard .btn:not(.primary, .danger):hover { background: color-mix(in srgb, var(--pc-fg, var(--fg)) 21%, transparent); }
+.pcard .pc-actions .btn { min-height: 36px; padding: 0 14px; border-radius: 10px; }
+/* DM side card: "View full profile" sits at the bottom of the card, like Discord (right under the rest when the card
+   is taller than the column). */
+.dm-profile .pcard { display: flex; flex-direction: column; }
+.dm-profile .pc-body { flex: 1 0 auto; }
+:root .dm-profile .pcard .dmp-full.btn { margin-top: auto; }
+.dm-profile .pc-body > .dmp-lists { margin-bottom: 14px; }
+
+/* Pronouns beside a name in messages, the same little pill as on profile cards */
+.msg-pronouns { flex: none; align-self: center; padding: 0 7px; border-radius: 999px; font-size: 11.5px; font-weight: 800; line-height: 18px;
+  color: var(--fg2); background: color-mix(in srgb, var(--fg) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 12%, transparent);
+  max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg header .role-icon + .msg-pronouns { margin-left: -4px; }
+
+/* Who's in a voice channel: one rounded tile, the pictures placed inside it by VoiceFaces (never past its edge) */
+.vfaces { position: relative; flex: none; display: block; border-radius: 16px; overflow: hidden;
+  background: color-mix(in srgb, var(--pc-fg, var(--fg)) 9%, transparent); }
+.vf-spot { position: absolute; display: block; line-height: 0; }
+.vfaces.two .vf-spot + .vf-spot { border-radius: 50%; box-shadow: 0 0 0 2px color-mix(in srgb, var(--pc-fg, var(--fg)) 9%, var(--pc-bg, var(--s1))); }
+.vf-more { display: grid; place-items: center; border-radius: 50%; line-height: 1; font-size: 12px; font-weight: 850; color: var(--pc-fg, var(--fg));
+  background: color-mix(in srgb, var(--pc-fg, var(--fg)) 16%, transparent); }
+/* The Home strip's voice card around it */
+.as-card.big { padding-right: 14px; gap: 12px; }
+.as-card.big .as-text small .as-live { position: static; flex: none; }
+.as-others { color: var(--fg2); font-weight: 800; }
+
+
+/* A voice channel at a glance (tapping a call on the phone's Home): a card from the bottom with the same people rows
+   and the same chat + Join voice bar as the voice channel's own screen. */
+.scrim:has(> .vp-sheet) { place-items: end center; padding: 0; background: rgba(0, 0, 0, .45); }
+.vp-sheet { position: relative; display: flex; flex-direction: column; gap: 14px; width: min(600px, 100%) !important; max-width: none;
+  max-height: calc(100% - var(--sa-top) - 40px); margin: 0; border-radius: 24px 24px 0 0 !important; padding: 0 14px 0 !important;
+  overflow-y: auto; overscroll-behavior: contain; animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+.vp-sheet::before { content: ""; position: sticky; top: 0; z-index: 4; flex: none; display: block; height: 20px; margin: 0 -14px -8px; background-color: inherit;
+  background-image: linear-gradient(color-mix(in srgb, var(--fg) 35%, transparent), color-mix(in srgb, var(--fg) 35%, transparent));
+  background-size: 40px 5px; background-position: center 8px; background-repeat: no-repeat; border-radius: 24px 24px 0 0; }
+.vp-head { display: flex; align-items: center; gap: 10px; }
+.vp-down { flex: none; width: 40px; height: 40px; border-radius: 12px; background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.vp-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 14px; border: 0; border-radius: 12px; font-size: 18px; font-weight: 850;
+  color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.vp-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vp-title svg:first-child { color: var(--online); flex: none; }
+.vp-title svg:last-child { color: var(--fg2); flex: none; }
+.vp-where { margin: -8px 0 0 4px; color: var(--fg2); font-size: 13px; font-weight: 700; }
+.vp-section { display: flex; flex-direction: column; gap: 8px; }
+.vp-section > .label { margin: 0 4px; }
+.vp-people { padding: 4px; border-radius: 16px; background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.vp-row { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 6px 8px; }
+.vp-people li + li .vp-row { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 7%, transparent); }
+.vp-stream { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; background: #000; }
+.vp-stream-bg { position: absolute; inset: -20px; width: calc(100% + 40px); height: calc(100% + 40px); object-fit: cover; filter: blur(18px) brightness(.55); }
+.vp-stream .live-pill { position: absolute; top: 10px; left: 10px; }
+.vp-watch { position: relative; background: #fff; color: #111; --face: #fff; --ink: #111; font-weight: 850; padding: 10px 22px; border-radius: 12px; }
+.vp-games:not(:has(.vp-game)) { display: none; }
+.vp-game-list { display: flex; flex-direction: column; gap: 6px; }
+.vp-game { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 16px; background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.vp-game-ic { flex: none; width: 40px; height: 40px; border-radius: 10px; object-fit: cover; display: grid; place-items: center; color: var(--fg2);
+  background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.vp-join { position: sticky; bottom: 0; width: auto; margin: 2px -14px 0; padding: 12px 14px calc(12px + var(--sa-bottom)); background: inherit;
+  box-shadow: 0 -10px 16px -12px rgba(0, 0, 0, .5); }
+
+/* The app someone's playing or listening to, beside their name in voice lists (like Discord's) */
+.act-ic { flex: none; width: 20px; height: 20px; border-radius: 5px; object-fit: cover; }
+.voice-members .act-ic { width: 18px; height: 18px; margin-left: auto; }
+.vp-row .act-ic, .sheet-people .act-ic { width: 24px; height: 24px; border-radius: 6px; }
+
+/* A chat you marked unread yourself: a plain dot instead of a number (until something new comes in) */
+.badge.dot { min-width: 0; width: 12px; height: 12px; padding: 0; border-radius: 50%; }
+.orb-badge.dot { width: 16px; height: 16px; }
+
+
+/* Server icon corners: voice (top) and the count (bottom) are the same size and sit the same distance out from the
+   corner, tucked in a little, each with a ring in the rail's own colour */
+.orb-voice, .orb-badge { width: auto; min-width: 20px; height: 20px; right: -3px; box-shadow: 0 0 0 3px var(--world); }
+.orb-voice { top: -3px; width: 20px; }
+.orb-voice svg { width: 12px; height: 12px; }
+.orb-badge { bottom: -3px; padding: 0 5px; font-size: 11.5px; line-height: 20px; }
+.orb-badge.dot { min-width: 0; width: 14px; height: 14px; right: -1px; bottom: -1px; padding: 0; }
+
+/* System messages (joined, left, pinned…): people are chips with their picture that open their card, like Stoat */
+.msg.system .sys-text { min-width: 0; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.sys-who { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 8px 1px 2px; border: 0; border-radius: 999px; font: inherit; font-weight: 800;
+  color: var(--fg); background: color-mix(in srgb, var(--pri) 22%, transparent); cursor: pointer; }
+.sys-who:hover { background: color-mix(in srgb, var(--pri) 34%, transparent); }
+.sys-who > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg.system[data-kind="out"] .ic { color: var(--busy); }
+.msg.system[data-kind="other"] .ic { color: var(--fg2); }
+
+/* A bot's embed written in markdown (GitHub and the like): headings, quotes and code like in messages, a bit smaller */
+.em-md { font-size: 13.5px; line-height: 1.45; }
+.em-md h1, .em-md h2, .em-md h3 { margin: 0 0 4px; font-size: 14.5px; line-height: 1.3; }
+.em-md h1 a, .em-md h2 a, .em-md h3 a { color: var(--link, var(--pri)); }
+.em-md blockquote { margin: 6px 0; }
+.em-md pre { max-height: 220px; overflow: auto; font-size: 12.5px; }
+.em-md > * + * { margin-top: 6px; }
+
+
+/* Videos in chat have rounded corners like pictures. A playing video is drawn on a layer of its own that can ignore
+   its box's rounding, so the video itself is rounded too, and the box is kept as one layer (isolate). */
+.media { isolation: isolate; transform: translateZ(0); }
+.media .media-vid, .media .vid-box { border-radius: inherit; }
+.media-grid { isolation: isolate; transform: translateZ(0); }
+/* The viewer shows pictures and videos as they are: square corners (rounding is for the chat) */
+.gallery-view .gv-slide img, .gallery-view .gv-slide video, .gallery-view .gv-frame,
+.gallery-view.desk .gv-slide img, .gallery-view.desk .gv-slide video, .gallery-view.desk .gv-frame { border-radius: 0; }

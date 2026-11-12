@@ -10,13 +10,12 @@ import { openReactions } from "./Reactions";
 import { linkCards, videoSite } from "../../lib/social";
 import { FormatBar, formatKey } from "./FormatBar";
 import type { ChannelRules, Attachment, Embed, Msg, Person, Reaction } from "../../lib/backend/types";
-import { plain } from "../../lib/markdown";
 import { fmtStamp, fmtTime } from "../../lib/time";
 import { Avatar, NameText } from "../Avatar";
 import { Icon } from "../icons";
 import { backend, device } from "../store";
 import { inTauri } from "../../lib/platform";
-import { Markdown, type MdCtx } from "./Markdown";
+import { Markdown, PlainLine, type MdCtx } from "./Markdown";
 import { justReacted, markReacted, reactBurst } from "./reactFx";
 import { doubleTapEmoji, isFav, openEmojiPicker, openGallery, openLightbox, toggleFav } from "./overlays";
 import { messageMenu } from "../menus";
@@ -31,6 +30,23 @@ const size = (n?: number) => (n === undefined ? "" : n < 1024 ? `${n} B` : n < 1
 export const roleStyle = (c?: string): Record<string, string> =>
   !c || /url\(|image\(|var\(|expression|[;{}<>]/i.test(c) ? {} : /gradient\(/.test(c) ? { "background-image": c, "-webkit-background-clip": "text", "background-clip": "text", color: "transparent" } : { color: c };
 const isCustom = (e: string) => /^[0-9A-Z]{26}$/.test(e);
+
+/** System messages: an icon by kind, and people as chips with their picture (tap for their card, like Stoat). */
+const sysKind = (t?: string) => (t && /left|remove|kicked|banned/.test(t) ? "out" : t && /joined|added/.test(t) ? "in" : "other");
+const sysIcon = (t?: string) => (sysKind(t) === "out" ? "door" : sysKind(t) === "in" ? "arrow-in" : t?.includes("pinned") ? "pin" : t?.startsWith("call") ? "phone" : t?.startsWith("channel") ? "pencil" : "info");
+function SystemText(props: { text: string; onProfile(p: Person): void }) {
+  const parts = () => props.text.split(/<@([0-9A-Za-z]{1,32})>/);
+  return (
+    <For each={parts()}>{(part, i) => (i() % 2 === 0 ? part : (() => {
+      const p = backend()?.person(part) ?? { id: part, name: "Someone" };
+      return (
+        <button class="sys-who" onClick={(e) => { e.stopPropagation(); props.onProfile(backend()?.person(part) ?? p); }}>
+          <Avatar person={p} size={18} presence={false} still profile={null} /><span>{p.name}</span>
+        </button>
+      );
+    })())}</For>
+  );
+}
 
 /** Same author within 5 minutes, no reply, no system message: drawn as a continuation. */
 export const continues = (prev: Msg | undefined, m: Msg) =>
@@ -293,7 +309,12 @@ function EmbedView(props: { e: Embed }) {
               <a class="em-title" href={e().url} target="_blank" rel="noopener noreferrer nofollow">{e().title}</a>
             </Show>
           </Show>
-          <Show when={e().description}><div class="em-desc">{e().description!.slice(0, 350)}</div></Show>
+          {/* Bots and webhooks (GitHub…) write their embeds in markdown: shown formatted, like Stoat. Website previews are plain text. */}
+          <Show when={e().description}>
+            <Show when={e().kind === "text"} fallback={<div class="em-desc">{e().description!.slice(0, 350)}</div>}>
+              <Markdown text={e().description!.length > 1500 ? `${e().description!.slice(0, 1500)}…` : e().description!} class="em-desc em-md" />
+            </Show>
+          </Show>
           {/* YouTube plays right here; a post with a video (an Instagram reel, a clip on X) plays inline. */}
           <Show when={e().kind === "website" && e().special?.type === "YouTube" && e().special?.id} fallback={
             <Show when={e().video && e().kind === "website" && !e().special} fallback={
@@ -361,7 +382,7 @@ function ReplyPreview(props: { channelId: string; id: string; local(id: string):
         {(r) => (<>
           <Avatar person={r().author} size={16} presence={false} still profile={null} />
           <NameText person={r().author} class="rr-name" fontOnly />
-          <span class="rr-text">{plain(r().text, { user: (id) => backend()!.person(id).name, channel: (id) => backend()!.channelName(id) }) || (r().attachments?.length ? "Sent an attachment" : "")}</span>
+          <span class="rr-text"><Show when={r().text.trim()} fallback={r().attachments?.length ? "Sent an attachment" : ""}><PlainLine text={r().text} max={300} /></Show></span>
         </>)}
       </Show>
     </button>
@@ -487,7 +508,11 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
 
   return (
     <Show when={!m().system} fallback={
-      <div class="msg system" id={`msg-${m().id}`}><Icon name="arrow-in" size={16} /><span>{m().system}</span><time>{time(m().at)}</time></div>
+      <div class="msg system" id={`msg-${m().id}`} data-kind={sysKind(m().systemType)}>
+        <Icon name={sysIcon(m().systemType)} size={16} />
+        <span class="sys-text"><SystemText text={m().system!} onProfile={props.act.onProfile} /></span>
+        <time>{time(m().at)}</time>
+      </div>
     }>
       <article class="msg" id={`msg-${m().id}`} classList={{ head: head(), tight: compact(), mentioned: !!m().mentionsMe, pending: !!m().pending, hl: !!props.highlight }}
         data-own={mine() || undefined} onContextMenu={(e) => { if (props.editing || m().pending) return; menu(e); }}
@@ -516,6 +541,8 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
               </button>
               {/* Their top role's icon, like Stoat */}
               <Show when={m().author.roleIcon}>{(src) => <img class="role-icon" src={src()} alt="" />}</Show>
+              {/* Their pronouns, in the same little pill as on their card */}
+              <Show when={m().author.pronouns}>{(pr) => <span class="msg-pronouns" title="Pronouns">{pr()}</span>}</Show>
               <Show when={m().author.bot}><span class="tag">Bot</span></Show>
               <Show when={!compact()}><time title={stamp(m().at)}>{stamp(m().at)}</time></Show>
             </header>

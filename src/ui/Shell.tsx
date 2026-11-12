@@ -1,9 +1,11 @@
 import { createEffect, createMemo, createResource, createSignal, For, lazy, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
+import { unreadBadge } from "./markedUnread";
 import { badgeNum } from "./badge";
 import { TextWithEmoji } from "./chat/EmojiText";
 import { createStore, reconcile } from "solid-js/store";
 import type { CategoryInfo, ChannelInfo, Person, Space } from "../lib/backend/types";
 import { plain } from "../lib/markdown";
+import { plainNames } from "./chat/Markdown";
 import { notify } from "../lib/notify";
 import { NotifyPrompt } from "./NotifyPrompt";
 import { BannerHost, showBanner } from "./Banner";
@@ -55,7 +57,7 @@ import { backend, book, bumpMe, device, ext, meNow, platform, settings, updateDe
 import { activeAccount } from "../lib/session/book";
 import { Voice, VoiceMembers } from "./Voice";
 import { Soundboard } from "./call/Soundboard";
-import { categoryMenu, channelListMenu, channelMenu, favoriteMenu, inviteTo, serverMenu } from "./menus";
+import { canAdminServer, categoryMenu, channelListMenu, channelMenu, favoriteMenu, inviteTo, serverMenu } from "./menus";
 import { startActivity } from "./activity";
 import { startDesktop } from "./desktop";
 const ProfileEditorHost = lazy(() => import("./ProfileEditor").then((m) => ({ default: m.ProfileEditorHost })));
@@ -299,6 +301,8 @@ export function Shell() {
       if (list.some((x) => x.channels.some((ch) => ch.id === c.channel))) { reopened = true; openChannelById(c.channel); }
     }));
   }
+  /** You can change something in this server's settings: only then its gear shows (the menu has "Your profile in this server"). */
+  const adminHere = createMemo(() => { const sp = space(); return !!sp && !sp.home && canAdminServer(backend()?.serverInfo(sp.id) ?? null); });
   // Big servers (over 1,000 members): profile effects in their chat and member list hold still, if that's on.
   createEffect(() => {
     const big = !!device().perf.bigStill && (space()?.memberCount ?? 0) > 1000 && !space()?.home;
@@ -340,7 +344,7 @@ export function Shell() {
     const title = where?.c.kind === "dm" ? e.m.author.name
       : where?.c.kind === "group" ? `${e.m.author.name} (${where.c.name})`
       : `${e.m.author.name} (#${where?.c.name ?? "channel"}${where && !where.s.home ? `, ${where.s.name}` : ""})`;
-    const body = plain(e.m.text, { user: (id) => backend()!.person(id).name, channel: (id) => backend()!.channelName(id) }) || "Sent an attachment";
+    const body = plain(e.m.text, plainNames) || "Sent an attachment";
     const text = device().notifyPreview ? body.slice(0, 180) : direct ? "Sent you a message" : "Mentioned you";
     // Phones and tablets, in Mustela: a little card from the top. Otherwise (desktop, or the phone's home screen): the system's.
     if (MOBILE_UI && !document.hidden && document.hasFocus()) {
@@ -471,7 +475,11 @@ export function Shell() {
         {/* The open DM shows their nameplate behind it (more than a highlighted name) */}
         <Show when={c.kind === "dm" && c.peer && channel()?.id === c.id}><DmPlate person={c.peer!} /></Show>
         <Show when={c.kind === "dm" && c.peer} fallback={
-          <Show when={c.iconUrl && c.kind === "group"} fallback={<Icon name={c.kind === "voice" ? "speaker" : c.kind === "group" ? "users" : o.saved ? "note" : "hash"} size={c.kind === "group" || o.saved ? 20 : 18} class="chan-ic" />}>
+          <Show when={c.iconUrl && c.kind === "group"} fallback={<>
+            <Icon name={c.kind === "voice" ? "speaker" : c.kind === "group" ? "users" : o.saved ? "note" : "hash"} size={c.kind === "group" || o.saved ? 20 : 18} class="chan-ic" />
+            {/* A server channel's own picture, beside its kind (like Stoat shows it) */}
+            <Show when={c.iconUrl && (c.kind === "text" || c.kind === "voice")}><img class="chan-pic" src={c.iconUrl} alt="" loading="lazy" /></Show>
+          </>}>
             <img class="chan-icon" src={c.iconUrl} alt="" />
           </Show>
         }>
@@ -482,7 +490,8 @@ export function Shell() {
           <NameText person={c.peer!} class="chan-nm" /></Show></span><Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
         <Show when={call.active() && call.channel()?.id === c.id}><Icon name="speaker" size={14} class="live-ic" /></Show>
         {/* DMs count every unread message (like the orbs above the server list); channels count mentions. */}
-        <Show when={(c.kind === "dm" || c.kind === "group") && c.unread && !c.muted ? Math.max(c.mentions ?? 0, backend()!.unreadCount(c.id)) : c.mentions}>{(n) => <span class="badge">{n() > 99 ? "99+" : n()}</span>}</Show>
+        {/* A DM you marked unread yourself shows a dot until something new comes in (markedUnread.ts) */}
+        <Show when={(c.kind === "dm" || c.kind === "group") ? unreadBadge(c) : c.mentions}>{(n) => n() === "dot" ? <span class="badge dot" aria-label="Unread" /> : <span class="badge">{(n() as number) > 99 ? "99+" : n()}</span>}</Show>
       </button>
       <Show when={!o.server && !space()?.home && (serverPerms()?.invite || serverPerms()?.manageChannels)}>
         <span class="chan-acts">
@@ -597,7 +606,7 @@ export function Shell() {
             <Show when={c.kind === "dm" && c.peer} fallback={<Show when={c.iconUrl} fallback={<span><Icon name="users" size={22} /></span>}><img src={c.iconUrl} alt="" /></Show>}>
               <Avatar person={c.peer!} size={48} presence={false} still />
             </Show>
-            <span class="badge orb-badge">{(() => { const n = Math.max(c.mentions ?? 0, backend()!.unreadCount(c.id)); return n > 99 ? "99+" : n; })()}</span>
+            <Show when={unreadBadge(c)}>{(n) => n() === "dot" ? <span class="badge orb-badge dot" aria-label="Unread" /> : <span class="badge orb-badge">{(n() as number) > 99 ? "99+" : n()}</span>}</Show>
           </button>
         )}</For>
         <div class="rail-sep" />
@@ -625,10 +634,10 @@ export function Shell() {
         }>
           <Show when={space()!.bannerUrl} fallback={
             <header class="bar side-bar" onContextMenu={(e) => serverMenu(e, space()!)}><h2>{space()!.name}</h2><span class="grow" />
-              <button class="icon-btn" aria-label="Server settings" title="Server settings" onClick={() => setServerSettings({ id: space()!.id })}><Icon name="gear" size={18} /></button></header>
+              <Show when={adminHere()}><button class="icon-btn" aria-label="Server settings" title="Server settings" onClick={() => setServerSettings({ id: space()!.id })}><Icon name="gear" size={18} /></button></Show></header>
           }>
             <header class="server-banner" onContextMenu={(e) => serverMenu(e, space()!)} style={{ "background-image": `url("${space()!.bannerUrl!.replace(/"/g, "%22")}")` }}><h2>{space()!.name}</h2>
-              <button class="icon-btn sb-gear" aria-label="Server settings" title="Server settings" onClick={() => setServerSettings({ id: space()!.id })}><Icon name="gear" size={18} /></button></header>
+              <Show when={adminHere()}><button class="icon-btn sb-gear" aria-label="Server settings" title="Server settings" onClick={() => setServerSettings({ id: space()!.id })}><Icon name="gear" size={18} /></button></Show></header>
           </Show>
         </Show>
         <div class="chans" onContextMenu={(e) => { if (space() && !space()!.home && !isFavs() && e.target === e.currentTarget) channelListMenu(e, space()!.id); }}>
@@ -674,7 +683,7 @@ export function Shell() {
           }>
             <Show when={!phone()} fallback={<>
               {/* who's around, scrolling sideways */}
-              <ActiveStrip onProfile={setProfile} onOpenChannel={openChannelById} />
+              <ActiveStrip onProfile={setProfile} onOpenChannel={openChannelById} onVoiceChat={(id) => { openChannelById(id); setPhoneVoiceChat(true); }} />
             </>}>
               {/* Like Discord's: find a person, chat, channel or server (Ctrl+K) */}
               {/* Tablets: the same search screen as phones (people, messages, media…), from a proper search field. */}

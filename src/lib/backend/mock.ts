@@ -151,7 +151,7 @@ export class DemoBackend implements ChatBackend {
     const welcome = seed("c1", "u1", "Welcome to **Mustela**! Click my avatar to see the full profile card. 🌸", 64, me, { reactions: [{ emoji: "🌸", users: ["u2", "u4", "me"] }, { emoji: "👋", users: ["u5"] }] });
     this.store = {
       c1: [
-        seed("c1", "u7", "", 70, me, { system: "Juniper joined" }),
+        seed("c1", "u7", "", 70, me, { system: "<@u7> joined the server", systemType: "user_joined" }),
         welcome,
         seed("c1", "u1", "The petals are a *profile effect*. Frames and nameplates are separate slots, and everything is drawn on your device.", 63, me),
         seed("c1", "u2", "Everything has a performance rating, so a profile can't turn your phone into a slideshow. Code for the curious:\n```ts\nconst rating = rateProfile(profile).total.label; // \"Good\"\n```", 41, me, { reactions: [{ emoji: "🔥", users: ["u1", "u4"] }] }),
@@ -162,6 +162,9 @@ export class DemoBackend implements ChatBackend {
         seed("c1", "u5", "Try switching accounts from the bottom-left menu, <@me>!", 4, me, { mentionsMe: true }),
         seed("c1", "u4", "https://gifbox.me/view/demo-wave", 3, me, { embeds: [{ kind: "image", gif: true, url: "https://gifbox.me/view/demo-wave", image: { url: scene(200, 320, 320, 200), width: 320, height: 200 } }] }),
         seed("c1", "u1", "Invite your friends: https://stt.gg/garden", 2, me),
+        seed("c1", "u3", "", 1, me, { system: "<@u3> left the server", systemType: "user_left" }),
+        seed("c1", "u7", "", 1, me, { embeds: [{ kind: "text", colour: "#e8956a", siteName: "Otto", title: undefined,
+          description: "#### [[glass-garden/mustela] New comment on issue #12: petals don't fall on Android](https://github.com/)\nLooks like the effect is **paused** when `Keep animating in the background` is off.\n\n> it starts working after I comment\n\nThat's how things work! Steps:\n```\n+ open a DM\n+ scroll the chat\n```" }] }),
       ],
       c2: [
         seed("c2", "u2", "Post your best profile setups here. # of the day:", 90, me, { attachments: [IMG2, FILE] }),
@@ -503,7 +506,11 @@ export class DemoBackend implements ChatBackend {
   async joinInvite(): Promise<string> { throw new Error("Invites need a real Stoat account."); }
   async profileOf(id: string): Promise<ProfileInfo> {
     const raw = profiles[id];
-    return { config: raw ? sanitizeProfile(raw) : null, bio: bios[id], bannerUrl: banners[id], activity: id === "u2" ? { kind: "playing", name: "Stardew Valley", details: "Year 2, Summer", state: "Fishing at the beach", startedAt: Date.now() - 47 * 60_000 } : null };
+    const appIcon = (bg: string, fg: string, glyph: string) => "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${bg}"/><text x="32" y="44" font-size="34" text-anchor="middle" font-family="sans-serif" font-weight="700" fill="${fg}">${glyph}</text></svg>`);
+    return { config: raw ? sanitizeProfile(raw) : null, bio: bios[id], bannerUrl: banners[id], activity: id === "u2" ? { kind: "playing", name: "Stardew Valley", details: "Year 2, Summer", state: "Fishing at the beach", startedAt: Date.now() - 47 * 60_000, image: appIcon("#5fa84b", "#fff6c9", "S") }
+      : id === "u1" ? { kind: "listening", name: "YouTube Music", image: appIcon("#e33", "#fff", "♪"), details: "Rainy town, cozy village theme", state: "Lo-fi Garden", startedAt: Date.now() - 80_000, endsAt: Date.now() + 3540_000,
+        buttons: [{ label: "Play on YouTube Music", url: "https://music.youtube.com/" }, { label: "View app on GitHub", url: "https://github.com/" }] }
+      : null };
   }
   async publishProfile() { /* nothing to publish to in demo mode */ }
   /** Demo: looks stay in this device's settings; banners as local picture links. */

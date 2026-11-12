@@ -28,7 +28,7 @@ describe("stoat helpers", () => {
   });
   it("describes system messages", () => {
     const name = (id?: string) => (id === "a" ? "Ann" : "Bo");
-    expect(systemText({ type: "user_joined", userId: "a" }, name)).toBe("Ann joined");
+    expect(systemText({ type: "user_joined", userId: "a" }, name)).toBe("Ann joined the server");
     expect(systemText({ type: "channel_renamed", byId: "b", name: "x" }, name)).toBe("Bo renamed the channel to x");
     expect(systemText({ type: "mystery" }, name)).toBe("System message");
   });

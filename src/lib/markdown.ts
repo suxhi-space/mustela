@@ -19,6 +19,8 @@ export type Inline =
   | { t: "code"; v: string }
   | { t: "link"; href: string; c: Inline[] }
   | { t: "user" | "channel" | "role"; id: string }
+  /** @everyone / @online (Stoat only notifies people when the sender may use them; it's drawn as a mention either way) */
+  | { t: "mass"; v: "everyone" | "online" }
   | { t: "emoji"; id: string }
   | { t: "time"; unix: number; style: string };
 
@@ -80,10 +82,11 @@ export function parse(src: string, depth = 0): Block[] {
       out.push({ t: "quote", c: parse(q.join("\n"), depth + 1) });
       continue;
     }
-    const h = /^(#{1,3})\s+(.+)$/.exec(line);
+    // #### to ###### (bots and GitHub use them) show like ###.
+    const h = /^(#{1,6})\s+(.+)$/.exec(line);
     if (h) {
       flush();
-      out.push({ t: "h", level: h[1]!.length as 1 | 2 | 3, c: inline(h[2]!, depth) });
+      out.push({ t: "h", level: Math.min(3, h[1]!.length) as 1 | 2 | 3, c: inline(h[2]!, depth) });
       continue;
     }
     const li = /^\s*(?:([-*+])|(\d{1,9})[.)])\s+(.*)$/.exec(line);
@@ -141,6 +144,11 @@ export function inline(src: string, depth = 0): Inline[] {
       if (al && safeHref(al[1]!)) { text(); out.push({ t: "link", href: safeHref(al[1]!)!, c: [{ t: "text", v: al[1]! }] }); i += al[0].length; continue; }
     }
 
+    if (ch === "@" && !/[\w@]/.test(src[i - 1] ?? "")) {
+      const m = /^@(everyone|online)(?![\w])/.exec(rest);
+      if (m) { text(); out.push({ t: "mass", v: m[1] as "everyone" | "online" }); i += m[0].length; continue; }
+    }
+
     if (ch === ":") {
       const m = /^:([a-zA-Z0-9_+-]{1,32}):/.exec(rest);
       if (m) {
@@ -151,7 +159,8 @@ export function inline(src: string, depth = 0): Inline[] {
     }
 
     if (ch === "[" && depth < MAX_DEPTH) {
-      const m = /^\[([^\]\n]{1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,2000})\)/.exec(rest);
+      // The text may hold its own [brackets] (GitHub: "[[owner/repo] New comment](…)").
+      const m = /^\[((?:[^[\]\n]|\[[^[\]\n]*\]){1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,2000})\)/.exec(rest);
       const href = m ? safeHref(m[2]!) : null;
       if (m && href) { text(); out.push({ t: "link", href, c: inline(m[1]!, depth + 1) }); i += m[0].length; continue; }
     }
@@ -226,7 +235,7 @@ export function isJumbo(text: string): boolean {
 }
 
 /** Plain text for notifications and reply previews: markup removed, ids resolved. */
-export function plain(text: string, names: { user?(id: string): string; channel?(id: string): string | undefined } = {}): string {
+export function plain(text: string, names: { user?(id: string): string; channel?(id: string): string | undefined; emoji?(id: string): string } = {}): string {
   const walk = (n: Inline[]): string => n.map((x) => {
     switch (x.t) {
       case "text": case "code": return x.v;
@@ -234,7 +243,8 @@ export function plain(text: string, names: { user?(id: string): string; channel?
       case "user": return "@" + (names.user?.(x.id) ?? "user");
       case "channel": return "#" + (names.channel?.(x.id) ?? "channel");
       case "role": return "@role";
-      case "emoji": return ":emoji:";
+      case "mass": return "@" + x.v;
+      case "emoji": return names.emoji?.(x.id) ?? ":emoji:";
       case "time": return new Date(x.unix * 1000).toLocaleString();
       case "spoiler": return "▒▒▒";
       default: return walk(x.c);

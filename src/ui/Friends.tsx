@@ -11,6 +11,8 @@ import { createProfileInfo } from "./hooks";
 import { ActivityCard } from "./Profile";
 import { joinCall } from "./call/state";
 import { verb } from "./activity";
+import { friendsFirst, VoiceFaces } from "./VoiceFaces";
+import { VoicePreview } from "./VoicePreview";
 
 type Tab = "online" | "all" | "pending" | "blocked" | "add";
 
@@ -224,7 +226,7 @@ function ActiveCard(props: { p: Person; onProfile(p: Person): void }) {
  * in (their pictures and where), a big card for a friend doing something (what they're playing or listening to), and
  * a small square for friends who are just online. Scrolls sideways.
  */
-export function ActiveStrip(props: { onProfile(p: Person): void; onOpenChannel(id: string): void }) {
+export function ActiveStrip(props: { onProfile(p: Person): void; onOpenChannel(id: string): void; onVoiceChat?(id: string): void }) {
   const [data] = createResource(() => backend(), (b) => b.friends());
   const online = createMemo(() => (data()?.friends ?? []).filter((p) => p.online));
   // Friends in voice, grouped by the channel they're in.
@@ -240,24 +242,34 @@ export function ActiveStrip(props: { onProfile(p: Person): void; onOpenChannel(i
     return [...by.values()];
   });
   const rest = createMemo(() => { const inVoice = new Set(calls().flatMap((g) => g.people.map((p) => p.id))); return online().filter((p) => !inVoice.has(p.id)); });
+  // Everyone in those calls (not just friends), for the faces and the count: your friends first.
+  const [chans] = createResource(() => calls().map((g) => g.channelId).join(","), async (ids) => (ids ? (await backend()!.spaces()).flatMap((s) => s.channels) : []));
+  // Tapping a call shows it in a card first (who's there, Join voice), like Discord's.
+  const [preview, setPreview] = createSignal<string | null>(null);
+  const previewed = () => { const id = preview(); return id ? chans()?.find((c) => c.id === id) ?? null : null; };
+  const inCall = (g: { channelId: string; people: Person[] }) => {
+    const all = chans()?.find((c) => c.id === g.channelId)?.voice ?? [];
+    const known = new Set(g.people.map((p) => p.id));
+    return friendsFirst([...g.people, ...all.filter((p) => !known.has(p.id))]);
+  };
   return (
     <Show when={online().length}>
       <section class="active-strip" aria-label="Active now" data-no-swipe>
         <For each={calls()}>{(g) => (
-          <button class="as-card big" onClick={() => props.onOpenChannel(g.channelId)}>
-            <span class="as-faces" classList={{ many: g.people.length > 1 }}>
-              <For each={g.people.slice(0, g.people.length > 3 ? 2 : 3)}>{(p) => <Avatar person={p} size={g.people.length > 1 ? 38 : 52} presence={false} still />}</For>
-              <Show when={g.people.length > 3}><span class="as-more">+{g.people.length - 2}</span></Show>
-            </span>
-            <Icon name={g.screen ? "screen" : "volume-up"} size={18} class="as-live" />
+          <button class="as-card big" onClick={() => setPreview(g.channelId)}>
+            <VoiceFaces people={inCall(g)} size={68} />
             <span class="as-text">
-              <strong>{g.people.map((p) => p.name).join(", ")}</strong>
-              <small>{g.name}{g.where ? ` · ${g.where}` : ""}</small>
+              <strong>{g.people.map((p) => p.name).join(", ")}<Show when={inCall(g).length > g.people.length}><span class="as-others"> +{inCall(g).length - g.people.length}</span></Show></strong>
+              <small><Icon name={g.screen ? "screen" : "volume-up"} size={15} class="as-live" />{g.name}{g.where ? ` · ${g.where}` : ""}</small>
             </span>
           </button>
         )}</For>
         <For each={rest()}>{(p) => <StripPerson p={p} onProfile={props.onProfile} />}</For>
       </section>
+      <Show when={previewed()}>{(c) => (
+        <VoicePreview channel={c()} where={calls().find((g) => g.channelId === c().id)?.where} onClose={() => setPreview(null)}
+          onOpen={() => props.onOpenChannel(c().id)} onChat={() => (props.onVoiceChat ?? props.onOpenChannel)(c().id)} />
+      )}</Show>
     </Show>
   );
 }

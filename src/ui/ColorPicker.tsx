@@ -18,6 +18,16 @@ export function openColorPicker(anchor: Element, value: string, apply: (hex: str
   setState({ x: r.left, y: r.bottom + 6, value: /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : "#5865f2", title, apply });
 }
 
+/** Where the last press was, so a picker opened from a menu item appears where that menu was. */
+let lastPress = { x: 0, y: 0 };
+if (typeof window !== "undefined") addEventListener("pointerdown", (e) => { lastPress = { x: e.clientX, y: e.clientY }; }, { capture: true, passive: true });
+
+/** Opens the picker where you last pressed (a menu item has gone by the time it opens, so there's nothing to anchor to). */
+export function openColorPickerHere(value: string | undefined, apply: (hex: string) => void, title?: string) {
+  const x = lastPress.x || innerWidth / 2 - 130, y = lastPress.y || innerHeight / 3;
+  setState({ x, y: y + 6, value: value && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : "#5865f2", title, apply });
+}
+
 const QUICK = ["#ef5b5b", "#f57731", "#f0b232", "#3fbf72", "#2bb3c0", "#5b8cf0", "#5865f2", "#a77bf3", "#e86fb4", "#9aa3b2", "#ffffff", "#1b1b1f"];
 
 function hexToHsv(hex: string): [number, number, number] {

@@ -3,6 +3,7 @@ import { DEFAULT_PIN_GROUP, type PinGroup } from "../lib/sync/settings";
 import type { FavGroup } from "../lib/sync/ext";
 import { confirmDialog, promptDialog, type MenuItem } from "./menu";
 import { ext, settings, updateExt, updateSettings } from "./store";
+import { openColorPickerHere } from "./ColorPicker";
 
 /**
  * Pinned conversations. Groups have a name and a color, live in the synced
@@ -70,6 +71,12 @@ export function moveFavGroup(id: string, before: string | null) {
   });
 }
 
+/** "Custom color…": any colour from Mustela's picker, ticked when the group already has one that isn't a preset. */
+function customColor(current: string, apply: (hex: string) => void, name: string): MenuItem {
+  const custom = current !== "none" && !PIN_COLORS.includes(current);
+  return { label: "Custom color…", icon: "plus", checked: custom, onSelect: () => openColorPickerHere(custom ? current : undefined, apply, `${name} color`) };
+}
+
 /** Right-click a group heading. */
 export function groupItems(g: PinGroup): MenuItem[] {
   const edit = (patch: Partial<PinGroup>) => updateSettings((s) => ({ ...s, pins: { ...s.pins, groups: s.pins.groups.map((x) => (x.id === g.id ? { ...x, ...patch } : x)) } }));
@@ -80,6 +87,8 @@ export function groupItems(g: PinGroup): MenuItem[] {
       { label: "No color", checked: g.color === "none", onSelect: () => edit({ color: "none" }) },
       { sep: true },
       ...PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => edit({ color: c }) })),
+      { sep: true },
+      customColor(g.color, (color) => edit({ color }), g.name),
     ] },
     ...(i > 0 ? [{ label: "Move up", icon: "up", onSelect: () => movePinGroup(g.id, list[i - 1]!.id) } as MenuItem] : []),
     ...(i >= 0 && i < list.length - 1 ? [{ label: "Move down", icon: "down", onSelect: () => movePinGroup(g.id, list[i + 2]?.id ?? null) } as MenuItem] : []),
@@ -133,6 +142,8 @@ export function favGroupItems(g: FavGroup): MenuItem[] {
       { label: "No color", checked: g.color === "none", onSelect: () => edit({ color: "none" }) },
       { sep: true },
       ...PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => edit({ color: c }) })),
+      { sep: true },
+      customColor(g.color, (color) => edit({ color }), g.name),
     ] },
     { label: "Move up", icon: "up", onSelect: () => move(-1) },
     { label: "Move down", icon: "down", onSelect: () => move(1) },

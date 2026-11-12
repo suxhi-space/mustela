@@ -120,8 +120,8 @@ export function systemText(sm: any, name: (id?: string) => string): string {
     case "text": return sm.content ?? "";
     case "user_added": return `${name(sm.userId)} was added by ${name(sm.byId)}`;
     case "user_remove": return `${name(sm.userId)} was removed by ${name(sm.byId)}`;
-    case "user_joined": return `${name(sm.userId)} joined`;
-    case "user_left": return `${name(sm.userId)} left`;
+    case "user_joined": return `${name(sm.userId)} joined the server`;
+    case "user_left": return `${name(sm.userId)} left the server`;
     case "user_kicked": return `${name(sm.userId)} was kicked`;
     case "user_banned": return `${name(sm.userId)} was banned`;
     case "channel_renamed": return `${name(sm.byId)} renamed the channel to ${sm.name}`;
@@ -426,7 +426,9 @@ export class StoatBackend implements ChatBackend {
       attachments: (m.attachments ?? []).map(attachmentOf),
       embeds: (m.embeds ?? []).map(embedOf).filter(Boolean) as Embed[],
       reactions, replyIds: m.replyIds, mentionsMe: !!m.mentioned, pinned: !!m.pinned,
-      system: m.systemMessage ? systemText(m.systemMessage, (id) => (id ? this.person(id).name : "Someone")) : undefined,
+      // People in system messages are written as mentions, so they show as a chip with their picture (opens their card).
+      system: m.systemMessage ? systemText(m.systemMessage, (id) => (id ? `<@${id}>` : "Someone")) : undefined,
+      systemType: m.systemMessage?.type,
     };
   }
 
@@ -561,7 +563,16 @@ export class StoatBackend implements ChatBackend {
       ["messageReactionRemoveEmoji", (m) => cb({ t: "update", m: this.toMsg(m) })],
       ["channelStartTyping", typing], ["channelStopTyping", typing],
       ...["channelAcknowledged", "channelCreate", "channelDelete", "channelUpdate", "serverCreate", "serverDelete", "serverUpdate",
-        "serverLeave", "userUpdate", "channelGroupJoin", "channelGroupLeave"].map((e): [string, () => void] => [e, activity]),
+        "serverLeave", "channelGroupJoin", "channelGroupLeave"].map((e): [string, () => void] => [e, activity]),
+      // Someone coming online (or changing status): member lists are built from memory and kept for a while, so they
+      // need telling, or a friend who came online stayed "offline" there until a restart.
+      ["userUpdate", (u: any, prev: any) => {
+        if (u && (!!prev?.online !== !!u.online || prev?.status?.presence !== u.status?.presence || prev?.status?.text !== u.status?.text)) {
+          this.memberCache.clear();
+          cb({ t: "presence", id: u.id });
+        }
+        activity();
+      }],
     ];
     h.push(["userSettingsUpdate", (_id: string, update: Record<string, [number, string]>) => {
       for (const [k, v] of Object.entries(update ?? {})) this.applySynced(k, v?.[1]);

@@ -4,7 +4,7 @@ import { dragToClose } from "./sheetDrag";
 import { useBack } from "./back";
 import type { Activity } from "../lib/cloud";
 import { activity, elapsed, verb } from "./activity";
-import { currentServer, openProfileEditor, profileView, setProfileView } from "./nav";
+import { currentServer, openChannel, openProfileEditor, profileView, setProfileView } from "./nav";
 import { attempt, openMenu, toast } from "./menu";
 import { userMenu } from "./menus";
 import { call, joinCall } from "./call/state";
@@ -18,6 +18,7 @@ import { createProfileInfo, createSize, refreshProfile, mutualOf } from "./hooks
 import { EffectCanvas, FrameCanvas } from "./Paint";
 import { backend } from "./store";
 import { Icon } from "./icons";
+import { friendsFirst, VoiceFaces } from "./VoiceFaces";
 import { RatingBadge } from "./controls";
 import { Markdown, TextWithEmoji } from "./chat/Markdown";
 import { ratingOf } from "./anim";
@@ -30,7 +31,7 @@ const PRESENCE_LABEL: Record<string, string> = { online: "Online", idle: "Idle",
  * with the person's effect drawn over it and their frame around it.
  * `profile` is passed directly for the live preview in settings.
  */
-export function ProfileCard(props: { person: Person; profile?: ProfileConfig | null; bio?: string; banner?: string; children?: JSX.Element; showRating?: boolean; marked?: boolean; compact?: boolean }) {
+export function ProfileCard(props: { person: Person; profile?: ProfileConfig | null; bio?: string; banner?: string; children?: JSX.Element; showRating?: boolean; marked?: boolean; compact?: boolean; noActivity?: boolean }) {
   const { profile, info, ref: seenRef } = createPerson(() => props.person, () => props.profile);
   const [size, sizeRef] = createSize();
   const fxAnim = createAnim(profile, "effect");
@@ -92,21 +93,7 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
           <Show when={props.person.bot}><span class="tag">Bot</span></Show>
           <For each={props.person.badges}>{(b) => <span class="pc-badge">{b}</span>}</For>
         </div>
-        <Show when={voice()}>{(v) => (
-          <section class="pc-section pc-voice">
-            <h3 class="label">{v().screen ? "Streaming in voice" : "In voice"}</h3>
-            <div class="pv-row">
-              <span class="pv-ic" classList={{ live: v().screen }}><Icon name={v().screen ? "screen" : "speaker"} size={18} /></span>
-              <span class="pv-text"><strong>{v().channelName}</strong><Show when={v().serverName}><small>{v().serverName}</small></Show></span>
-              <Show when={v().screen}><span class="live-pill">LIVE</span></Show>
-              <Show when={!(call.active() && call.channel()?.id === v().channelId)}>
-                <button class="btn small" onClick={() => void joinCall({ id: v().channelId, name: v().channelName, kind: "voice" })}>Join</button>
-              </Show>
-            </div>
-            <VoiceExtras person={props.person} v={v()} />
-          </section>
-        )}</Show>
-        <Show when={act()}>{(a) => <ActivityCard a={a()} />}</Show>
+        {/* About me first, then what they're doing (like Discord). */}
         <Show when={bio()}>
           <section class="pc-section">
             <h3 class="label">About me</h3>
@@ -114,6 +101,9 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
             <Show when={long()}><button class="link pc-more" onClick={() => setMore(!more())}>{more() ? "Show less" : "Read more"}</button></Show>
           </section>
         </Show>
+        {/* The full profile shows voice and activity in its Activity tab, so its card leaves them out (noActivity). */}
+        <Show when={!props.noActivity && voice()}>{(v) => <VoiceBox person={props.person} v={v()} />}</Show>
+        <Show when={!props.noActivity && act()}>{(a) => <ActivityCard a={a()} />}</Show>
         <Show when={props.showRating && profile()}>
           <section class="pc-section">
             <h3 class="label">Performance</h3>
@@ -156,21 +146,38 @@ async function grabFrame(uid: string): Promise<string | null> {
   } catch { return null; } finally { v.pause(); v.srcObject = null; }
 }
 
-/** Under "In voice" / "Streaming": who else is in the call, and (while you're in it) a picture of the stream. */
-function VoiceExtras(props: { person: Person; v: VoicePresence }) {
+
+/**
+ * "In voice" on a profile, like Discord's: one soft box (like the activity box) with a tile of who's in the call, the
+ * channel and server, and a full-width Join voice (or Open voice when you're already in that call). `onGo` closes
+ * whatever it's in first. A picture of their stream shows on top while you're watching it.
+ */
+function VoiceBox(props: { person: Person; v: VoicePresence; onGo?(): void }) {
+  const here = () => call.active() && call.channel()?.id === props.v.channelId;
   const [spaces] = createResource(() => props.v.channelId, () => backend()!.spaces());
   const others = () => (spaces()?.flatMap((s) => s.channels).find((c) => c.id === props.v.channelId)?.voice ?? []).filter((m) => m.id !== props.person.id);
+  /** Them, then your friends, then everyone else in the call (one tile, like Discord's) */
+  const everyone = () => friendsFirst(others(), props.person);
   const [frame] = createResource(() => (props.v.screen && call.active() && call.channel()?.id === props.v.channelId ? props.person.id : null), (uid) => grabFrame(uid));
-  return (<>
-    <Show when={frame()}>{(src) => <img class="pv-frame" src={src()} alt={`${props.person.name}'s stream`} />}</Show>
-    <Show when={others().length}>
-      <div class="pv-people" title={others().map((m) => m.name).join(", ")}>
-        <For each={others().slice(0, 6)}>{(m) => <Avatar person={m} size={22} presence={false} still />}</For>
-        <Show when={others().length > 6}><span class="pv-more">+{others().length - 6}</span></Show>
-        <small>{others().length === 1 ? `with ${others()[0]!.name}` : `with ${others().length} others`}</small>
+  return (
+    <section class="pc-section pc-voice pc-box">
+      <h3 class="label">{props.v.screen ? "Streaming in voice" : "In voice"}</h3>
+      <Show when={frame()}>{(src) => <img class="pv-frame" src={src()} alt={`${props.person.name}'s stream`} />}</Show>
+      <div class="pv-row">
+        <VoiceFaces people={everyone()} size={60} />
+        <span class="pv-text">
+          <strong class="pv-chan"><Icon name={props.v.screen ? "screen" : "speaker"} size={15} /><span>{props.v.channelName}</span><Show when={props.v.screen}><span class="live-pill">LIVE</span></Show></strong>
+          <Show when={props.v.serverName}><small>in {props.v.serverName}</small></Show>
+          <Show when={others().length}><small class="pv-with">{others().length === 1 ? `with ${others()[0]!.name}` : `with ${everyone()[1]!.name} and ${others().length - 1} other${others().length === 2 ? "" : "s"}`}</small></Show>
+        </span>
       </div>
-    </Show>
-  </>);
+      <button class="btn pv-go" onClick={() => {
+        props.onGo?.();
+        if (here()) openChannel(props.v.channelId);
+        else void joinCall({ id: props.v.channelId, name: props.v.channelName, kind: "voice" });
+      }}>{here() ? "Open voice" : "Join voice"}</button>
+    </section>
+  );
 }
 
 /** When someone made their Stoat account: the first 10 characters of a Stoat id are the time it was made. */
@@ -386,7 +393,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
       <div class="modal profile-full" role="dialog" aria-label={`${props.person.name}'s profile`}>
         <button class="icon-btn close" onClick={props.onClose} aria-label="Close"><Icon name="close" size={18} /></button>
         <div class="pf-card">
-          <ProfileCard person={props.person}>
+          <ProfileCard person={props.person} noActivity>
             <Show when={currentServer()}>{(sid) => <ServerSection person={props.person} serverId={sid()} />}</Show>
             <div class="pc-actions">
               <Show when={!self()} fallback={<button class="btn small primary" onClick={() => { props.onClose(); openProfileEditor(); }}><Icon name="pencil" size={15} />Edit profile</button>}>
@@ -408,11 +415,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
             <Switch>
               <Match when={tab() === "activity"}>
                 <Show when={voice() || act()} fallback={<p class="empty">Nothing going on right now.</p>}>
-                  <Show when={voice()}>{(v) => (
-                    <div class="pf-item"><span class="pv-ic" classList={{ live: v().screen }}><Icon name={v().screen ? "screen" : "speaker"} size={20} /></span>
-                      <span class="pv-text"><strong>{v().screen ? "Streaming in " : "In "}{v().channelName}</strong><Show when={v().serverName}><small>{v().serverName}</small></Show></span>
-                      <button class="btn small" onClick={() => { props.onClose(); void joinCall({ id: v().channelId, name: v().channelName, kind: "voice" }); }}>Join</button></div>
-                  )}</Show>
+                  <Show when={voice()}>{(v) => <VoiceBox person={props.person} v={v()} onGo={props.onClose} />}</Show>
                   <Show when={act()}>{(a) => <ActivityCard a={a()} />}</Show>
                 </Show>
               </Match>

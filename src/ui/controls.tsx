@@ -64,7 +64,7 @@ export function Slider(props: { value: number; min: number; max: number; onChang
  * A dropdown that opens Mustela's own menu (the system's list doesn't follow the theme: light
  * grey text on white in dark mode on Windows). Arrow keys on the button step through the choices.
  */
-export function Select<T extends string>(props: { value: T; options: { v: T; label: string }[]; onChange(v: T): void; label: string }) {
+export function Select<T extends string>(props: { value: T; options: { v: T; label: string }[]; onChange(v: T): void; label: string; disabled?: boolean }) {
   const current = () => props.options.find((o) => o.v === props.value)?.label ?? "";
   const open = (el: HTMLElement) => openMenu(el, props.options.map((o): MenuItem => ({ label: o.label, checked: o.v === props.value, onSelect: () => props.onChange(o.v) })), { width: el.offsetWidth });
   const step = (d: number) => {
@@ -73,7 +73,7 @@ export function Select<T extends string>(props: { value: T; options: { v: T; lab
     if (n && n.v !== props.value) props.onChange(n.v);
   };
   return (
-    <button type="button" class="select" aria-label={props.label} aria-haspopup="menu" data-value={props.value} onClick={(e) => open(e.currentTarget)}
+    <button type="button" class="select" aria-label={props.label} aria-haspopup="menu" data-value={props.value} disabled={props.disabled} onClick={(e) => open(e.currentTarget)}
       onKeyDown={(e) => {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); step(e.key === "ArrowDown" ? 1 : -1); }
         else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e.currentTarget); }

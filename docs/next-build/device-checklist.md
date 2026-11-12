@@ -124,3 +124,30 @@ These are the parts only a real phone, tablet or computer can confirm.
 - [ ] Play a YouTube video in a chat and tap its YouTube logo or title: it opens in your browser, Mustela stays where it was
 - [ ] Tap a link inside a link preview: it opens in your browser
 
+## Round 10
+- [ ] A server where you have no permissions: no gear next to its name, no "Server settings" in its menu
+- [ ] A channel with a picture: the picture shows next to it in the channel list
+- [ ] Channel settings of a voice channel: Slowmode is there
+- [ ] Server and channel settings (desktop): the first heading has room above it
+- [ ] Someone with a role icon: it sits right next to their name, lined up with it
+- [ ] Edit profile: the X closes it (desktop, phone, tablet)
+- [ ] Right-click a folder / pin group / favorites category > Colour > Custom colour…: pick one, Apply: it's used (on phones the picker comes from the bottom)
+- [ ] A friend comes online while a server with them is open: they move to Online within a few seconds, no restart
+- [ ] Reply to a message with a custom emoji: the reply line shows the emoji
+- [ ] A DM with someone who has a decoration and a profile effect: both keep moving while you scroll the chat
+- [ ] Someone listening to music with buttons: their card shows it in one box, buttons full width in their colours; full profile: Activity tab has it, their card doesn't
+- [ ] DM side card: About me above the activity; "View full profile" at the bottom of the card
+- [ ] Someone in voice: their card shows it in a box with Join voice; once you're in that call it says Open voice and takes you there
+- [ ] The status bubble's pointed corner is at the top left, by the avatar
+- [ ] (Android) Close Mustela (home button, wait a minute), have someone message you, screen on: the notification comes within about a minute
+- [ ] (Android) Same with the screen off: it comes within about 15 minutes (Android batches background checks)
+- [ ] (Android) Tap a message notification: Mustela opens that chat at that message (from closed, and from the background)
+- [ ] Someone with pronouns set: a small pill with them sits after their name (and role icon) in messages
+- [ ] Phone Home, a friend in voice with others: the card shows a tile of faces (friends first, "+N" past 3), tapping it opens a card from the bottom (people, stream, activities, Join voice); the channel name opens the channel; drag it down to close
+- [ ] Someone in voice playing something with a picture (rich presence): its icon shows beside their name under the voice channel, in the call and in the call card
+- [ ] Mark a DM message as unread, leave the chat: its row and its picture under Home show a dot, no number; when they write again it shows the number of new messages
+- [ ] In a server where you may mention everyone: type @every, pick @everyone, send: it shows as a mention, and people get notified
+- [ ] A channel with GitHub (or another bot) posts: headings, links, quotes and code show formatted
+- [ ] A "joined the server" line: the name is a chip with their picture; tapping it opens their card
+- [ ] A video in chat has rounded corners like pictures (desktop: Windows and Mac); opened in the viewer, pictures and videos have square corners
+

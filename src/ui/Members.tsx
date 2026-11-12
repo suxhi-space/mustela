@@ -1,6 +1,6 @@
 import { TextWithEmoji } from "./chat/Markdown";
 import { createEffect, createMemo, createResource, createSignal, For, Index, on, onCleanup, Show } from "solid-js";
-import type { Person } from "../lib/backend/types";
+import type { MemberGroup, Person } from "../lib/backend/types";
 import type { ProfileConfig } from "../lib/profile/model";
 import { createAnim } from "./anim";
 import { Avatar, createPerson, NameText } from "./Avatar";
@@ -41,12 +41,39 @@ export function MemberRow(props: { person: Person; onOpen(p: Person): void; serv
 /** Rows drawn at first, and how many more each time you scroll near the end (big servers have thousands). */
 const PAGE = 25;
 
+/**
+ * People who haven't changed since the list was last built keep the very same object, so a refresh only redraws the
+ * rows that changed (their avatars and nameplates aren't rebuilt).
+ */
+const seen = new Map<string, { sig: string; p: Person }>();
+function keepSame(groups: MemberGroup[]): MemberGroup[] {
+  return groups.map((g) => ({ ...g, people: g.people.map((p) => {
+    const sig = JSON.stringify(p), old = seen.get(p.id);
+    if (old && old.sig === sig) return old.p;
+    seen.set(p.id, { sig, p });
+    return p;
+  }) }));
+}
+
 /** Member list grouped like Stoat: hoisted roles, then Online, then Offline (collapsible). */
 export function Members(props: { spaceId: string; onOpen(p: Person): void }) {
   // Asked for a moment after the server opens, so the channel's messages go first (Stoat answers one at a time).
   const [ready, setReady] = createSignal<string | null>(null);
   createEffect(on(() => props.spaceId, (id) => { setReady(null); const t = setTimeout(() => setReady(id), 400); onCleanup(() => clearTimeout(t)); }));
-  const [groups] = createResource(ready, (id) => backend()!.members(id));
+  const [groups, { refetch }] = createResource(ready, (id) => backend()!.members(id).then(keepSame));
+  // Someone went online/offline: rebuild the list (from memory, nothing is downloaded), at most every 2 seconds,
+  // or every 30 in big lists (big servers send these all the time, and the list shouldn't be rebuilt nonstop).
+  let presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(backend()!.onEvent((e) => {
+    if (e.t !== "presence" || presenceTimer || !ready()) return;
+    const size = (groups.latest ?? []).reduce((n, g) => n + g.people.length, 0);
+    presenceTimer = setTimeout(() => {
+      // Hidden or minimised: nothing is rebuilt until you look again, then once.
+      if (document.hidden) { addEventListener("visibilitychange", () => { presenceTimer = undefined; void refetch(); }, { once: true }); return; }
+      presenceTimer = undefined; void refetch();
+    }, size > 500 ? 30_000 : 2000);
+  }));
+  onCleanup(() => clearTimeout(presenceTimer));
   const [hideOffline, setHideOffline] = createSignal(false);
   // Only the rows you can reach get drawn (and have their profiles looked up); more come in as you scroll.
   const [budget, setBudget] = createSignal(PAGE);
@@ -70,7 +97,7 @@ export function Members(props: { spaceId: string; onOpen(p: Person): void }) {
   };
   return (
     <aside class="members" aria-label="Members">
-      <Show when={groups.loading || !ready()}><div class="loading-row"><div class="spinner small" /></div></Show>
+      <Show when={!groups.latest && (groups.loading || !ready())}><div class="loading-row"><div class="spinner small" /></div></Show>
       <Show when={groups.error}><p class="empty small">Couldn't load members.</p></Show>
       {/* By position, so adding rows keeps the ones already drawn (their profiles and nameplates) in place. */}
       <Index each={visible()}>{(g) => (

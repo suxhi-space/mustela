@@ -243,3 +243,26 @@ Pictures: `r3-*.png/jpg` (app screens and Discord's for reference). The gallery 
 - Opening links from video embeds (YouTube) gets stuck in a full-screen website; links in embeds should open in the browser.
 - YouTube's "This channel got money or free things" box in the player can't be hidden (YouTube draws it inside its own player).
 
+## 15. Round 10: all done, see device-checklist.md
+- Hide server settings (gear and menu) in servers where you can't change anything.
+- Channel pictures don't show in the channel list.
+- No slowmode setting (it was there for text channels only).
+- Settings pages need room at the top (channel settings "Channel" touches the top).
+- Role icon closer to the name and lined up with it.
+- The X on Edit profile doesn't work.
+- Custom colours for folders, categories, pin/favorite groups.
+- A friend's online status didn't update until restart.
+- Replying to a message with a custom emoji says ":emoji:".
+- DM side card: decoration or profile effect breaks and moves with the chat's scrolling.
+- Activity on cards like Discord's (soft box, themed buttons, bio above it); full profile: no activity on its card, tabs like the others.
+- "View full profile" at the bottom of the DM side card.
+- "In voice" in the same kind of box, with Join voice / Open voice (tidier layout: a tile of who's in the call).
+- Pronouns next to names in messages, like the pill on the card.
+- Home voice card on phones: same tile as profiles (fits the square, +N, friends first); tapping it opens a card like Discord's that matches Mustela's voice screen.
+- Flip the status bubble.
+- Marking a DM unread shows an odd number on its picture; show no number for ones you mark unread.
+- App icon beside people in voice lists (what they're playing).
+- @everyone doesn't look like a mention.
+- Bot embeds (GitHub) show raw markdown; joined/left lines should show the person (tap for their card) like Stoat.
+- Android notifications: often only arrive once the app is opened; tapping one opens the app but not the message.
+

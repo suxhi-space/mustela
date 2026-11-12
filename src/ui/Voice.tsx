@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import { ActivityIcon } from "./VoiceFaces";
 import { MOBILE_UI } from "./target";
 import { holdToOpen, justHeld, markHeld } from "./hold";
 import { createPhone, phoneLayout } from "./hooks";
@@ -42,6 +43,7 @@ export function VoiceMembers(props: { members: VoiceMember[]; channelId?: string
             <Avatar person={m} size={22} presence={false} still={!(call.speaking().includes(m.id))} />
             <span class="vm-name"><NameText person={m} fontOnly /></span>
           </button>
+          <ActivityIcon person={m} />
           <MemberIcons m={live(m)} />
         </li>
       )}</For>

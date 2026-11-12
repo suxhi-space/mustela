@@ -1,4 +1,5 @@
 import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { rememberMarked, takeMarked } from "./markedUnread";
 import { phoneLayout } from "./hooks";
 import { MOBILE_UI } from "./target";
 import type { ChannelInfo, Msg, Person } from "../lib/backend/types";
@@ -36,20 +37,10 @@ function keepSame(shown: Msg[], fresh: Msg[]): Msg[] {
  * "Mark as unread" picks a message; Stoat only keeps "read up to just before it". The message itself is remembered
  * here (on this device), so opening the chat again puts the New line on it, your own messages included.
  */
-const MARKED_KEY = "mustela:marked-unread";
-const markedAll = (): Record<string, string> => { try { return JSON.parse(localStorage.getItem(MARKED_KEY) ?? "{}") ?? {}; } catch { return {}; } };
-const saveMarked = (m: Record<string, string>) => { try { localStorage.setItem(MARKED_KEY, JSON.stringify(Object.fromEntries(Object.entries(m).slice(-50)))); } catch { /* storage off */ } };
 addEventListener("mustela:mark-unread", (e) => {
   const d = (e as CustomEvent<{ channelId: string; messageId: string }>).detail;
-  if (d?.channelId && d.messageId) saveMarked({ ...markedAll(), [d.channelId]: d.messageId });
+  if (d?.channelId && d.messageId) rememberMarked(d.channelId, d.messageId);
 });
-/** The message you marked unread in this chat, if it's still unread (read elsewhere since = forgotten). Taken once. */
-function takeMarked(channelId: string, lastRead: string | undefined): string | null {
-  const all = markedAll(), mid = all[channelId];
-  if (!mid) return null;
-  delete all[channelId]; saveMarked(all);
-  return lastRead !== undefined && lastRead < mid ? mid : null;
-}
 
 /* ---------- mature channels: confirm your age first, like Stoat (remembered per channel on this device) ---------- */
 const AGE_KEY = "mustela:mature-ok";

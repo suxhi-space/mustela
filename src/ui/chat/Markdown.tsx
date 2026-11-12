@@ -3,7 +3,7 @@ import { PACKED_EMOJI_RE } from "../../lib/emoji";
 import { UEmoji } from "./UEmoji";
 import { createEffect, createMemo, createSignal, For, Match, Switch, type JSX } from "solid-js";
 import { stillOf } from "../stillImage";
-import { formatTime, isJumbo, parse, type Block, type Inline } from "../../lib/markdown";
+import { formatTime, isJumbo, parse, plain, type Block, type Inline } from "../../lib/markdown";
 import { backend, device } from "../store";
 
 export interface MdCtx {
@@ -25,6 +25,29 @@ function Spoiler(props: { children: JSX.Element }) {
 import { TextWithEmoji } from "./EmojiText";
 export { TextWithEmoji };
 const customName = (id: string) => backend()?.emojis().find((e) => e.id === id)?.name ?? "emoji";
+
+/** Names for plain(): people, channels, and custom emoji as their :name: (for text-only places like notifications). */
+export const plainNames = {
+  user: (id: string) => backend()?.person(id).name ?? "user",
+  channel: (id: string) => backend()?.channelName(id),
+  emoji: (id: string) => `:${customName(id)}:`,
+};
+
+/** A message squeezed onto one line (reply previews), with its custom emoji drawn as emoji instead of ":emoji:". */
+const MARK = "\u0001";
+export function PlainLine(props: { text: string; max?: number }) {
+  const parts = createMemo(() => {
+    const t = plain(props.text, { ...plainNames, emoji: (id) => `${MARK}${id}${MARK}` });
+    let left = props.max ?? Infinity;
+    // Odd entries are emoji ids; text counts toward the length limit, an emoji counts as one.
+    return t.split(MARK).flatMap((v, i): { emoji?: string; text?: string }[] => {
+      if (left <= 0) return [];
+      if (i % 2) { left -= 1; return [{ emoji: v }]; }
+      const cut = v.slice(0, left); left -= v.length; return cut ? [{ text: cut }] : [];
+    });
+  });
+  return <For each={parts()}>{(p) => (p.emoji ? <CustomEmoji id={p.emoji} /> : <TextWithEmoji v={p.text ?? ""} />)}</For>;
+}
 
 /** A custom emoji. Animated ones hold still when Performance says so, and play while you point at them. */
 function CustomEmoji(props: { id: string }) {
@@ -59,6 +82,7 @@ function Inlines(props: { nodes: Inline[]; ctx: MdCtx }): JSX.Element {
         <Match when={n.t === "role"}>
           {(() => { const r = backend()?.role((n as any).id); const c = r?.colour && !r.colour.includes("gradient") ? r.colour : undefined; return <span class="mention role" style={c ? { color: c } : undefined}>@{r?.name ?? "role"}</span>; })()}
         </Match>
+        <Match when={n.t === "mass"}><span class="mention mass">@{(n as any).v}</span></Match>
         <Match when={n.t === "emoji"}><CustomEmoji id={(n as any).id} /></Match>
         <Match when={n.t === "time"}>
           <time class="ts" title={new Date((n as any).unix * 1000).toLocaleString()}>{formatTime((n as any).unix, (n as any).style)}</time>

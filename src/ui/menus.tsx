@@ -64,6 +64,13 @@ export async function inviteTo(channelId: string) {
 
 /* ---------------------------------------------------------------- servers */
 
+/** Whether you can change anything in this server's settings (otherwise its gear and "Server settings" are hidden). */
+export function canAdminServer(info: ReturnType<ReturnType<typeof b>["serverInfo"]>): boolean {
+  if (!info) return false;
+  const p = info.perms;
+  return info.isOwner || p.manageServer || p.manageRoles || p.manageChannels || p.manageEmoji || p.kick || p.ban;
+}
+
 export function serverMenu(e: MouseEvent, s: Space, extra: MenuItem[] = []) {
   if (s.home) return;
   const info = b().serverInfo(s.id);
@@ -77,7 +84,7 @@ export function serverMenu(e: MouseEvent, s: Space, extra: MenuItem[] = []) {
     { sep: true },
     ...(firstText && (info?.perms.invite ?? true) ? [{ label: "Create invite", icon: "user-plus", onSelect: () => inviteTo(firstText.id) } as MenuItem] : []),
     { label: "Your profile in this server", icon: "user", onSelect: () => setServerSettings({ id: s.id, tab: "identity" }) },
-    { label: "Server settings", icon: "gear", onSelect: () => setServerSettings({ id: s.id }) },
+    ...(canAdminServer(info) ? [{ label: "Server settings", icon: "gear", onSelect: () => setServerSettings({ id: s.id }) } as MenuItem] : []),
     ...(info?.perms.manageChannels ? createItems(s.id) : []),
     { sep: true },
     { label: "Copy server ID", icon: "id", onSelect: () => copy(s.id, "ID copied") },

@@ -5,7 +5,10 @@
  * place that decides whether anything may move at all.
  *
  * Rules (these are why decorations stay cheap, even on a 2019 laptop running a game):
- *  - At most MAX_ACTIVE canvases animate at once (the most recently shown first); the rest show a still frame.
+ *  - At most MAX_ACTIVE canvases animate at once; the rest show a still frame. Profile cards (the DM side card, an
+ *    open card or full profile, the editor's preview) go first, then the most recently shown. (Cards used to queue
+ *    with everything else, so scrolling a DM, which brings in new decorated avatars, took the side card's slots:
+ *    its effect or decoration froze, and only moved while you scrolled.)
  *  - 30 fps normally, 15 fps when reduced, lower again during calls (see setGates).
  *  - Nothing runs while the window is hidden, or (by default) while Mustela isn't the focused
  *    window, so games get the computer back. Each canvas keeps its last frame on screen.
@@ -55,6 +58,8 @@ interface Entry {
   visible: boolean;
   running: boolean;
   t0: number;
+  /** Inside a profile card: always gets a slot before canvases in lists */
+  card: boolean;
 }
 const entries = new Set<Entry>();
 let raf = 0, last = 0, focused = true;
@@ -75,8 +80,9 @@ function tick(now: number) {
   if (now - last >= frameMs - 2) {
     last = now;
     let n = 0;
-    // Newest first: the card or profile you just opened gets a slot before the avatars already in the list.
-    for (const e of [...entries].reverse()) {
+    // Cards first, then newest first: the card or profile you just opened gets a slot before the avatars in the list.
+    const order = [...entries].reverse();
+    for (const e of [...order.filter((x) => x.card), ...order.filter((x) => !x.card)]) {
       if (!e.running || !e.visible) continue;
       if (++n > MAX_ACTIVE) break;
       e.draw((now - e.t0) / 1000);
@@ -118,13 +124,14 @@ export function createLoop(canvas: HTMLCanvasElement, o: LoopOptions): Renderer 
     o.draw(ctx, t);
   };
   const stillT = o.staticT ?? 1.35;
-  const e: Entry = { draw: paint, still: () => paint(stillT), visible: true, running: false, t0: 0 };
+  const e: Entry = { draw: paint, still: () => paint(stillT), visible: true, running: false, t0: 0, card: false };
 
   // The observer comes from the window the canvas ends up in (the call pop-out is a different one).
   let io: IntersectionObserver | null = null, gone = false;
   const watch = (tries = 0) => {
     if (gone) return;
     if (!canvas.isConnected) { if (tries < 20) setTimeout(() => watch(tries + 1), tries < 3 ? 0 : 50); return; }
+    e.card = !!canvas.closest(".pcard, [data-fx-first]");
     const view = (canvas.ownerDocument.defaultView ?? globalThis) as typeof globalThis;
     if (typeof view.IntersectionObserver === "undefined") return;
     io = new view.IntersectionObserver((list) => { e.visible = list.some((x) => x.isIntersecting); if (e.visible) wake(); });

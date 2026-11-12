@@ -1,4 +1,5 @@
 import { PHONE_QUERY } from "../hooks";
+import { ActivityIcon } from "../VoiceFaces";
 import { VolumeRow } from "./VolumeRow";
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js";
 import type { ChannelInfo, Person, VoiceMember, VoicePrefs } from "../../lib/backend/types";
@@ -534,6 +535,7 @@ function CallSheet(props: { chatOpen?: boolean; onToggleChat?(): void; full: boo
                 onContextMenu={(e) => { markHeld(); setOpen(false); callMemberMenu(e, p); }}>
                 <span classList={{ "sp-ring": true, talking: call.speaking().includes(p.id) }}><Avatar person={p} size={36} presence={false} still /></span>
                 <span class="cs-name"><NameText person={p} /></span>
+                <ActivityIcon person={p} />
                 <Show when={p.screen}><span class="live-pill">LIVE</span></Show>
                 <Show when={p.deaf}><Icon name="headphones-off" size={16} class="danger" /></Show>
                 <Show when={p.muted && !p.deaf}><Icon name="mic-off" size={16} class="danger" /></Show>

@@ -2,6 +2,7 @@ import { createMemo, createResource, For, onCleanup, Show } from "solid-js";
 import { useBack } from "./back";
 import type { Msg, Space } from "../lib/backend/types";
 import { plain } from "../lib/markdown";
+import { plainNames } from "./chat/Markdown";
 import { Avatar, NameText } from "./Avatar";
 import { Icon } from "./icons";
 import { requestJump, setInboxOpen } from "./nav";
@@ -71,7 +72,7 @@ export function Inbox(props: { spaces: Space[]; onOpen(serverId: string, channel
                     <Avatar person={it.msg.author} size={32} presence={false} still />
                     <span class="im-body">
                       <span class="im-top"><NameText person={it.msg.author} /><small class="muted">{it.channel} · {it.msg.at.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></span>
-                      <span class="im-text">{plain(it.msg.text, { user: (id) => backend()!.person(id).name, channel: (id) => backend()!.channelName(id) }).slice(0, 200) || "Sent an attachment"}</span>
+                      <span class="im-text">{plain(it.msg.text, plainNames).slice(0, 200) || "Sent an attachment"}</span>
                     </span>
                   </button>
                 )}</For>
