@@ -151,3 +151,13 @@ These are the parts only a real phone, tablet or computer can confirm.
 - [ ] A "joined the server" line: the name is a chip with their picture; tapping it opens their card
 - [ ] A video in chat has rounded corners like pictures (desktop: Windows and Mac); opened in the viewer, pictures and videos have square corners
 
+## Themes
+- [ ] Home: point at the Favorites row: ⋯ and + show, the arrow moves left of them (no overlap)
+- [ ] Settings > Appearance: Themes at the top; tap Coral: rich colours across the window, gradient and a plain background; depth, text size and layout don't change. the pastel ones (Lavender, Seafoam, Pistachio, Apricot, Petal, Cloud) switch to light mode
+- [ ] Tap Default: Mustela's original grey look is back
+- [ ] Change something in Theme settings: no theme is ringed any more; "Save current look" saves it under Your themes; tapping it later brings it back (not the text size)
+- [ ] A saved theme with a background picture shows the picture on its tile with a colour dot; ⋯ has Update, Rename, Delete
+- [ ] Phone: the themes are a strip you swipe sideways inside the box; nothing runs off the edges
+- [ ] Favorites button setting is under Layout
+- [ ] With any theme, the chosen GIFs/Emoji tab and primary buttons have readable text
+

@@ -57,7 +57,7 @@ export const SETTING_LABELS: Record<string, string[]> = {
     "Your sounds"
   ],
   "appearance": [
-    "Colors",
+    "Theme settings",
     "Sync colors with",
     "Mode",
     "Contrast",
@@ -67,7 +67,6 @@ export const SETTING_LABELS: Record<string, string[]> = {
     "Pure black",
     "Style",
     "Depth",
-    "Favorites button",
     "Background",
     "Picture",
     "Blur the picture",
@@ -82,11 +81,12 @@ export const SETTING_LABELS: Record<string, string[]> = {
     "Density",
     "Messages",
     "Member list",
+    "Favorites button",
     "Rearrange by dragging",
     "Window",
     "Material",
     "Opacity",
-    "Saved themes"
+    "Themes"
   ],
   "accessibility": [
     "App size",

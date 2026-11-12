@@ -3254,3 +3254,45 @@ a.mp-item.hs-link { display: flex; align-items: center; gap: 12px; margin-bottom
 /* The viewer shows pictures and videos as they are: square corners (rounding is for the chat) */
 .gallery-view .gv-slide img, .gallery-view .gv-slide video, .gallery-view .gv-frame,
 .gallery-view.desk .gv-slide img, .gallery-view.desk .gv-slide video, .gallery-view.desk .gv-frame { border-radius: 0; }
+
+/* Home's Favorites row: when its ⋯ and + show (hover), the fold arrow moves left of them instead of sitting under them */
+@media (hover: hover) { .fav-home:is(:hover, :focus-within) .chan .fav-chev { margin-right: 56px; } }
+
+/* Themes (Settings > Appearance): Mustela's own and yours in the same tiles. Yours have ⋯ in the corner; one with a
+   background picture shows the picture, with a little circle of its colours (like Windows' theme tiles). */
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 8px; padding: 10px 12px 12px; }
+.theme-tile { position: relative; height: 64px; border: 0; border-radius: 14px; display: flex; align-items: flex-end; padding: 8px 10px; color: #fff;
+  font: inherit; font-size: 13.5px; font-weight: 850; text-align: left; cursor: pointer; background-size: cover; background-position: center;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); transition: transform .12s ease, box-shadow .12s ease; }
+.theme-tile:hover { transform: translateY(-1px); }
+.theme-tile.on { box-shadow: 0 0 0 2.5px var(--bg, var(--s1)), 0 0 0 5px var(--fg); }
+.theme-tile .tt-name { position: relative; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 3px rgba(0, 0, 0, .45); }
+.theme-tile.pic::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(transparent 35%, rgba(0, 0, 0, .55)); }
+.theme-tile.mine .tt-name { padding-right: 0; }
+.tt-dot { position: absolute; left: 9px; top: 9px; width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255, 255, 255, .85), 0 1px 4px rgba(0, 0, 0, .4); }
+.tt-more { position: absolute; top: 5px; right: 5px; width: 26px; height: 26px; border: 0; border-radius: 50%; display: grid; place-items: center;
+  color: #fff; background: rgba(0, 0, 0, .28); cursor: pointer; }
+.tt-more:hover { background: rgba(0, 0, 0, .45); }
+.theme-sub { margin: 2px 14px -4px; font-size: 12.5px; font-weight: 800; color: var(--fg2); }
+/* Phones: a strip you swipe sideways (two rows for Mustela's, one for yours), so the page stays calm */
+:root[data-ui="mobile"] .theme-grid { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: calc((100% - 21px) / 3.35); grid-template-rows: repeat(2, 56px);
+  gap: 7px; padding: 0; margin: 10px; border-radius: 14px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity; }
+:root[data-ui="mobile"] .theme-grid::-webkit-scrollbar { display: none; }
+:root[data-ui="mobile"] .theme-grid[aria-label="Your themes"] { grid-template-rows: 56px; }
+:root[data-ui="mobile"] .theme-tile { height: 56px; font-size: 13px; padding: 7px 9px; scroll-snap-align: start; }
+.theme-tile.default { background: linear-gradient(135deg, #3a3d44, #1c1d22); }
+:root[data-mode="light"] .theme-tile.default { background: linear-gradient(135deg, #c9ccd3, #8d929c); }
+/* In the phone strip the ring for the chosen theme is drawn inside the tile (the strip's edge would cut one outside) */
+:root[data-ui="mobile"] .theme-tile.on { box-shadow: inset 0 0 0 3px var(--fg), inset 0 0 0 5px rgba(0, 0, 0, .35); }
+/* "Save current look": the first of your themes, an empty dashed tile */
+.theme-tile.add { flex-direction: column; align-items: flex-start; justify-content: space-between; color: var(--fg); background: transparent;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fg) 22%, transparent); border: 0; }
+.theme-tile.add:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.theme-tile.add .tt-name { text-shadow: none; white-space: normal; line-height: 1.15; }
+.theme-tile.add::after { content: ""; position: absolute; inset: 3px; border-radius: 11px; border: 1.5px dashed color-mix(in srgb, var(--fg) 28%, transparent); pointer-events: none; }
+.theme-tile.add { box-shadow: none; }
+
+
+/* Text on gradient fills (buttons, the chosen tab, switches): the colour that reads on both ends of the gradient */
+:root[data-gradient] :is(.btn.primary, .btn.on, .seg button.on, .jump-present) { color: var(--on-pri-grad, var(--on-pri)); --ink: var(--on-pri-grad, var(--on-pri)); }
+:root[data-gradient] :is(.btn.primary, .btn.on, .seg button.on) svg { color: inherit; }

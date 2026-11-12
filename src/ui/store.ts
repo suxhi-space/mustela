@@ -3,7 +3,7 @@ import { MOBILE_UI } from "./target";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
 import type { ChatBackend, StoredSession } from "../lib/backend/types";
 import { AnimationBudget } from "../lib/decor/rating";
-import { parseHex } from "../lib/color";
+import { contrast, parseHex } from "../lib/color";
 import { DEFAULT_DEVICE, DENSITY_VARS, sanitizeDevice, type DeviceSettings } from "../lib/device";
 import { detectPlatform, inTauri } from "../lib/platform";
 import {
@@ -427,15 +427,22 @@ export function startAppearance() {
         root.style.setProperty("--pri-2", end);
         root.style.setProperty("--pri-grad", `linear-gradient(${l.gradient.angle}deg, ${roles.primary}, ${end})`);
         root.dataset.gradient = "";
-        // Gradient themes: the same two colours wash over the windows too, as strongly as you like.
+        // Text on the gradient (buttons, the chosen tab): whichever of dark or white reads best on both of its ends.
+        const ends = [parseHex(roles.primary!) ?? 0, parseHex(end) ?? 0];
+        const readable = (fg: number) => Math.min(...ends.map((e) => contrast(fg, e)));
+        root.style.setProperty("--on-pri-grad", readable(0xffffff) >= readable(0x17181c) ? "#ffffff" : "#17181c");
+        // Gradient themes: the same two colours wash over the windows too, as strongly as you like. The background
+        // uses the colours themselves (rich, like Discord's themes); the button tones are pale in dark mode and turned
+        // the background muddy (brown, olive, grey) once mixed into it.
         const w = l.gradient.windows;
         if (w > 0) {
-          const a = Math.round(w * (dark ? 0.45 : 0.32)), world = Math.round(w * (dark ? 0.6 : 0.45));
-          root.style.setProperty("--win-tint", `linear-gradient(${l.gradient.angle}deg, color-mix(in srgb, ${roles.primary} ${a}%, transparent), color-mix(in srgb, ${end} ${a}%, transparent))`);
-          root.style.setProperty("--world-grad", `linear-gradient(${l.gradient.angle}deg, color-mix(in srgb, ${roles.primary} ${world}%, var(--world)), color-mix(in srgb, ${end} ${world}%, var(--world)))`);
+          const c1 = seed, c2 = l.gradient.seed2;
+          const a = Math.round(w * (dark ? 0.4 : 0.38)), world = Math.round(w * (dark ? 0.62 : 0.75));
+          root.style.setProperty("--win-tint", `linear-gradient(${l.gradient.angle}deg, color-mix(in srgb, ${c1} ${a}%, transparent), color-mix(in srgb, ${c2} ${a}%, transparent))`);
+          root.style.setProperty("--world-grad", `linear-gradient(${l.gradient.angle}deg, color-mix(in srgb, ${c1} ${world}%, var(--world)), color-mix(in srgb, ${c2} ${world}%, var(--world)))`);
           root.dataset.wingrad = "";
         } else { root.style.removeProperty("--win-tint"); root.style.removeProperty("--world-grad"); delete root.dataset.wingrad; }
-      } else { root.style.removeProperty("--pri-grad"); root.style.removeProperty("--pri-2"); root.style.removeProperty("--win-tint"); root.style.removeProperty("--world-grad"); delete root.dataset.gradient; delete root.dataset.wingrad; }
+      } else { root.style.removeProperty("--on-pri-grad"); root.style.removeProperty("--pri-grad"); root.style.removeProperty("--pri-2"); root.style.removeProperty("--win-tint"); root.style.removeProperty("--world-grad"); delete root.dataset.gradient; delete root.dataset.wingrad; }
       root.dataset.mode = dark ? "dark" : "light";
       setSurfaceInt(parseHex(roles.surfaceContainerLow!) ?? 0x1b1b1f);
     });

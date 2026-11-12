@@ -15,7 +15,7 @@ import { openColorPicker } from "../ColorPicker";
 import { ColorInput, Group, Row, Seg, Select, Slider, Switch } from "../controls";
 import { backdropImage, device, ext, look, pictureSeed, lookSync, setLookSync, type LookSync, updateLook, materials, platform, setBackdropImage, settings, systemSeed, updateDevice, updateExt, updateSettings } from "../store";
 import { MOBILE_UI } from "../target";
-import { SavedThemes } from "./themes";
+import { Themes } from "./themes";
 
 const PACKS: { id: EmojiPack; label: string }[] = [
   { id: "fluent-3d", label: "Fluent 3D" }, { id: "fluent-color", label: "Fluent Color" }, { id: "fluent-flat", label: "Fluent Flat" },
@@ -29,20 +29,6 @@ const MATERIAL_HINT: Record<string, string> = {
   mac: "Vibrancy uses the system's translucent window material.",
   linux: "See-through only looks blurred if your desktop's compositor blurs windows behind it (KDE can).",
 };
-
-/** Gradient themes, like Discord's: an accent and a second colour that run across the app. */
-const GRADIENTS = [
-  { name: "Sunset", a: "#ff7a59", b: "#c13584", angle: 135 },
-  { name: "Ocean", a: "#1a9bb0", b: "#2b4fd8", angle: 160 },
-  { name: "Aurora", a: "#2bd9a0", b: "#8e4ff0", angle: 135 },
-  { name: "Forest", a: "#4d8c3f", b: "#1f6f6a", angle: 150 },
-  { name: "Candy", a: "#f06fb0", b: "#8a7bff", angle: 120 },
-  { name: "Ember", a: "#e0532f", b: "#f0a12a", angle: 200 },
-  { name: "Midnight", a: "#3d4bb8", b: "#151a3a", angle: 180 },
-  { name: "Lavender", a: "#a78bfa", b: "#f0abfc", angle: 135 },
-  { name: "Citrus", a: "#d4c21f", b: "#3fae5a", angle: 135 },
-  { name: "Storm", a: "#6b7480", b: "#3a4a6b", angle: 160 },
-];
 
 export function Appearance() {
   const [bdErr, setBdErr] = createSignal("");
@@ -75,8 +61,9 @@ export function Appearance() {
 
   return (
     <div class="page">
-      <SavedThemes pickPicture={(then) => pickBackdrop(then)} />
-      <Group title="Colors" hint={lookSync() === "all" ? "Colors follow your account to every device. Style, layout and window settings stay on this one." : lookSync() === "kind" ? `Colors are shared with your other ${MOBILE_UI ? "phones and tablets" : "computers"} only. Your profile, favorites and everything else still sync everywhere.` : "This device keeps its own colors. Your profile, favorites and everything else still sync."}>
+      <Themes pickPicture={(then) => pickBackdrop(then)} />
+      {/* Everything a theme sets, to fine-tune it (the theme itself doesn't change; save the result as your own). */}
+      <Group title="Theme settings" hint={lookSync() === "all" ? "Colors follow your account to every device. Style, layout and window settings stay on this one." : lookSync() === "kind" ? `Colors are shared with your other ${MOBILE_UI ? "phones and tablets" : "computers"} only. Your profile, favorites and everything else still sync everywhere.` : "This device keeps its own colors. Your profile, favorites and everything else still sync."}>
         <Row label="Sync colors with">
           <Select label="Sync colors with" value={lookSync()} onChange={(v) => setLookSync(v as LookSync)}
             options={[{ v: "all", label: "All my devices" }, { v: "kind", label: MOBILE_UI ? "My phones and tablets" : "My computers" }, { v: "none", label: "This device only" }]} />
@@ -118,20 +105,6 @@ export function Appearance() {
             )}</For>
           </div>
         </div>
-        <div class="row col">
-          <span class="row-label">Gradient themes<small>Two colours across buttons, windows and the background. Tap one, then fine-tune it below.</small></span>
-          <div class="grad-presets" role="radiogroup" aria-label="Gradient themes">
-            <For each={GRADIENTS}>{(g) => {
-              const on = () => look().gradient.on && look().theme === "custom" && look().seed === g.a && look().gradient.seed2 === g.b;
-              return (
-                <button class="grad-preset" role="radio" aria-checked={on()} classList={{ on: on() }} style={{ background: `linear-gradient(135deg, ${g.a}, ${g.b})` }}
-                  onClick={() => { updateDevice({ colorSource: "theme" }); setLook({ theme: "custom", seed: g.a, ...(look().variant === "neutral" || look().variant === "monochrome" ? { variant: "vibrant" as const } : {}), gradient: { ...look().gradient, on: true, seed2: g.b, angle: g.angle, windows: look().gradient.windows || 35 } }); }}>
-                  <span>{g.name}</span>
-                </button>
-              );
-            }}</For>
-          </div>
-        </div>
         <Row label="Gradient accent" hint="Buttons, switches and selections blend into a second color">
           <Show when={look().gradient.on}><ColorInput label="Gradient end color" value={look().gradient.seed2} onChange={(seed2) => setLook({ gradient: { ...look().gradient, seed2 } })} /></Show>
           <Switch label="Gradient accent" on={look().gradient.on} onChange={(on) => setLook({ gradient: { ...look().gradient, on } })} />
@@ -151,15 +124,12 @@ export function Appearance() {
         <Row label="Depth" hint="3D gives floating panels and chunky buttons. Flat removes the shadows and edges.">
           <Seg label="Depth" value={device().style} onChange={(style) => updateDevice({ style })} options={[{ v: "classic", label: "3D" }, { v: "flat", label: "Flat" }]} />
         </Row>
-        <Row label="Favorites button" hint="Your favorite channels get their own button under Home, like a server. Off: they're listed on Home.">
-          <Switch label="Favorites button under Home" on={ext().favRail} onChange={(favRail) => updateExt((s) => ({ ...s, favRail }))} />
-        </Row>
         <Row label="Background" hint={device().backdrop === "image" ? "Your picture stays on this device." : "What's behind the panels."}>
           <Seg label="Background" value={device().backdrop} onChange={(backdrop) => { if (backdrop === "image" && !backdropImage()) pickBackdrop(); else updateDevice({ backdrop }); }}
             options={[{ v: "plain", label: "Plain" }, { v: "stars", label: "Stars" }, { v: "gradient", label: "Gradient" }, { v: "image", label: "Picture" }]} />
         </Row>
         <Show when={device().backdrop === "gradient" && !look().gradient.on}>
-          <Row label={<small class="muted">Uses your accent colour. Turn on a gradient theme above for two colours.</small>} />
+          <Row label={<small class="muted">Uses your accent colour. Pick a theme above (or turn on Gradient accent) for two colours.</small>} />
         </Show>
         <Show when={device().backdrop === "image" && backdropImage()}>
           <Row label="Picture">
@@ -207,6 +177,9 @@ export function Appearance() {
         <Row label="Density"><Seg label="Density" value={device().density} onChange={(density) => updateDevice({ density })} options={[{ v: "compact", label: "Compact" }, { v: "default", label: "Default" }, { v: "comfy", label: "Comfy" }]} /></Row>
         <Row label="Messages"><Seg label="Message layout" value={device().layout} onChange={(layout) => updateDevice({ layout })} options={[{ v: "cozy", label: "Cozy" }, { v: "compact", label: "Compact" }]} /></Row>
         <Row label="Member list"><Switch label="Show member list" on={device().showMembers} onChange={(showMembers) => updateDevice({ showMembers })} /></Row>
+        <Row label="Favorites button" hint="Your favorite channels get their own button under Home, like a server. Off: they're listed on Home.">
+          <Switch label="Favorites button under Home" on={ext().favRail} onChange={(favRail) => updateExt((s) => ({ ...s, favRail }))} />
+        </Row>
         <Show when={MOBILE_UI}>
           <Row label="Rearrange by dragging" hint="Hold and drag servers, channels, favorites and DMs to move them. Off, holding something just opens its menu.">
             <Switch label="Rearrange by dragging" on={device().rearrange} onChange={(rearrange) => updateDevice({ rearrange })} />

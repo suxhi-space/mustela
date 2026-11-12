@@ -266,3 +266,11 @@ Pictures: `r3-*.png/jpg` (app screens and Discord's for reference). The gallery 
 - Bot embeds (GitHub) show raw markdown; joined/left lines should show the person (tap for their card) like Stoat.
 - Android notifications: often only arrive once the app is opened; tapping one opens the app but not the message.
 
+## 16. Themes: all done, see device-checklist.md
+- Favorites row on Home: ⋯ and + overlap the arrow.
+- Saved themes and gradient themes in one "Themes" section at the top, as tiles (yours with ⋯ in the corner, picture themes show the picture with a colour dot), Save current look with your themes. Mobile: tidy, not busy.
+- Saved themes don't save or change Display & text or Layout.
+- Gradient themes become real themes (palette style, gradient, angle, window tint, plain background, no window material, Pure black off); they leave Style (except the background), Mode, Depth, Display & text, Emoji and Layout alone. Changing settings afterwards doesn't change the theme; save it as your own.
+- "Colors" renamed "Theme settings". Favorites button setting moves to Layout.
+- Themes should pop (rich colours, still readable), some can be light; keep ten, mix them up, no Discord names. Text on gradient buttons must stay readable (GIFs tab).
+
