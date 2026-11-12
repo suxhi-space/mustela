@@ -2,7 +2,6 @@ import { setTimePrefs } from "../lib/time";
 import { MOBILE_UI } from "./target";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
 import type { ChatBackend, StoredSession } from "../lib/backend/types";
-import { DemoBackend } from "../lib/backend/mock";
 import { AnimationBudget } from "../lib/decor/rating";
 import { parseHex } from "../lib/color";
 import { DEFAULT_DEVICE, DENSITY_VARS, sanitizeDevice, type DeviceSettings } from "../lib/device";
@@ -12,6 +11,8 @@ import {
   stoatAccountId, type Account, type Book,
 } from "../lib/session/book";
 import { revokeSession } from "../lib/session/revoke";
+import { startupMark } from "./perfLog";
+import { clearSnapshot, loadSnapshot, saveSnapshot, snapshotBackend } from "../lib/backend/snapshot";
 import { DEFAULT_SETTINGS, parseRemote, resolve, sanitize, type MustelaSettings } from "../lib/sync/settings";
 import { DEFAULT_EXT, parseExt, sanitizeExt, type ExtSettings } from "../lib/sync/ext";
 import { buildRoles, getTheme, gradientEnd, toCssVars } from "../lib/theme/palette";
@@ -49,19 +50,27 @@ export const [materials, setMaterials] = createSignal<string[]>([]);
 /** Surface color as 0xRRGGBB, so names can be made readable against it. */
 export const [surfaceInt, setSurfaceInt] = createSignal(0x1b1b1f);
 export const [addingAccount, setAddingAccount] = createSignal(false);
+/** Shown from the saved copy while the connection opens (instant start): a small "Connecting…" pill. */
+export const [warming, setWarming] = createSignal(false);
 /** Your backdrop picture as a data URL (kept on this device only). */
 export const [backdropImage, setBackdropImageSig] = createSignal<string | null>(kv.getItem(BACKDROP_KEY));
 
 /** Downscales a picture to at most 1920px and stores it. Returns false if it couldn't be saved. */
 export async function setBackdropImage(file: File | null): Promise<boolean> {
-  if (!file) { try { localStorage.removeItem(BACKDROP_KEY); } catch { /* ignore */ } setBackdropImageSig(null); return true; }
+  if (!file) { try { localStorage.removeItem(BACKDROP_KEY); if (lookAccount) localStorage.removeItem(backdropKey(lookAccount)); } catch { /* ignore */ } setBackdropImageSig(null); return true; }
   const bmp = await createImageBitmap(file);
   const s = Math.min(1, 1920 / Math.max(bmp.width, bmp.height));
   const cv = document.createElement("canvas");
   cv.width = Math.round(bmp.width * s); cv.height = Math.round(bmp.height * s);
   cv.getContext("2d")!.drawImage(bmp, 0, 0, cv.width, cv.height);
   const url = cv.toDataURL("image/jpeg", 0.82);
-  try { localStorage.setItem(BACKDROP_KEY, url); } catch { return false; }
+  try { localStorage.setItem(BACKDROP_KEY, url); if (lookAccount) localStorage.setItem(backdropKey(lookAccount), url); } catch { return false; }
+  setBackdropImageSig(url);
+  return true;
+}
+/** Uses a picture already saved on this device as the backdrop (a saved theme's). */
+export function setBackdropDataUrl(url: string): boolean {
+  try { localStorage.setItem(BACKDROP_KEY, url); if (lookAccount) localStorage.setItem(backdropKey(lookAccount), url); } catch { return false; }
   setBackdropImageSig(url);
   return true;
 }
@@ -146,6 +155,33 @@ export function updateDevice(patch: Partial<DeviceSettings>) {
   const next = sanitizeDevice({ ...device(), ...patch });
   setDevice(next);
   kv.setItem(DEVICE_KEY, JSON.stringify(next));
+  if (lookAccount && LOOK_KEYS.some((k) => k in patch)) saveLook(lookAccount);
+}
+
+/* ---------- look per account ----------
+   What only changes how Mustela looks (backdrop and its picture, panel opacity and blur, material, where colours
+   come from, whether the look follows your account) belongs to each account signed in on this device; things about
+   the device itself (microphone and speakers, call engine, title bar, tray, notifications) stay shared. Each account
+   starts from what the device had when it was first opened here. */
+const LOOK_KEYS = ["backdrop", "backdropBlur", "panelOpacity", "panelBlur", "material", "opacity", "colorSource", "syncLook", "lookKind", "localLook"] as const;
+const lookKey = (id: string) => `mustela:look:${id}`;
+const backdropKey = (id: string) => `mustela:backdrop:${id}`;
+/** The account whose look is showing (look changes are saved to it). */
+let lookAccount: string | null = null;
+function saveLook(id: string) {
+  const d = device() as unknown as Record<string, unknown>;
+  kv.setItem(lookKey(id), JSON.stringify(Object.fromEntries(LOOK_KEYS.map((k) => [k, d[k]]))));
+}
+/** Shows this account's look (or keeps the current one as its look, the first time). */
+function useAccountLook(id: string) {
+  if (lookAccount === id) return;
+  lookAccount = id;
+  const saved = safeJson(kv.getItem(lookKey(id))) as Partial<DeviceSettings> | null;
+  if (!saved) { saveLook(id); const pic = backdropImage(); if (pic) kv.setItem(backdropKey(id), pic); return; }
+  const next = sanitizeDevice({ ...device(), ...saved });
+  setDevice(next);
+  kv.setItem(DEVICE_KEY, JSON.stringify(next));
+  setBackdropImageSig(kv.getItem(backdropKey(id)) ?? kv.getItem(BACKDROP_KEY));
 }
 
 /* ---------- accounts ---------- */
@@ -158,6 +194,7 @@ function adopt(acc: Account, b: ChatBackend) {
   const nextBook = addAccount(book(), { ...acc, name: me.name || acc.name, avatarUrl: avatar ?? acc.avatarUrl });
   batch(() => {
     commitBook(nextBook);
+    useAccountLook(acc.id);
     const local = parseRemote(kv.getItem(settingsKey(acc.id))) ?? structuredClone(DEFAULT_SETTINGS);
     setSettings(local);
     applyLimits(local);
@@ -202,26 +239,83 @@ function adopt(acc: Account, b: ChatBackend) {
 }
 
 async function connect(acc: Account): Promise<ChatBackend> {
-  if (acc.kind === "demo") return new DemoBackend(acc.persona ?? 0);
+  if (acc.kind === "demo") { const { DemoBackend } = await import("../lib/backend/mock"); return new DemoBackend(acc.persona ?? 0); }
   const { StoatBackend } = await import("../lib/backend/stoat"); // SDK loads only for real accounts
+  startupMark("connection code");
   return StoatBackend.open(acc.baseURL, acc.session!);
 }
 
 export async function openAccount(acc: Account) {
-  setPhase("connecting");
   setError("");
-  try {
-    adopt(acc, await connect(acc));
-    // Back on a real account: the demo was just for looking around, so it goes.
-    if (acc.kind !== "demo") {
-      const demos = book().accounts.filter((a) => a.kind === "demo" && a.id !== acc.id);
-      if (demos.length) { let next = book(); for (const d of demos) { kv.setItem(settingsKey(d.id), ""); next = removeAccount(next, d.id); } commitBook(setActive(next, acc.id)); }
+  // Instant start: shown straight away from the copy kept last time, while it connects in the background
+  // (see lib/backend/snapshot.ts). The first time, or after signing in again, it connects first as before.
+  const snap = acc.kind === "stoat" && acc.session ? loadSnapshot(acc.id) : null;
+  if (snap) {
+    const real = connect(acc);
+    adopt(acc, snapshotBackend(snap, real, acc.session ?? null));
+    setWarming(true);
+    startupMark("shown from saved copy");
+    try {
+      const b = await real;
+      setWarming(false);
+      if (activeAccount(book())?.id !== acc.id) return; // switched away meanwhile
+      startupMark("live");
+      void saveSnapshot(acc.id, b);
+      warmChats(b);
+      dropDemos(acc);
+    } catch (e) {
+      // Couldn't connect (signed out elsewhere, server down…): the same error screen as before.
+      setWarming(false);
+      if (activeAccount(book())?.id !== acc.id) return;
+      setError(e instanceof Error && e.message ? e.message : "Couldn't connect. Try again.");
+      batch(() => { setBackend(null); setPhase("error"); });
     }
+    return;
+  }
+  setPhase("connecting");
+  try {
+    const b = await connect(acc);
+    adopt(acc, b);
+    if (acc.kind === "stoat") { void saveSnapshot(acc.id, b); warmChats(b); }
+    dropDemos(acc);
   } catch (e) {
     setError(e instanceof Error && e.message ? e.message : "Couldn't connect. Try again.");
     commitBook(setActive(book(), acc.id));
     setPhase("error");
   }
+}
+
+/**
+ * Once connected, the chats you're most likely to open next (unread DMs and mentions first, then other unread
+ * channels; at most 8) are loaded quietly in the background into the saved recent chats, so opening them is
+ * instant. One at a time, a few seconds after connecting, so it never competes with what you're doing.
+ */
+function warmChats(b: ChatBackend) {
+  const account = b.me.id; // the saved recent chats are kept per user (Chat.tsx)
+  const activeAt = activeAccount(book())?.id;
+  setTimeout(async () => {
+    try {
+      const { saveChat } = await import("../lib/chatCache");
+      const spaces = await b.spaces();
+      const score = (c: { kind: string; mentions?: number; unread?: boolean; muted?: boolean }) =>
+        (c.muted ? -1 : 0) + (c.mentions ? 4 : 0) + (c.kind === "dm" || c.kind === "group" ? 2 : 0) + (c.unread ? 1 : 0);
+      const picks = spaces.flatMap((s) => s.channels).filter((c) => c.kind !== "voice" && (c.unread || c.mentions) && !c.muted)
+        .sort((x, y) => score(y) - score(x)).slice(0, 8);
+      for (const c of picks) {
+        if (activeAccount(book())?.id !== activeAt) return; // switched account meanwhile
+        const msgs = await b.messages(c.id).catch(() => null);
+        if (msgs?.length) saveChat(account, c.id, msgs);
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    } catch { /* best effort: chats just load when opened */ }
+  }, 3000);
+}
+
+/** Back on a real account: the demo was just for looking around, so it goes. */
+function dropDemos(acc: Account) {
+  if (acc.kind === "demo") return;
+  const demos = book().accounts.filter((a) => a.kind === "demo" && a.id !== acc.id);
+  if (demos.length) { let next = book(); for (const d of demos) { kv.setItem(settingsKey(d.id), ""); next = removeAccount(next, d.id); } commitBook(setActive(next, acc.id)); }
 }
 
 export const switchAccount = (id: string) => {
@@ -235,10 +329,13 @@ export async function addStoatAccount(session: StoredSession, baseURL?: string) 
   const base = normalizeBase(baseURL);
   const { StoatBackend } = await import("../lib/backend/stoat");
   const b = await StoatBackend.open(base, session); // throws a friendly Error the login form shows
-  adopt({ id: stoatAccountId(session.user_id, base), kind: "stoat", name: b.me.name, baseURL: base, session }, b);
+  const id = stoatAccountId(session.user_id, base);
+  adopt({ id, kind: "stoat", name: b.me.name, baseURL: base, session }, b);
+  void saveSnapshot(id, b);
 }
 
-export function enterDemo() {
+export async function enterDemo() {
+  const { DemoBackend } = await import("../lib/backend/mock"); // only for the demo
   const have = new Set(book().accounts.filter((a) => a.kind === "demo").map((a) => a.persona));
   const persona = have.has(0) ? 1 : 0;
   const acc: Account = { id: demoAccountId(persona), kind: "demo", name: persona === 0 ? "You" : "Moonbeam", persona };
@@ -250,6 +347,9 @@ export async function removeAccountById(id: string) {
   if (!acc) return;
   if (acc.kind === "stoat" && acc.session) void revokeSession(acc.baseURL, acc.session);
   kv.setItem(settingsKey(id), "");
+  clearSnapshot(id); // signed out: nothing of this account is shown on the next start
+  try { localStorage.removeItem(lookKey(id)); localStorage.removeItem(backdropKey(id)); } catch { /* fine */ }
+  if (lookAccount === id) lookAccount = null;
   const next = removeAccount(book(), id);
   commitBook(next);
   if (book().active !== id && backend() && activeAccount(book())?.id === next.active) return; // removed a background account
@@ -260,17 +360,16 @@ export async function removeAccountById(id: string) {
 }
 
 export async function boot() {
+  startupMark("boot");
+  const acc = activeAccount(book());
+  // Connecting comes first: nothing below needs to finish before it starts (it used to wait for them).
+  const opening = acc ? openAccount(acc) : (setPhase("login"), Promise.resolve());
   if (inTauri()) {
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      setMaterials(await invoke<string[]>("material_support"));
-    } catch { /* older shell: no materials */ }
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke<string[]>("material_support")).then(setMaterials).catch(() => { /* older shell: no materials */ });
   }
   void refreshSystemSeed();
   addEventListener("focus", () => void refreshSystemSeed()); // the OS accent may have changed while we were away
-  const acc = activeAccount(book());
-  if (!acc) { setPhase("login"); return; }
-  await openAccount(acc);
+  await opening;
 }
 
 export async function refreshSystemSeed() { setSystemSeed(await getSystemSeed()); }
@@ -379,3 +478,10 @@ export function startAppearance() {
 }
 
 export { DEFAULT_DEVICE };
+
+// The saved copy stays current: refreshed whenever the app goes to the background (unread marks, new servers…).
+if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "hidden") return;
+  const a = activeAccount(book()), b = backend();
+  if (a?.kind === "stoat" && b && !(b as unknown as { __snapshot?: boolean }).__snapshot) void saveSnapshot(a.id, b);
+});

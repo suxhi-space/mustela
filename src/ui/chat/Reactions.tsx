@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
+import { gifsMove, StillImg } from "../StillImg";
 import { Portal } from "solid-js/web";
 import type { Msg } from "../../lib/backend/types";
 import { Avatar, NameText } from "../Avatar";
@@ -24,7 +25,7 @@ function ReactionsView(props: { m: Msg; pick?: string }) {
   const list = () => props.m.reactions ?? [];
   const [tab, setTab] = createSignal(props.pick ?? list()[0]?.emoji ?? "");
   const users = () => list().find((r) => r.emoji === tab())?.users ?? [];
-  const icon = (e: string) => (isCustom(e) ? <img class="cemoji" src={backend()!.emojiUrl(e)} alt="" /> : <UEmoji e={e} />);
+  const icon = (e: string) => (isCustom(e) ? <StillImg class="cemoji" src={backend()!.emojiUrl(e)} still={!!backend()!.emojis().find((x) => x.id === e)?.animated && !gifsMove()} alt="" /> : <UEmoji e={e} />);
   return (
     <Portal>
       <div class="scrim" onClick={(e) => e.target === e.currentTarget && close()} onKeyDown={(e) => e.key === "Escape" && close()}>

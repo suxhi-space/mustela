@@ -11,7 +11,7 @@ const HOSTS = [
   "furaffinity.net", "fxfuraffinity.net", "xfuraffinity.net", "vxfuraffinity.net", "fxraffinity.net",
   "pixiv.net", "phixiv.net", "ppxiv.net",
   "deviantart.com", "fixdeviantart.com", "fxdeviantart.com",
-  "tumblr.com", "tpmblr.com", "txtumblr.com",
+  "tumblr.com", "tpmblr.com", "txtumblr.com", "fxtumblr.com",
   "threads.net", "threads.com", "fixthreads.net", "vxthreads.net", "fixthreads.seria.moe",
 ];
 const SET = new Set(HOSTS);
@@ -165,7 +165,10 @@ export function linkCards<E extends EmbedLike>(text: string, embeds: E[], skip: 
   for (const { l, es } of slots) {
     if (skip(l.url)) continue;
     const e = best(es);
-    if (isSocial(l.url) && !l.noEmbed && social < 3 && !(e && (e.video || (e.image && !videoSite(l.url))))) {
+    // Mustela asks for its own preview of a post unless Stoat's already has the video. (It used to skip it whenever
+    // Stoat's had a picture, so a Tumblr post with several pictures only ever showed Stoat's one.) Stoat's card shows
+    // meanwhile, and stays unless Mustela's adds something (see SocialPreview).
+    if (isSocial(l.url) && !l.noEmbed && social < 3 && !(e && e.video)) {
       social++;
       out.push({ kind: "social", url: l.url, fallback: e && score(e) >= 0 ? e : undefined, spoiler: l.spoiler });
     } else if (e && score(e) >= 0) out.push({ kind: "embed", e, spoiler: l.spoiler });

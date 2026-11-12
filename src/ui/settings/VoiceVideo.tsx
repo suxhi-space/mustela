@@ -6,6 +6,8 @@ import { Group, Row, Seg, Select, Slider, Switch } from "../controls";
 import { openSettings } from "../nav";
 import { backend, device, platform, updateDevice } from "../store";
 import { QUALITIES, qualityHint } from "../call/ScreenPicker";
+import { bgPaused } from "../bgStill";
+import { createLiveLevel, levelOf } from "../call/micLevel";
 
 export async function devices() {
   try {
@@ -37,7 +39,7 @@ function createMicTest() {
       const loop = ctx.createGain(); loop.gain.value = 0.6; src.connect(loop); loop.connect(ctx.destination);
       const buf = new Float32Array(an.fftSize);
       let raf = 0;
-      const tick = () => { an.getFloatTimeDomainData(buf); let s = 0; for (const x of buf) s += x * x; setDb(Math.max(-100, 20 * Math.log10(Math.sqrt(s / buf.length) || 1e-8))); raf = requestAnimationFrame(tick); };
+      const tick = () => { setDb(levelOf(an, buf)); raf = requestAnimationFrame(tick); };
       tick();
       setOn(true); setErr("");
       stop = () => { cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); void ctx.close(); setOn(false); setDb(-100); stop = () => {}; void release?.(); release = null; };
@@ -53,6 +55,10 @@ export function VoiceVideo() {
   const v = () => device().voice;
   const set = (p: Partial<VoicePrefs>) => { updateDevice({ voice: { ...v(), ...p } }); applyVoicePrefs(); };
   const mic = createMicTest();
+  // The level on the slider: from the mic test while it runs, otherwise the quiet meter (paused behind other windows).
+  const meter = createLiveLevel(() => !mic.on() && !bgPaused());
+  const level = () => (mic.on() ? mic.db() : meter.db());
+  const hearing = () => mic.on() || meter.on();
   const [cam, setCam] = createSignal<MediaStream | null>(null);
   onCleanup(() => cam()?.getTracks().forEach((t) => t.stop()));
   const toggleCam = async () => {
@@ -67,6 +73,7 @@ export function VoiceVideo() {
     <div class="page">
       <Group title="Microphone">
         <Row icon="mic" label="Input device"><Select label="Input device" value={v().inputDevice} options={opts(list()?.input, "Microphone")} onChange={(inputDevice) => { set({ inputDevice }); if (mic.on()) void mic.start(); }} /></Row>
+        <Row label="Input volume"><Slider label="Input volume" min={0} max={200} value={v().inputVolume} suffix="%" onChange={(inputVolume) => set({ inputVolume })} /></Row>
         <Row label="Mic test" hint={mic.err() || (mic.on() ? `Talk normally. You'll hear yourself back.${call.active() ? " You're muted and deafened in the call until you stop." : ""}` : "Check your level and processing.")}>
           <button class="btn small" classList={{ on: mic.on() }} onClick={() => (mic.on() ? mic.stop() : void mic.start().then(refetch))}>{mic.on() ? "Stop" : "Let's check"}</button>
         </Row>
@@ -74,14 +81,19 @@ export function VoiceVideo() {
           <div class="sens-head"><span>Input sensitivity</span><span class="grow" />
             <label class="inline-switch">Decide for me <Switch label="Decide sensitivity automatically" on={v().autoSensitivity} onChange={(autoSensitivity) => set({ autoSensitivity })} /></label>
           </div>
-          <div class="meter" classList={{ manual: !v().autoSensitivity }} aria-hidden="true">
-            <div class="meter-fill" classList={{ open: !v().autoSensitivity && mic.db() > v().threshold }} style={{ width: pct(mic.db()) }} />
-            <Show when={!v().autoSensitivity}><div class="meter-mark" style={{ left: pct(v().threshold) }} /></Show>
+          {/* Like Discord's: one slider. Below the handle (yellow) is too quiet to send, above it (green) is sent; your
+              live level runs along the track the whole time. Auto: just the level, the browser decides. */}
+          <div class="sens" classList={{ auto: v().autoSensitivity, open: !v().autoSensitivity && hearing() && level() > v().threshold }}
+            style={{ "--sens-at": pct(v().threshold), "--sens-level": hearing() ? pct(level()) : "0%" }}>
+            <div class="sens-track" aria-hidden="true"><div class="sens-level" /></div>
+            <Show when={!v().autoSensitivity}>
+              <input class="sens-range" type="range" min={-100} max={0} value={v().threshold} aria-label="Input sensitivity"
+                aria-valuetext={`${v().threshold} dB`} onInput={(e) => set({ threshold: +e.currentTarget.value })} />
+            </Show>
           </div>
-          <Show when={!v().autoSensitivity}>
-            <input class="sens-range" type="range" min={-100} max={0} value={v().threshold} aria-label="Sensitivity threshold" onInput={(e) => set({ threshold: +e.currentTarget.value })} />
-            <small class="muted">Your mic only sends sound louder than the marker ({v().threshold} dB). The bar turns green when it would.</small>
-          </Show>
+          <small class="muted">{v().autoSensitivity
+            ? "Mustela decides when you're talking. Turn this off to set it yourself."
+            : `Sound louder than the handle (${v().threshold} dB) is sent; quieter is cut. ${hearing() ? "The track lights up green while you'd be heard." : "Use Mic test to see your level on it."}`}</small>
         </div>
         <Row label="Join calls muted"><Switch label="Join calls muted" on={v().joinMuted} onChange={(joinMuted) => set({ joinMuted })} /></Row>
       </Group>

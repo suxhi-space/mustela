@@ -1,3 +1,4 @@
+import type { ChatBackend } from "../lib/backend/types";
 import { createResource, createSignal, onCleanup, type Accessor } from "solid-js";
 import type { ProfileInfo } from "../lib/backend/types";
 import { backend, ext, settings } from "./store";
@@ -87,18 +88,41 @@ export async function refreshProfile(userId: string) {
  * Someone's profile as seen from `server` (by default the server you're looking at): their look for that
  * server, where they made one, over their main profile. Pass `() => null` for the main profile only.
  */
+/**
+ * Profiles and mutuals already seen this session, in memory only: reopening anyone's card is instant. Nothing here
+ * is written to the device (phones keep a saved copy of friends' profiles only; computers of everyone they've seen).
+ */
+const seenProfiles = new Map<string, ProfileInfo>();
+const seenMutual = new Map<string, Promise<Awaited<ReturnType<ChatBackend["mutual"]>>>>();
+/** Mutual friends and servers, asked for once per person per session. */
+export function mutualOf(id: string) {
+  const b = backend();
+  if (!b) return Promise.reject(new Error("not connected"));
+  const key = `${b.me.id}:${id}`;
+  let p = seenMutual.get(key);
+  if (!p) { p = b.mutual(id); seenMutual.set(key, p); p.catch(() => seenMutual.delete(key)); }
+  return p;
+}
+/** Keep a saved copy of this person's profile on the device? Computers: anyone seen. Phones and tablets: friends only. */
+const keepOnDevice = (b: ChatBackend, uid: string) => !MOBILE_UI || b.person(uid).relation === "friend";
+
 export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolean> = () => true, server: Accessor<string | null | undefined> = currentServer): Accessor<ProfileInfo | undefined> {
   const [res] = createResource(
     () => (enabled() && backend() ? `${id()}:${epochs()[id()] ?? 0}` : null),
     async (key) => {
       const uid = key.slice(0, key.lastIndexOf(":")), b = backend();
       const info = await b?.profileOf(uid);
-      if (info && b && !MOBILE_UI && b.session() && (info.config || info.bio || info.bannerUrl)) saveProfile(b.me.id, uid, info);
+      if (info && b) seenProfiles.set(`${b.me.id}:${uid}`, info);
+      if (info && b && keepOnDevice(b, uid) && b.session() && (info.config || info.bio || info.bannerUrl)) saveProfile(b.me.id, uid, info);
       return info;
     },
   );
-  // Computers: the copy saved last time shows while the fresh one loads (lib/profileCache.ts).
-  const [saved] = createResource(() => (!MOBILE_UI && enabled() && backend()?.session() ? id() : null), (uid) => cachedProfile(backend()!.me.id, uid));
+  // What shows while the fresh one loads: this session's copy if there is one, else the copy saved on the device
+  // (computers: anyone; phones and tablets: friends; lib/profileCache.ts).
+  const [saved] = createResource(() => (enabled() && backend()?.session() ? id() : null), async (uid) => {
+    const b = backend()!;
+    return seenProfiles.get(`${b.me.id}:${uid}`) ?? (keepOnDevice(b, uid) ? await cachedProfile(b.me.id, uid) : null);
+  });
   const base = (): ProfileInfo | undefined => {
     const b = backend();
     if (b && id() === b.me.id) {

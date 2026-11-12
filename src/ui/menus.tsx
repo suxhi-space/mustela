@@ -1,16 +1,19 @@
 import { ulid } from "../lib/ulid";
+import { gifsMove, StillImg } from "./StillImg";
 import { openReactions } from "./chat/Reactions";
-import { isFav, toggleFav } from "./chat/overlays";
+import { doubleTapEmoji, isCustomKey, isFav, noteUse, toggleFav, topReactions } from "./chat/overlays";
 import { composer } from "./chat/Composer";
 import { For } from "solid-js";
 import type { ChannelInfo, Msg, NotifyLevel, Person, Space } from "../lib/backend/types";
-import { attempt, closeMenu, confirmDialog, copy, openMenu, promptDialog, toast, type MenuItem } from "./menu";
+import { attempt, closeMenu, confirmDialog, copy, heldElement, openMenu, promptDialog, toast, type MenuItem } from "./menu";
 import { openChannel, setChannelSettings, setProfileOpen, setServerSettings } from "./nav";
 import { openEmojiPicker } from "./chat/overlays";
 import { editFriendNick, friendNick } from "./nicks";
-import { backend, ext } from "./store";
+import { backend, ext, updateExt } from "./store";
 import { channelPinItems, favGroupOf, newFavGroup, pinItems, setFavGroup, setFavourite } from "./pins";
 import { UEmoji } from "./chat/UEmoji";
+import { markReacted, reactBurstOn } from "./chat/reactFx";
+import { Icon } from "./icons";
 
 /**
  * The right-click menus, matching what Stoat's own client offers for each
@@ -19,11 +22,10 @@ import { UEmoji } from "./chat/UEmoji";
  */
 
 const b = () => backend()!;
-const QUICK = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
 /** Same choices as Stoat: 15 min, 1 h, 3 h, 8 h, 24 h, until I turn it back on. */
-function muteItems(kind: "server" | "channel", id: string): MenuItem {
-  const what = kind === "server" ? "server" : "channel";
+/** `what` names it in the menu: "server", "channel", or for DMs and groups "conversation" / "group". */
+function muteItems(kind: "server" | "channel", id: string, what: string = kind): MenuItem {
   if (b().isMuted(kind, id)) return { label: `Unmute ${what}`, icon: "bell", onSelect: () => attempt(() => b().setMuted(kind, id, null), "Unmuted") };
   const at = (min: number) => () => attempt(() => b().setMuted(kind, id, Date.now() + min * 60_000), "Muted");
   return {
@@ -38,12 +40,13 @@ function muteItems(kind: "server" | "channel", id: string): MenuItem {
   };
 }
 
-function notifyItems(kind: "server" | "channel", id: string): MenuItem {
+/** `direct`: a DM or group chat, which has no server default to follow. */
+function notifyItems(kind: "server" | "channel", id: string, direct = false): MenuItem {
   const cur = b().notifyLevel(kind, id);
   const set = (l: NotifyLevel | undefined) => () => attempt(() => b().setNotifyLevel(kind, id, l));
   return {
     label: "Notifications", icon: "bell", sub: [
-      { label: kind === "server" ? "Default" : "Use server default", checked: cur === undefined, onSelect: set(undefined) },
+      { label: kind === "server" || direct ? "Default" : "Use server default", checked: cur === undefined, onSelect: set(undefined) },
       { label: "All messages", checked: cur === "all", onSelect: set("all") },
       { label: "Mentions only", checked: cur === "mention", onSelect: set("mention") },
       { label: "Nothing", checked: cur === "none", onSelect: set("none") },
@@ -150,12 +153,13 @@ export function channelMenu(e: MouseEvent, c: ChannelInfo, serverId?: string) {
   const direct = c.kind === "dm" || c.kind === "group";
   const items: MenuItem[] = [];
   if (c.kind === "dm" && c.peer) items.push({ label: "Profile", icon: "user", onSelect: () => setProfileOpen(c.peer!) });
+  if (direct) items.push({ label: "Start voice call", icon: "phone", onSelect: () => void import("./call/state").then((m) => m.joinCall(c)) });
   if (direct) items.push(...pinItems(c), { sep: true });
   else items.push(...channelPinItems(c), { sep: true });
   // Same order as Stoat: read, invite, then notifications, then managing.
   if (c.unread || c.mentions) items.push({ label: "Mark as read", icon: "check-all", onSelect: () => b().markRead({ channel: c.id }) });
   if (!direct && (info?.perms.invite ?? false)) items.push({ label: "Create invite", icon: "user-plus", onSelect: () => inviteTo(c.id) });
-  items.push({ sep: true }, muteItems("channel", c.id), notifyItems("channel", c.id));
+  items.push({ sep: true }, muteItems("channel", c.id, c.kind === "dm" ? "conversation" : c.kind === "group" ? "group" : "channel"), notifyItems("channel", c.id, direct));
   if (serverId && info?.perms.manageChannels) {
     items.push(
       { sep: true },
@@ -167,8 +171,18 @@ export function channelMenu(e: MouseEvent, c: ChannelInfo, serverId?: string) {
     items.push({ sep: true }, { label: "Channel settings", icon: "gear", onSelect: () => setChannelSettings({ id: c.id }) });
   }
   if (c.kind === "dm" && c.peer) items.push(...friendItems(c.peer));
-  if (direct) items.push({ sep: true }, { label: c.kind === "group" ? "Leave group" : "Close conversation", icon: "close", danger: true, onSelect: () => closeDM(c) });
-  items.push({ sep: true }, { label: "Copy link", icon: "link", onSelect: () => copy(b().linkFor(c.id), "Link copied") }, { label: "Copy channel ID", icon: "id", onSelect: () => copy(c.id, "ID copied") });
+  if (direct) items.push({ sep: true }, { label: c.kind === "group" ? "Leave group" : "Close DM", icon: "close", danger: true, onSelect: () => closeDM(c) });
+  // A DM is a person: their username and ID. A group has its own ID; a server channel has a link to share.
+  if (c.kind === "dm" && c.peer) {
+    const p = c.peer;
+    items.push({ sep: true });
+    if (p.username) items.push({ label: "Copy username", icon: "copy", onSelect: () => copy(p.discriminator ? `${p.username}#${p.discriminator}` : p.username!, "Username copied") });
+    items.push({ label: "Copy user ID", icon: "id", onSelect: () => copy(p.id, "ID copied") });
+  } else if (c.kind === "group") {
+    items.push({ sep: true }, { label: "Copy group ID", icon: "id", onSelect: () => copy(c.id, "ID copied") });
+  } else {
+    items.push({ sep: true }, { label: "Copy link", icon: "link", onSelect: () => copy(b().linkFor(c.id), "Link copied") }, { label: "Copy channel ID", icon: "id", onSelect: () => copy(c.id, "ID copied") });
+  }
   openMenu(e, items);
 }
 
@@ -305,8 +319,15 @@ export async function userMenu(e: MouseEvent, p: Person, serverId?: string) {
 
 export interface MsgMenuActions { reply(m: Msg): void; edit(m: Msg): void; askDelete(m: Msg): void }
 
+/** An emoji as the reaction row shows it: a custom emoji's picture, or the character in your emoji style. */
+function ReactionArt(props: { k: string }) {
+  return isCustomKey(props.k) ? <StillImg class="cemoji" src={b().emojiUrl(props.k)} still={!!b().emojis().find((e) => e.id === props.k)?.animated && !gifsMove()} alt="" /> : <UEmoji e={props.k} />;
+}
+
 export function messageMenu(e: MouseEvent, m: Msg, act: MsgMenuActions, serverId?: string) {
   const t = e.target instanceof HTMLElement ? e.target : document.getElementById(`msg-${m.id}`) ?? document.body;
+  // Holding the message the card is already open for: let the phone select its text (its own handles and copy menu).
+  if (heldElement()?.contains(t)) return;
   // Right-clicking a link, image or name gets that thing's menu instead.
   const a = t.closest("a[href]") as HTMLAnchorElement | null;
   const img = t.closest(".media img, .em-img, .embed-img") as HTMLImageElement | null;
@@ -315,21 +336,33 @@ export function messageMenu(e: MouseEvent, m: Msg, act: MsgMenuActions, serverId
   const info = serverId ? b().serverInfo(serverId) : null;
   const canManage = mine || !serverId || !!info?.perms.manageMessages;
   const sel = getSelection()?.toString() ?? "";
-  const react = (k: string) => void b().react(m.channelId, m.id, k, true).catch((e) => toast((e as Error)?.message || "Couldn't add that reaction.", true));
+  const react = (k: string) => { noteUse(k); markReacted(m.id, k); reactBurstOn(document.getElementById(`msg-${m.id}`), k); void b().react(m.channelId, m.id, k, true).catch((e) => toast((e as Error)?.message || "Couldn't add that reaction.", true)); };
   const anchor = (t.closest(".msg") as HTMLElement | null) ?? t;
+  const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  const pick = () => openEmojiPicker(anchor.querySelector(".msg-body") ?? anchor, ({ key }) => react(key));
+  // Your favorite and most-used emoji first (like Discord's row), and on touch a button for the full picker.
+  const quick = topReactions(touch ? 5 : 6);
   const items: MenuItem[] = [
-    { custom: () => (
+    { custom: () => (<>
       <div class="ctx-quick" role="group" aria-label="Quick reactions">
-        <For each={QUICK}>{(q) => <button aria-label={`React ${q}`} onClick={() => { closeMenu(); react(q); }}><UEmoji e={q} /></button>}</For>
+        <For each={quick}>{(q) => <button aria-label={`React ${q}`} onClick={() => { closeMenu(); react(q); }}><ReactionArt k={q} /></button>}</For>
+        {touch && <button class="cq-more" aria-label="More reactions" title="More reactions" onClick={() => { closeMenu(); pick(); }}><Icon name="smile-plus" size={22} /></button>}
       </div>
-    ) },
-    { label: "Add reaction", icon: "smile-plus", onSelect: () => openEmojiPicker(anchor.querySelector(".msg-body") ?? anchor, ({ key }) => react(key)) },
-    { label: "Reply", icon: "reply", onSelect: () => act.reply(m) },
+      {/* Phones and tablets: double tap a message to react (the emoji is yours to change). */}
+      {touch && <div class="cq-double"><span>Double tap a message to</span><ReactionArt k={doubleTapEmoji()} />
+        <button class="link" onClick={() => { closeMenu(); openEmojiPicker(anchor, ({ key }) => updateExt((x) => ({ ...x, doubleTap: key }))); }}>Change</button></div>}
+    </>) },
   ];
+  if (!touch) items.push({ label: "Add reaction", icon: "smile-plus", onSelect: pick });
+  // What you do most first (reply, edit, pin), then copying and reading, then deleting on its own.
+  items.push({ sep: true }, { label: "Reply", icon: "reply", onSelect: () => act.reply(m) });
   if (mine && !m.system) items.push({ label: "Edit message", icon: "pencil", onSelect: () => act.edit(m) });
   if (canManage) items.push({ label: m.pinned ? "Unpin message" : "Pin message", icon: "pin", onSelect: () => attempt(() => b().pin(m.channelId, m.id, !m.pinned), m.pinned ? "Unpinned" : "Pinned") });
   items.push({ sep: true });
   if (sel.trim()) items.push({ label: "Copy selection", icon: "copy", onSelect: () => copy(sel) });
+  if (m.text) items.push({ label: "Copy text", icon: "copy", onSelect: () => copy(m.text) });
+  if (a && /^https?:/i.test(a.href)) items.push({ label: "Copy link address", icon: "link", onSelect: () => copy(a.href, "Link copied") });
+  if (img?.src && /^https?:/i.test(img.src)) items.push({ label: "Copy image address", icon: "image", onSelect: () => copy(img.src, "Link copied") });
   if (m.reactions?.length) items.push({ label: "View reactions", icon: "smile-plus", onSelect: () => openReactions(m) });
   // A GIF in the message: star it from here (on phones the star on the GIF itself is hidden).
   const gif = m.embeds?.find((x) => x.gif);
@@ -338,12 +371,9 @@ export function messageMenu(e: MouseEvent, m: Msg, act: MsgMenuActions, serverId
     const g = { url: gif.url ?? src, preview: src, w: gif.video?.width ?? gif.image?.width, h: gif.video?.height ?? gif.image?.height };
     items.push({ label: isFav(g.url) ? "Remove GIF from favorites" : "Add GIF to favorites", icon: "star", onSelect: () => toggleFav(g) });
   }
-  if (m.text) items.push({ label: "Copy text", icon: "copy", onSelect: () => copy(m.text) });
-  if (a && /^https?:/i.test(a.href)) items.push({ label: "Copy link address", icon: "link", onSelect: () => copy(a.href, "Link copied") });
-  if (img?.src && /^https?:/i.test(img.src)) items.push({ label: "Copy image address", icon: "image", onSelect: () => copy(img.src, "Link copied") });
   items.push({ label: "Mark as unread", icon: "eye-off", onSelect: () => { b().markUnread(m.channelId, m.id); dispatchEvent(new CustomEvent("mustela:mark-unread", { detail: { channelId: m.channelId, messageId: m.id } })); toast("Marked as unread from here"); } });
   items.push({ label: "Copy message link", icon: "link", onSelect: () => copy(b().linkFor(m.channelId, m.id), "Link copied") });
   items.push({ label: "Copy message ID", icon: "id", onSelect: () => copy(m.id, "ID copied") });
   if (canManage) items.push({ sep: true }, { label: "Delete message", icon: "trash", danger: true, onSelect: () => act.askDelete(m) });
-  openMenu(e, items);
+  openMenu(e, items, { held: anchor.classList.contains("msg") ? anchor : undefined, grouped: true });
 }

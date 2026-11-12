@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import { device } from "./store";
+import { bgPaused } from "./bgStill";
 
 /**
  * For looping GIF videos: they play only while on screen, and with Performance >
@@ -22,7 +23,7 @@ export function useAutoplay() {
     host.addEventListener("pointerenter", () => setHover(true));
     host.addEventListener("pointerleave", () => setHover(false));
     createEffect(() => {
-      const play = seen() && !hidden() && (hover() || device().perf.gifs);
+      const play = seen() && !hidden() && !bgPaused() && (hover() || device().perf.gifs);
       if (play) void v.play().catch(() => {}); else v.pause();
     });
   };

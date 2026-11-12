@@ -86,6 +86,38 @@ class ClearArgs {
 }
 
 @InvokeArg
+class PhotosArgs {
+    var limit: Int = 30
+    var offset: Int = 0
+}
+
+@InvokeArg
+class PhotoFileArgs {
+    var uri: String = ""
+}
+
+@InvokeArg
+class CameraArgs {
+    var video: Boolean = false
+}
+
+@InvokeArg
+class NotifyArgs {
+    var channel: String = ""
+    var kind: String = "dm"
+    var title: String = ""
+    var id: String = ""
+    var author: String = ""
+    var authorId: String = ""
+    var avatar: String = ""
+    var text: String = ""
+    var at: Long = 0L
+    var api: String = ""
+    var token: String = ""
+    var accent: Int = 0
+}
+
+@InvokeArg
 class InstallArgs {
     var path: String = ""
 }
@@ -95,6 +127,8 @@ class MediaArgs {
     var url: String = ""
     var name: String = "file"
     var share: Boolean = false
+    /** "save", "share" or "open" (empty: from `share`) */
+    var mode: String = ""
 }
 
 @InvokeArg
@@ -599,12 +633,117 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
-    /** You opened this conversation in the app: its notification goes. */
+    /** You opened or read this conversation (here or on another device): its notification goes. */
     @Command
     fun watchClear(invoke: Invoke) {
         val args = invoke.parseArgs(ClearArgs::class.java)
-        if (args.channel.isNotEmpty()) MessageWatch.clear(activity.applicationContext, args.channel)
+        if (args.channel.isNotEmpty()) Notifier.clear(activity.applicationContext, args.channel)
         invoke.resolve()
+    }
+
+    /**
+     * A chat notification while Mustela is open in the background: the same native notifications as when it's closed
+     * (Notifier.kt), not the basic plugin's. The sender's picture is fetched here, off the main thread.
+     */
+    @Command
+    fun notifyMessage(invoke: Invoke) {
+        val a = invoke.parseArgs(NotifyArgs::class.java)
+        val ctx = activity.applicationContext
+        if (a.api.isNotEmpty() && a.token.isNotEmpty()) Notifier.setSession(ctx, a.api, a.token)
+        if (a.accent != 0) Notifier.setAccent(ctx, a.accent)
+        Thread {
+            val pic = a.avatar.takeIf { it.startsWith("https://") }?.let { url -> runCatching {
+                val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 6_000; c.readTimeout = 6_000
+                try { if (c.responseCode == 200) c.inputStream.use { android.graphics.BitmapFactory.decodeStream(it) } else null } finally { c.disconnect() }
+            }.getOrNull()?.let { MessageWatch.round(it) } }
+            Notifier.show(ctx, a.channel, a.kind, a.title.ifEmpty { null }, Notifier.Line(a.id, a.author, a.authorId, a.text, a.at, pic))
+        }.start()
+        invoke.resolve()
+    }
+
+    /* ---------- recent photos in the + card (Photos.kt) ---------- */
+
+    /** Your newest photos and videos as small thumbnails, or allowed=false when Mustela can't see them yet. */
+    @Command
+    fun recentPhotos(invoke: Invoke) {
+        val a = invoke.parseArgs(PhotosArgs::class.java)
+        val ctx = activity.applicationContext
+        scope.launch(Dispatchers.IO) {
+            val r = JSObject()
+            r.put("allowed", Photos.allowed(ctx))
+            val page = Photos.recent(ctx, a.limit, a.offset)
+            r.put("items", page.items)
+            if (page.next >= 0) r.put("next", page.next)
+            invoke.resolve(r)
+        }
+    }
+
+    /** Asks for access to photos (Android's own prompt; "select photos" on Android 14+). The page asks again when it's back. */
+    @Command
+    fun requestPhotos(invoke: Invoke) {
+        activity.runOnUiThread { runCatching { activity.requestPermissions(Photos.permissions(), 4712) } }
+        invoke.resolve()
+    }
+
+    /** The picked photo or video itself, to attach. */
+    @Command
+    fun photoFile(invoke: Invoke) {
+        val a = invoke.parseArgs(PhotoFileArgs::class.java)
+        val ctx = activity.applicationContext
+        scope.launch(Dispatchers.IO) {
+            val f = Photos.read(ctx, a.uri)
+            if (f == null) { invoke.reject("couldn't read that file"); return@launch }
+            val o = JSObject(); o.put("data", f.getString("data")); o.put("mime", f.getString("mime")); o.put("name", f.getString("name"))
+            invoke.resolve(o)
+        }
+    }
+
+    /* ---------- camera from the + card (Camera.kt) ---------- */
+
+    /**
+     * Takes a photo or a video with the phone's own camera app, saved only into Mustela's cache. Answers with the file
+     * ({data, mime, name}), {cancelled: true}, or {permission: false} after asking for the camera (Android won't open
+     * it for an app that lists the camera permission without having it; the page tries again once you answer).
+     */
+    @Command
+    fun takeMedia(invoke: Invoke) {
+        val a = invoke.parseArgs(CameraArgs::class.java)
+        if (activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            activity.runOnUiThread { runCatching { activity.requestPermissions(arrayOf(Manifest.permission.CAMERA), 4713) } }
+            val r = JSObject(); r.put("permission", false); invoke.resolve(r); return
+        }
+        try {
+            val f = Camera.newFile(activity.applicationContext, a.video)
+            startActivityForResult(invoke, Camera.intent(activity.applicationContext, f, a.video), "cameraResult")
+        } catch (e: Throwable) {
+            Camera.clear(activity.applicationContext)
+            invoke.reject("No camera app could be opened.")
+        }
+    }
+
+    @ActivityCallback
+    fun cameraResult(invoke: Invoke, result: ActivityResult) {
+        val ctx = activity.applicationContext
+        if (result.resultCode != Activity.RESULT_OK) { Camera.clear(ctx); val r = JSObject(); r.put("cancelled", true); invoke.resolve(r); return }
+        scope.launch(Dispatchers.IO) {
+            val f = Camera.take(ctx)
+            if (f == null) { val r = JSObject(); r.put("cancelled", true); invoke.resolve(r); return@launch }
+            val o = JSObject(); o.put("data", f.getString("data")); o.put("mime", f.getString("mime")); o.put("name", f.getString("name"))
+            invoke.resolve(o)
+        }
+    }
+
+    /** After Mustela was closed while the camera was open: the photo or video it took, if any ({} when there's none). */
+    @Command
+    fun pendingMedia(invoke: Invoke) {
+        val ctx = activity.applicationContext
+        scope.launch(Dispatchers.IO) {
+            val f = if (Camera.waiting(ctx)) Camera.take(ctx) else null
+            val o = JSObject()
+            if (f != null) { o.put("data", f.getString("data")); o.put("mime", f.getString("mime")); o.put("name", f.getString("name")) }
+            invoke.resolve(o)
+        }
     }
 
     /* ---------- screen share ---------- */
@@ -663,27 +802,34 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
 
     /* ---------- pictures and videos from the gallery: save or share ---------- */
 
+    /**
+     * The viewer's Save (into the gallery), Share (the file itself) and Open in browser. Downloads run off the main
+     * thread; anything that goes wrong comes back as a message the page shows.
+     */
     @Command
     fun mediaFile(invoke: Invoke) {
         val args = invoke.parseArgs(MediaArgs::class.java)
+        val mode = args.mode.ifEmpty { if (args.share) "share" else "save" }
         val uri = Uri.parse(args.url)
-        if (uri.scheme != "https" && uri.scheme != "http") { invoke.reject("not a web link"); return }
-        try {
-            if (args.share) {
-                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, args.url) }
-                activity.startActivity(Intent.createChooser(send, null))
-            } else {
-                // Downloads, with the phone's own "download complete" notification.
-                val name = args.name.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(120).ifBlank { "file" }
-                val req = android.app.DownloadManager.Request(uri)
-                    .setTitle(name)
-                    .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, name)
-                (activity.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager).enqueue(req)
+        if (uri.scheme != "https" && uri.scheme != "http") { invoke.reject("That isn't a web link."); return }
+        if (mode == "open") {
+            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                .onSuccess { invoke.resolve() }.onFailure { invoke.reject("No browser to open it with.") }
+            return
+        }
+        val ctx = activity.applicationContext
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (mode == "share") {
+                    val chooser = Media.share(ctx, args.url, args.name)
+                    activity.runOnUiThread { runCatching { activity.startActivity(chooser) } }
+                    invoke.resolve()
+                } else {
+                    val o = JSObject(); o.put("message", Media.save(ctx, args.url, args.name)); invoke.resolve(o)
+                }
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: "Couldn't do that.")
             }
-            invoke.resolve()
-        } catch (e: Exception) {
-            invoke.reject(e.message ?: "couldn't save")
         }
     }
 

@@ -53,3 +53,9 @@ export function forgetBanners() {
   map = new Map();
   try { localStorage.removeItem(KEY); } catch { /* fine */ }
 }
+
+/** Forget one person's copy (your own, right after you change your banner or look, so your card shows the new one). */
+export function forgetBanner(userId: string) {
+  if (all().delete(userId)) save();
+}
+

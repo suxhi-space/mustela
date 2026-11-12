@@ -117,7 +117,12 @@ body, .settings, .scrim.full, .popout { background: var(--world); }
 /* Gradient themes: windows and panels take on the gradient too. */
 :root[data-wingrad] :is(.panel, .settings-card, .modal, .menu, .ctx) { background-image: var(--win-tint), linear-gradient(var(--glass), var(--glass)); }
 :root[data-wingrad] .settings-card { background-image: var(--win-tint); }
-:root[data-wingrad][data-backdrop="plain"] :is(body, .settings, .scrim.full, .popout), :root[data-wingrad][data-backdrop="stars"] body { background-color: var(--world); background-image: var(--world-grad); background-attachment: fixed; }
+/* One gradient across the whole window: the stars backdrop's tile sizes no longer apply to it (that tiled the
+   gradient into 173px blocks), and each panel's tint is laid out against the window, not the panel, so panels line
+   up into one continuous gradient instead of each starting it over (the seams). */
+:root[data-wingrad][data-backdrop="plain"] :is(body, .settings, .scrim.full, .popout), :root[data-wingrad][data-backdrop="stars"] :is(body, .settings, .scrim.full, .popout) {
+  background-color: var(--world); background-image: var(--world-grad); background-attachment: fixed; background-size: 100% 100%; background-repeat: no-repeat; }
+:root[data-wingrad] :is(.panel, .modal, .menu, .ctx) { background-attachment: fixed, scroll; background-size: 100vw 100vh, auto; }
 :root[data-mode="light"]:is([data-backdrop="image"], [data-backdrop="gradient"]) { --glass: color-mix(in srgb, #fff calc(var(--panel-op, 80) * 1%), transparent); }
 
 /* Desktop window transparency: the desktop itself is the world. */
@@ -189,7 +194,9 @@ small, .small { font-size: 12.5px; }
   box-shadow: inset 0 0 0 1px var(--edge), 0 2px 0 var(--lip-dark); }
 .round-btn:hover { color: var(--fg); } .round-btn.ok:hover { color: var(--online); } .round-btn.danger:hover { color: var(--busy); }
 .tag { font-size: 10px; font-weight: 900; padding: 1px 5px; border-radius: 5px; background: var(--pri); color: var(--on-pri); vertical-align: middle; letter-spacing: .04em; text-transform: uppercase; }
-.badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center; background: var(--busy); color: #fff; font-size: 11px; font-weight: 900; line-height: 1; }
+/* A round badge for one digit that grows into a pill for "19" or "99+"; digits all the same width and centred. */
+.badge { box-sizing: border-box; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  background: var(--busy); color: #fff; font-size: 11px; font-weight: 900; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -.01em; text-align: center; }
 
 /* ============================================================ panel header bars: flat, part of the panel */
 .bar { height: var(--bar); flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 16px; position: relative; z-index: 2;
@@ -209,6 +216,9 @@ small, .small { font-size: 12.5px; }
   box-shadow: inset 0 0 0 1px var(--edge), inset 0 1px 0 var(--hi), 0 3px 0 var(--lip-dark); transition: transform .1s; }
 .orb > img, .orb > span:not(.badge) { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: grid; place-items: center; overflow: hidden; }
 .orb:hover { transform: translateY(-1px); }
+/* The lift moved the icon out from under a mouse at its bottom edge: it dropped back, lifted again and kept bouncing
+   (the side pill with it), and a click in the middle of that landed on nothing. This strip keeps it hovered. */
+.orb:not(.drop-before)::before { content: ""; position: absolute; left: 0; right: 0; bottom: -4px; height: 5px; }
 .orb.on { box-shadow: 0 0 0 2px var(--world), 0 0 0 4px var(--pri), 0 3px 0 var(--lip-dark); }
 .orb.home.on { background: var(--pri); color: var(--on-pri); }
 .orb.add { color: var(--online); }
@@ -272,7 +282,8 @@ small, .small { font-size: 12.5px; }
 
 .msg { position: relative; display: grid; grid-template-columns: 72px minmax(0, 1fr); padding: 1px 48px 1px 0; }
 .msg.head { margin-top: calc(var(--pad) + 6px); }
-.msg:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+/* Only with a mouse: on touch the hover stuck to the last message tapped (tinted, with its time showing). */
+@media (hover: hover) { .msg:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); } }
 .msg.mentioned { background: color-mix(in srgb, var(--idle) 11%, transparent); box-shadow: inset 3px 0 0 var(--idle); }
 .msg.hl { background: color-mix(in srgb, var(--pri) 18%, transparent); transition: background 1s; }
 .msg.pending { opacity: .55; }
@@ -280,7 +291,7 @@ small, .small { font-size: 12.5px; }
 .msg-gutter { display: flex; justify-content: center; align-items: flex-start; }
 .msg-av { margin-top: 2px; border-radius: 50%; }
 .gutter-time { font-size: 10.5px; color: var(--fg2); visibility: hidden; padding-top: 3px; white-space: nowrap; font-weight: 650; }
-.msg:hover .gutter-time { visibility: visible; }
+@media (hover: hover) { .msg:hover .gutter-time { visibility: visible; } }
 .msg-body { min-width: 0; }
 .msg-body header { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .msg-body header time { color: var(--fg2); font-size: 12px; font-weight: 600; }
@@ -311,7 +322,8 @@ small, .small { font-size: 12.5px; }
 .msg-tools button:hover { opacity: 1; }
 .msg-tools button:hover { background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--fg); }
 .msg-tools button.danger:hover { color: var(--busy); }
-@media (hover: none) { .msg-tools { display: none !important; } .msg:active .msg-tools { display: flex !important; } }
+/* Touch screens (a touch laptop in the desktop build too): no hover toolbar; right-click or hold for the menu. */
+@media (hover: none) { .msg-tools { display: none !important; } }
 
 .reply-ref { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg2); max-width: 100%; min-width: 0; padding: 2px 0; }
 .reply-ref .rr-name { font-weight: 800; flex: none; }
@@ -422,10 +434,15 @@ a.em-title:hover { text-decoration: underline; }
 .pf.pf-spoiled img { filter: blur(10px); }
 .pf-tag { position: absolute; left: 6px; top: 6px; font-size: 10.5px; font-weight: 850; padding: 1px 6px; border-radius: 6px; background: var(--s3); }
 .sg-role { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; font-weight: 900; color: var(--role, var(--pri)); background: color-mix(in srgb, var(--role, var(--pri)) 18%, transparent); }
-.send-btn { width: 36px; height: 34px; border-radius: 11px; display: grid; place-items: center; flex: none; color: var(--on-pri); background: var(--pri);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 2px 0 color-mix(in srgb, var(--pri) 55%, #000); }
-.send-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 0 0 transparent; }
-.send-btn:disabled { opacity: .3; }
+/* Send: a round accent button, the same on every platform (phones make it a little bigger); while there's nothing
+   to send, a soft tint of the accent with a dimmed arrow. */
+.send-btn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; color: var(--on-pri); background: var(--pri);
+  transition: background-color .15s, color .15s, transform .1s; }
+.send-btn:active:not(:disabled) { transform: scale(.92); }
+.send-btn:disabled { background: color-mix(in srgb, var(--pri) 18%, transparent); background-image: none; color: color-mix(in srgb, var(--fg) 45%, transparent); }
+/* 3D look (Appearance > Depth): the raised edge and press-down of Mustela's buttons, on the round button too. Flat: none. */
+:root:not([data-style="flat"]) .send-btn:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 2px 0 color-mix(in srgb, var(--pri) 55%, #000); }
+:root:not([data-style="flat"]) .send-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 0 0 transparent; }
 .reply-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin: 0 8px; font-size: 13px; font-weight: 650; border-radius: 12px 12px 0 0; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
 .rb-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rb-mention { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 850; color: var(--fg2); padding: 2px 6px; border-radius: 6px; }
@@ -469,6 +486,8 @@ a.em-title:hover { text-decoration: underline; }
 .p-invisible, .p-offline { background: transparent; box-shadow: inset 0 0 0 2.5px var(--off); }
 .name { font-weight: 800; }
 @keyframes rainbow { to { background-position: 200% 0; } }
+/* Big servers, "Still profile effects in big servers" on: rainbow names in the chat and member list hold still */
+:root[data-big-still] :is(.chat, .members-col, .members-sheet) .n-rainbow { animation: none !important; }
 .n-rainbow { background-image: linear-gradient(90deg, #f55, #fb4, #5d5, #4bf, #a6f, #f55); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: rainbow 4s linear infinite; }
 
 /* ============================================================ friends */
@@ -880,7 +899,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .emoji-tabs button { flex: none; width: 32px; display: grid; place-items: center; }
 .emoji-tabs img { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; }
 .et-letter { font-size: 12px; font-weight: 900; }
-.emoji-grid img { width: 26px; height: 26px; object-fit: contain; }
+.emoji-grid img, .emoji-grid canvas { width: 26px; height: 26px; object-fit: contain; }
 .eg-title { grid-column: 1 / -1; font-size: 13px; font-weight: 800; letter-spacing: .005em; text-transform: none; color: var(--fg2); padding: 2px 4px 4px; }
 .sg-emoji :is(.cemoji, .uemoji-img) { width: 22px; height: 22px; vertical-align: middle; }
 .md.jumbo { font-size: 3.8em; line-height: 1.15; }
@@ -902,13 +921,19 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
   box-shadow: inset 0 0 0 1px var(--edge), inset 0 1px 0 var(--hi), var(--drop), 0 18px 44px -16px rgba(0,0,0,.6); }
 [data-backdrop] .ctx, :root[data-material] .ctx { -webkit-backdrop-filter: blur(22px) saturate(1.15); backdrop-filter: blur(22px) saturate(1.15); }
 .ctx-item { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 10px; border-radius: 9px; font-size: 13.5px; font-weight: 750; color: var(--fg); text-align: left; }
-.ctx-item:hover:not(:disabled), .ctx-item:focus-visible { background: var(--pri); color: var(--on-pri); outline: none; }
+/* Hover colour only with a real mouse: on touch it stuck to whatever row the finger lifted over (a hold menu
+   opened with a row already lit). Touch gets a soft press instead. */
+@media (hover: hover) { .ctx-item:hover:not(:disabled) { background: var(--pri); color: var(--on-pri); outline: none; } }
+.ctx-item:focus-visible { background: var(--pri); color: var(--on-pri); outline: none; }
+@media (hover: none) { .ctx-item:active:not(:disabled) { background: color-mix(in srgb, var(--fg) 10%, transparent); } }
 .ctx-item:disabled { opacity: .45; }
 .ctx-item.danger { color: var(--err); }
 .ctx-item.danger:hover:not(:disabled), .ctx-item.danger:focus-visible { background: var(--busy); color: #fff; }
 .ctx-item svg { flex: none; opacity: .85; }
 .ctx-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx-hint { font-size: 11.5px; opacity: .7; font-weight: 700; }
+.ctx-stack { display: flex; flex-direction: column; line-height: 1.2; }
+.ctx-stack small { font-size: 11.5px; font-weight: 650; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx-check { width: 16px; text-align: center; font-weight: 900; }
 .ctx-sep { height: 2px; margin: 4px 6px; border-radius: 1px; background: var(--edge); }
 .ctx-head { padding: 6px 10px 2px; font-size: 13px; font-weight: 800; letter-spacing: .005em; text-transform: none; color: var(--label); }
@@ -941,7 +966,11 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .ss-icon { position: relative; width: 72px; height: 72px; flex: none; border-radius: 22px; overflow: hidden; display: grid; place-items: center; background: var(--s3); font-weight: 900; font-size: 20px;
   box-shadow: 0 0 0 3px var(--glass), 0 3px 0 rgba(0,0,0,.35); }
 .ss-icon img { width: 100%; height: 100%; object-fit: cover; }
-.ss-hero-actions { position: relative; display: flex; gap: 6px; flex-wrap: wrap; }
+.ss-hero.editable, .ss-hero.editable .ss-icon { cursor: pointer; }
+.ss-pics { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin: -6px 0 4px; }
+.ss-pic { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 8px 8px 14px; border-radius: 14px; background: var(--s2); box-shadow: inset 0 0 0 1px var(--edge); }
+.ss-pic span { flex: 1; min-width: 0; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-pic .icon-btn.danger { color: var(--danger, #ef5b5b); }
 .ss-chan, .ss-role, .ss-member { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ss-chan small, .ss-member small { font-weight: 700; font-size: 12px; }
 .ss-role i, .chip i { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
@@ -950,10 +979,11 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .ss-emoji-drop { width: 56px; height: 56px; flex: none; border-radius: 14px; display: grid; place-items: center; cursor: pointer; background: var(--well); box-shadow: inset 0 0 0 2px var(--edge); }
 .ss-emoji-drop:hover { }
 .ss-emoji-drop img { width: 44px; height: 44px; object-fit: contain; }
-.ss-emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; padding: 8px; }
+.ss-emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; padding: 8px; }
 .ss-emoji { display: flex; align-items: center; gap: 8px; padding: 6px 4px 6px 8px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 4%, transparent); font-size: 12.5px; font-weight: 750; min-width: 0; }
 .ss-emoji img { width: 28px; height: 28px; object-fit: contain; flex: none; }
 .ss-emoji span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-emoji .icon-btn { flex: none; }
 .ss-role-pick { flex-wrap: wrap; gap: 6px; padding-left: 50px; }
 .ss-role { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 /* Drag handles for reordering (dragSort.ts): the row lifts while it's moved */
@@ -1012,6 +1042,14 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .spage { padding-top: 0; }
 .spage-head { display: flex; align-items: center; gap: 10px; max-width: 660px; margin: 0 auto 6px; padding: 18px 0 10px; }
 .spage-head h2 { font-size: 22px; font-weight: 900; }
+/* A page that starts with buttons, a banner or a search box (not a titled group) gets room under the header,
+   instead of running into it (Server settings > Channels, Overview, Members). */
+.spage .page > :first-child:not(.group) { margin-top: 16px; }
+/* Settings search: matching settings under their page, and a flash on the one you picked */
+.snav .snav-hit { padding: 5px 10px 5px 42px; min-height: 0; font-size: 13px; font-weight: 650; color: var(--fg2); text-align: left; }
+.snav .snav-hit:hover { color: var(--fg); }
+@keyframes found-flash { 0%, 60% { box-shadow: inset 0 0 0 2px var(--pri); background-color: color-mix(in srgb, var(--pri) 14%, transparent); } }
+.found-flash { animation: found-flash 1.5s ease-out; border-radius: 12px; }
 .snav-back { display: none; }
 .snav-top { display: none; }
 .snav-top h2 { margin: 0; font-size: 20px; }
@@ -1035,7 +1073,6 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .meter-fill { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--fg2) 70%, transparent); border-radius: 6px; transition: width 60ms linear; }
 .meter:not(.manual) .meter-fill, .meter-fill.open { background: var(--online); }
 .meter-mark { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--pri); border-radius: 2px; }
-.sens-range { width: 100%; }
 .cam-preview { width: calc(100% - 28px); margin: 6px 14px 12px; border-radius: 12px; background: #000; aspect-ratio: 16 / 9; object-fit: cover; transform: scaleX(-1); }
 .mini-orb { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; overflow: hidden; flex: none; background: var(--s3); font-size: 12px; font-weight: 900; }
 .mini-orb img { width: 100%; height: 100%; object-fit: cover; }
@@ -1203,7 +1240,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .search-box input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--fg); font-weight: 650; font-size: 13.5px; }
 .mpanel { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .mp-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 8px 14px; color: var(--fg2); }
-.mp-head h3 { font-size: 14px; font-weight: 850; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-head h3 { font-size: calc(14px * var(--ui-text, 1)); font-weight: 850; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-list { flex: 1; overflow-y: auto; padding: 4px 10px 16px; display: flex; flex-direction: column; gap: 8px; }
 .mp-item { position: relative; padding: 10px 12px; border-radius: 12px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
 .mp-item header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -1221,10 +1258,13 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .mp-gap { color: var(--fg2); padding: 0 2px; }
 .mp-jump { position: absolute; top: 8px; right: 8px; opacity: 0; }
 .mp-item:hover .mp-jump, .mp-jump:focus-visible { opacity: 1; }
-@media (max-width: 900px) { .search-box { width: 36px; padding: 0 9px; } .search-box input { display: none; } .search-box:focus-within { width: 180px; } .search-box:focus-within input { display: block; } }
+/* Narrow windows: the header's search shrinks to its icon. Full-width boxes (New message, search screens) stay as
+   they are: hidden, their field couldn't be tapped at all on phones. */
+@media (max-width: 900px) { .search-box:not(.wide, .snav-search) { width: 36px; padding: 0 9px; } .search-box:not(.wide, .snav-search) input { display: none; } .search-box:not(.wide, .snav-search):focus-within { width: 180px; } .search-box:not(.wide, .snav-search):focus-within input { display: block; } }
 .members-col.panel-col { width: 320px; overflow: hidden; }
 .main-body { position: relative; }
-@media (max-width: 900px) { .members-col.panel-col { display: block; position: absolute; inset: 0; z-index: 6; width: auto; background: var(--md-surface-container-low); } }
+/* Above the chat it covers, message box included (that sits on layer 21 for the older-messages bar). */
+@media (max-width: 900px) { .members-col.panel-col { display: block; position: absolute; inset: 0; z-index: 30; width: auto; background: var(--md-surface-container-low); } }
 .older-bar { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 14px; padding: 6px 6px 6px 16px; border-radius: 14px; white-space: nowrap;
   background: var(--md-inverse-surface); color: var(--md-inverse-on-surface); font-weight: 800; font-size: 13.5px; box-shadow: var(--drop), 0 10px 24px -10px rgba(0,0,0,.6); }
 .ob-jump { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 8px; background: none; color: inherit; font: inherit; font-weight: 850; cursor: pointer; }
@@ -1273,7 +1313,10 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .ctile { position: relative; overflow: hidden; border-radius: 10px; background: #1b1e22; display: grid; place-items: center; cursor: pointer; min-height: 0; }
 .ctile:not(.video) { overflow: visible; }
 .ctile:hover { background: #22262b; }
-.ctile.talking { box-shadow: inset 0 0 0 2px var(--online), 0 0 0 1px var(--online); }
+/* The speaking outline is a layer over the tile (an inset shadow is painted under the tile's contents, which could
+   cover it), and the grid keeps a little room at its edges so the scroll area never clips it. */
+.ctile.talking::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 2.5px var(--online); pointer-events: none; z-index: 4; }
+.cgrid { padding: 3px; }
 .ctile .vid { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; }
 .ctile-av { display: grid; place-items: center; }
 .ctile-name { position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 16px); display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 7px;
@@ -1305,6 +1348,9 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .ctx-volume .ctx-label { display: flex; justify-content: space-between; font-weight: 750; font-size: 13.5px; }
 .ctx-volume b { color: var(--fg2); font-weight: 700; font-variant-numeric: tabular-nums; }
 .ctx-volume input { width: 100%; accent-color: var(--pri); }
+/* Your live mic level under the input volume (mic menu): grey, green once it's loud enough to be sent */
+.ctx-meter { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--fg) 12%, transparent); overflow: hidden; }
+.ctx-meter i { display: block; height: 100%; border-radius: inherit; background: var(--ok, #3fbf72); transition: width .06s linear; }
 
 /* pop-out window */
 .popout { height: 100vh; display: flex; flex-direction: column; background: #070809; color: #e9ecef; }
@@ -1314,8 +1360,8 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .pop-title { color: #e9ecef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pop-bar .tb-win { height: 28px; }
 :root[data-platform="mac"] .pop-bar .tb-win { display: none; }
-.orb-voice { position: absolute; right: -4px; bottom: -4px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--online); color: #fff; box-shadow: 0 0 0 3px var(--world); }
-.orb-voice.live { background: var(--busy); }
+/* Fixed spots, nothing moves: the voice mark top-right (green, never the mention count's red), the mention count bottom-right. */
+.orb-voice { position: absolute; right: -4px; top: -4px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--online); color: #fff; box-shadow: 0 0 0 3px var(--world); }
 .pv-row { display: flex; align-items: center; gap: 10px; }
 .pv-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--online) 22%, transparent); color: var(--online); flex: none; }
 .pv-ic.live { background: color-mix(in srgb, var(--busy) 22%, transparent); color: var(--busy); }
@@ -1398,8 +1444,11 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 
 /* ---------------------------------------------------------------- home list: pins */
 .pin-cat { --pin: var(--pri); }
-.pin-cat .pin-dot { width: 8px; height: 8px; border-radius: 3px; background: var(--pin); margin-right: 2px; }
-.pin-cat:hover { color: var(--pin); }
+/* A group's colour colours its name (No color: the normal heading colour); the arrow stays quiet */
+.pin-cat .pin-dot { display: none; }
+.cat.pin-cat:not(.plain) { color: var(--pin); }
+.cat.pin-cat:not(.plain) > .ic { color: var(--fg2); }
+.cat.pin-cat:not(.plain):hover { color: color-mix(in srgb, var(--pin) 80%, var(--fg)); }
 .cat.static { display: flex; align-items: center; }
 .cat-add { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; border: 0; background: none; color: var(--fg2); margin-right: 4px; }
 .cat-add:hover { background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--fg); }
@@ -1575,6 +1624,10 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .msg-gutter, .msg .av, .member .av, .friend-row .av, .voice-members .av { overflow: visible; }
 
 .snav-search, .snav-search:focus-within { width: auto; flex: none; margin: 2px 4px 6px; height: 34px; }
+/* Always a full search field (the narrow-screen rule that folds search boxes into an icon is for the chat header) */
+@media (max-width: 900px) { .snav-search, .snav-search:focus-within { width: auto; padding: 0 12px; } .snav-search input { display: block; } }
+:root[data-ui="mobile"] .snav-search { height: 44px; border-radius: 12px; margin: 4px 4px 10px; }
+.snav-search input { flex: 1; min-width: 0; }
 .up-progress { width: 100%; height: 6px; accent-color: var(--pri); }
 
 /* "N new messages since…" and the New line, like Discord and Stoat */
@@ -1721,6 +1774,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .crop-stage { display: grid; place-items: center; padding: 10px; border-radius: 14px; background: #0b0c0f; }
 .crop-box { position: relative; width: 100%; max-height: 60vh; overflow: hidden; cursor: grab; touch-action: none; border-radius: 10px; box-shadow: 0 0 0 2px rgba(255,255,255,.8); }
 .crop-box.round { width: min(320px, 100%); border-radius: 50%; }
+.crop-box.squircle { width: min(320px, 100%); border-radius: 28%; }
 .crop-box:active { cursor: grabbing; }
 .crop-box img { position: absolute; left: 50%; top: 50%; max-width: none; user-select: none; pointer-events: none; }
 .crop-zoom { display: flex; align-items: center; gap: 10px; color: var(--fg2); }
@@ -1747,6 +1801,8 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .chan-tail { position: relative; min-height: 48px; flex: 1; }
 .chan-sub { display: block; font-size: 11px; font-weight: 700; color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chan-name:has(.chan-sub) { display: flex; flex-direction: column; line-height: 1.15; }
+.crop-box img.crop-bg { position: absolute; inset: -40px; left: -40px; top: -40px; width: calc(100% + 80px) !important; height: calc(100% + 80px) !important; max-width: none;
+  object-fit: cover; transform: none !important; filter: blur(18px) brightness(.85); pointer-events: none; }
 /* The 3:1 band Mustela's cards show, marked on the banner cropper; the rest is dimmed, not hidden */
 .crop-band { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); z-index: 1; pointer-events: none; border-top: 2px dashed rgba(255,255,255,.9); border-bottom: 2px dashed rgba(255,255,255,.9); box-shadow: 0 0 0 999px rgba(0,0,0,.28); }
 /* Profile editor: which profile you're editing (main, or one server) */
@@ -1860,7 +1916,10 @@ button.select:focus-visible { box-shadow: inset 0 0 0 2px var(--pri); }
   .pe-scrim .pe-head { order: 0; flex: none; position: sticky; top: 0; z-index: 5; background: var(--md-surface-container, var(--s2)); padding: calc(12px + var(--sa-top)) 56px 10px 16px; box-shadow: inset 0 -1px 0 var(--edge); }
   .pe-scrim .pe-preview { order: 1; flex: none; max-height: none; overflow: visible; padding: 14px 14px 6px; position: static; }
   .pe-scrim .pe-scroll { order: 2; flex: none; overflow: visible; padding-bottom: calc(24px + var(--sa-bottom)); }
-  .pe-scrim .pe-close { position: fixed; top: calc(12px + var(--sa-top)); right: 12px; z-index: 7; }
+  /* Sticky, not fixed: the card's blur makes "fixed" mean the card, so the button scrolled away with the page. First
+     in the card, overlapping the sticky header (the negative margin gives its room back). */
+  .pe-scrim .pe-close { position: sticky; top: calc(12px + var(--sa-top)); order: -1; align-self: flex-end; flex: none; z-index: 7;
+    margin: calc(12px + var(--sa-top)) 12px calc(-46px - var(--sa-top)) auto; }
   .pe-scrim .pe-bar { order: 3; flex: none; position: sticky; bottom: 0; z-index: 6; padding-bottom: calc(10px + var(--sa-bottom)); }
   .pe-sec.two { grid-template-columns: 1fr; }
   .pe-scroll { padding: 4px 16px 24px; }
@@ -1999,7 +2058,7 @@ button.select:focus-visible { box-shadow: inset 0 0 0 2px var(--pri); }
 .mp-search input { display: block !important; }
 .mp-clear { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 0; background: color-mix(in srgb, var(--fg) 12%, transparent); color: var(--fg); }
 .mp-tabs { display: flex; gap: 4px; padding: 0 10px 6px; overflow-x: auto; scrollbar-width: none; }
-.mp-tabs button { flex: none; padding: 6px 12px; border-radius: 999px; border: 0; background: none; color: var(--fg2); font-weight: 800; font-size: 13px; }
+.mp-tabs button { flex: none; padding: 6px 12px; border-radius: 999px; border: 0; background: none; color: var(--fg2); font-weight: 800; font-size: calc(13px * var(--ui-text, 1)); }
 .mp-tabs button.on { background: color-mix(in srgb, var(--pri) 22%, transparent); color: var(--fg); }
 .mp-filters { display: flex; gap: 6px; padding: 0 10px 8px; flex-wrap: wrap; }
 .mp-filters .select, .mp-filters > * { flex: 1 1 120px; min-width: 0; }
@@ -2007,8 +2066,13 @@ button.select:focus-visible { box-shadow: inset 0 0 0 2px var(--pri); }
 .mp-filters .mp-reset { flex: 0 0 auto; }
 button.mp-item { display: block; width: 100%; text-align: left; border: 0; color: inherit; font: inherit; cursor: pointer; }
 button.mp-item:hover { background: color-mix(in srgb, var(--fg) 6%, var(--well)); }
-.mp-thumbs { display: flex; gap: 4px; margin-top: 6px; }
-.mp-list.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); grid-auto-rows: auto; gap: 4px; align-content: start; }
+.mp-thumbs { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+/* Small fixed tiles (In context showed pictures at full size: off the side, and pushing the message out of view) */
+.mp-thumbs img { width: 84px; height: 84px; flex: none; border-radius: 10px; object-fit: cover; background: var(--well); display: block; }
+.mp-pv-msg :is(img, video) { max-width: 100%; }
+/* Rows as tall as the square tiles (max-content). With "auto" rows a tall panel squeezed every row to fit its
+   height instead of scrolling, so the tiles overlapped each other. */
+.mp-list.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); grid-auto-rows: max-content; gap: 4px; align-content: start; }
 .mp-list.gallery > .empty, .mp-list.gallery > .loading-row { grid-column: 1 / -1; }
 /* Every tile the same square; the picture fills it and can never push it bigger or spill over its neighbours. */
 .mp-tile { position: relative; display: block; width: 100%; height: auto; aspect-ratio: 1; min-height: 0; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--s3); cursor: pointer; isolation: isolate; }
@@ -2017,7 +2081,7 @@ button.mp-item:hover { background: color-mix(in srgb, var(--fg) 6%, var(--well))
 .mp-tile .mp-by { position: absolute; left: 5px; bottom: 5px; z-index: 2; pointer-events: none; line-height: 0; border-radius: 50%; box-shadow: 0 0 0 2px rgba(0,0,0,.45); }
 .mp-tile .mp-vid { position: absolute; inset: 0; display: grid; place-items: center; }
 .mp-play { position: absolute; top: 6px; right: 6px; z-index: 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(0,0,0,.55); pointer-events: none; }
-.mp-tile .mp-spoiler { position: absolute; inset: 0; margin: auto; z-index: 2; width: fit-content; height: fit-content; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; color: #fff; background: rgba(0,0,0,.6); pointer-events: none; }
+.mp-tile .mp-spoiler { position: absolute; inset: 0; margin: auto; z-index: 2; width: fit-content; height: fit-content; padding: 3px 9px; border-radius: 999px; font-size: calc(11px * var(--ui-text, 1)); font-weight: 900; letter-spacing: .04em; text-transform: uppercase; color: #fff; background: rgba(0,0,0,.6); pointer-events: none; }
 .mp-thumb { position: relative; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; background: var(--s3); flex: none; }
 .mp-thumb > img, .mp-thumb > video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mp-thumb.spoiled > * { filter: blur(14px) brightness(.6); transform: scale(1.2); }
@@ -2025,10 +2089,11 @@ button.mp-item:hover { background: color-mix(in srgb, var(--fg) 6%, var(--well))
 .mp-link { display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
 .mp-link-main { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: var(--fg); text-decoration: none; min-width: 0; }
 .mp-link-main img, .mp-link-ic { width: 44px; height: 44px; flex: none; border-radius: 10px; object-fit: cover; background: var(--s3); display: grid; place-items: center; color: var(--fg2); }
-.mp-link-text { display: flex; flex-direction: column; min-width: 0; }
+.mp-link-text { display: flex; flex-direction: column; min-width: 0; font-size: var(--msg-font, var(--font, 15px)); }
+.mp-link-text small { font-size: calc(var(--msg-font, var(--font, 15px)) - 2px); }
 .mp-link-text strong, .mp-link-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-link-text small { color: var(--fg2); font-weight: 650; }
-.mp-link-from { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border: 0; border-top: 1px solid var(--edge); background: none; color: var(--fg2); font-size: 12px; font-weight: 700; text-align: left; cursor: pointer; }
+.mp-link-from { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border: 0; border-top: 1px solid var(--edge); background: none; color: var(--fg2); font-size: calc(var(--msg-font, var(--font, 15px)) - 3px); font-weight: 700; text-align: left; cursor: pointer; }
 .mp-link-from span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.mp-file { flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; border: 0; color: var(--fg); text-align: left; cursor: pointer; }
 .mp-preview { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; background: var(--md-surface-container-low, var(--s1)); animation: sheet-up .18s ease-out; }
@@ -2099,6 +2164,9 @@ img.mini-orb.tiny { object-fit: cover; }
     background: var(--md-surface-container, var(--s2)); box-shadow: 0 -1px 0 var(--edge), 0 -12px 30px -14px rgba(0,0,0,.6); border-radius: 18px 18px 0 0; }
   .edit-head { display: flex; }
   .edit-save { min-height: 42px; }
+  /* While editing, the edit box takes the message box's place: the regular one (which sits on a higher layer and
+     used to show through it, text and buttons overlapping) steps aside, with the typing line. */
+  .chat:has(.msg .edit-box) :is(.composer-wrap, .typing) { visibility: hidden; }
 }
 /* View reactions */
 .reactions-view { width: min(460px, 100%); height: min(440px, 100%); display: flex; flex-direction: column; padding: 0; overflow: hidden; }
@@ -2119,9 +2187,6 @@ img.mini-orb.tiny { object-fit: cover; }
 @media (max-width: 700px) {
   .jump-present { left: 10px; right: 10px; transform: none; bottom: calc(var(--bar) + 18px + var(--sa-bottom)); justify-content: center; border-radius: 14px; padding: 10px 14px; font-size: 14px;
     background: var(--pri); color: var(--on-pri); box-shadow: 0 6px 18px -8px rgba(0,0,0,.6); }
-}
-@media (max-width: 700px) {
-  .older-bar { left: 10px; right: 10px; transform: none; bottom: calc(var(--bar) + 18px + var(--sa-bottom)); white-space: normal; justify-content: space-between; }
 }
 
 /* Phones: settings are a solid page (nothing shows through behind the gesture bar), scroll all the way,
@@ -2256,17 +2321,10 @@ img.mini-orb.tiny { object-fit: cover; }
 
 button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 .social-embed .em-img { max-height: 420px; }
-/* "You're viewing older messages": a card floating just above the message box, toward the right (desktop) */
-/* "You're viewing older messages" (desktop): a bar as wide as the message box, its bottom tucked behind the box's top edge */
+/* "You're viewing older messages" (desktop): the bar who's typing also shows in while it's up. */
 @media (min-width: 701px) {
-  .older-bar { left: 14px; right: 14px; transform: none; bottom: calc(var(--composer-h, 70px) - 14px); z-index: 20; justify-content: space-between;
-    padding: 5px 6px 19px 14px; border-radius: 14px 14px 0 0; font-size: 13px; box-shadow: 0 -8px 22px -12px rgba(0,0,0,.55); }
-  /* The message box is see-through in some looks: give it a solid base while the bar is tucked behind it. */
-  .chat.older-on .composer { background: linear-gradient(var(--well), var(--well)), var(--s2); }
-  /* The bar says who's typing while it's up (the usual line is underneath it). */
   .chat.older-on .typing { visibility: hidden; }
   .ob-typing { display: inline-flex; align-items: center; gap: 6px; }
-  .composer-wrap { z-index: 21; }
 }
 
 /* Phones in a call: a clean screen like other call apps. A simple bar on top (minimise, the channel,
@@ -2657,4 +2715,379 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
 /* About square windows, where Settings is a full page of the window: Settings keeps its own title bar and isn't blurred */
 @media (min-width: 701px) and (max-aspect-ratio: 4/3) {
   :root:not([data-ui="mobile"]):has(.settings) .scrim:not(.full) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* Instant start: a small pill only if connecting takes a while (slow network); a normal start shows no loading at all */
+.warming { position: fixed; top: calc(var(--tb, 0px) + var(--sa-top, 0px) + 8px); left: 50%; transform: translateX(-50%); z-index: 300;
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 99px; font-size: 12.5px; font-weight: 800;
+  color: var(--fg); background: var(--md-surface-container-highest, var(--s3)); box-shadow: inset 0 0 0 1px var(--edge), 0 6px 18px -8px rgba(0,0,0,.6);
+  pointer-events: none; animation: warming-in .25s ease-out 3s backwards; }
+.warming-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pri); animation: warming-pulse 1s ease-in-out infinite alternate; }
+@keyframes warming-in { from { opacity: 0; transform: translate(-50%, -6px); } }
+@keyframes warming-pulse { from { opacity: .35; } }
+
+/* Profile cards: what arrives after the card opens (banner picture, decorations, bio, voice status, mutuals) fades in
+   instead of popping in. The name and picture are there from the start. */
+@keyframes pc-in { from { opacity: 0; } }
+:root:not([data-reduce-motion]) :is(.pcard .pc-banner img, .pcard .pc-banner canvas, .pcard .pc-avatar canvas, .pcard .pc-section, .pcard .pc-bubble,
+  .dmp-lists .dmp-item, .dmp-row span) { animation: pc-in .28s ease-out; }
+
+/* Channel lists: categories read as section headers (bigger, bolder, the arrow after the name), channel rows a
+   little tighter. Keeps every density option; only the proportions change. */
+.chans .cat { font-size: 15px; font-weight: 850; color: color-mix(in srgb, var(--fg2) 55%, var(--fg)); margin: 16px 4px 2px 8px; letter-spacing: 0; }
+.chans .cat:hover { color: var(--fg); }
+.chans .cat > .ic { order: 2; margin-left: 3px; opacity: .75; }
+.chans .cat > :is(.grow, .cat-add) { order: 3; }
+.chans .cat .rot { transform: rotate(-90deg); }
+.chans .chan { min-height: calc(var(--row) - 6px); }
+.chans .chan.big, .chans .chan.dm { min-height: calc(var(--row) - 2px); }
+@media (max-width: 700px) { .chans .cat { font-size: 17px; margin-top: 18px; } }
+:root[data-ui="mobile"] .chans .cat { font-size: 16.5px; }
+:root[data-ui="mobile"] .chans .chan { min-height: 40px; }
+:root[data-ui="mobile"] .chans .chan.dm { min-height: 52px; }
+
+/* Status text a little bigger and easier to read: the nameplate and your card */
+.up-text small { font-size: 13px; }
+.me-status .status-edit input { font-size: calc(var(--font, 15px) - .5px); }
+@media (max-width: 700px) { .up-text small { font-size: 14.5px; } .me-status .status-edit input { font-size: 16px; } }
+@media (pointer: coarse) and (min-width: 701px) { .up-text small { font-size: 14px; } }
+/* Phones: a little room between the "Messages" title and the search / Friends / + row */
+@media (max-width: 700px) { .home-actions { padding-top: 10px; } }
+/* Phones and tablets: names above messages bigger (closer to the message text), the time stays small beside them */
+:root[data-ui="mobile"] .msg-name { font-size: calc(var(--msg-font, var(--font, 15px)) + 1.5px); }
+/* Emoji card: the group bar, with the delete key at its right end on phones (stays put while the groups scroll) */
+.emoji-railbar { display: contents; }
+.emoji-sheet .emoji-railbar { display: flex; align-items: center; flex: none; box-shadow: 0 -1px 0 var(--edge); }
+.emoji-sheet .emoji-railbar .emoji-rail { flex: 1; min-width: 0; box-shadow: none; }
+/* The delete key stands out like a keyboard's: its own key cap, full-strength icon */
+.emoji-del { flex: none; width: 54px; height: 44px; margin-right: 6px; border-radius: 12px; display: grid; place-items: center; color: var(--fg); touch-action: none;
+  background: color-mix(in srgb, var(--fg) 11%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent); }
+.emoji-del:active { background: color-mix(in srgb, var(--fg) 20%, transparent); transform: scale(.96); }
+/* Emoji ⇄ GIFs: the new tab's contents slide in from its side (Emoji is on the left, GIFs on the right) */
+@keyframes xs-in-l { from { transform: translateX(-28px); opacity: 0; } }
+@keyframes xs-in-r { from { transform: translateX(28px); opacity: 0; } }
+:root:not([data-reduce-motion]) .xs-in-l > :not(.xs-top) { animation: xs-in-l .22s cubic-bezier(.2, .8, .2, 1); }
+:root:not([data-reduce-motion]) .xs-in-r > :not(.xs-top) { animation: xs-in-r .22s cubic-bezier(.2, .8, .2, 1); }
+
+/* ---------- Viewing older messages ----------
+   It lives inside the message box's own area, so it's always stuck to the top of it (it used to be placed from a
+   measurement, which went stale when the box moved, leaving the bar floating mid-chat). */
+.composer-wrap { z-index: 21; }
+/* Desktop: a bar a little narrower than the message box, its bottom tucked behind the box (or the reply or attachment bar on top of it). */
+.composer-wrap > .older-bar { position: absolute; left: 26px; right: 26px; bottom: calc(100% - 14px); transform: none; z-index: -1;
+  justify-content: space-between; white-space: nowrap; padding: 5px 6px 19px 14px; border-radius: 14px 14px 0 0; font-size: 13px;
+  box-shadow: 0 -8px 22px -12px rgba(0, 0, 0, .55); animation: ob-up .16s ease-out; }
+.composer-wrap > .older-bar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@keyframes ob-up { from { transform: translateY(8px); opacity: 0; } }
+/* The message box is see-through in some looks: a solid base while the bar is tucked behind it. Waiting
+   attachments get the same solid tray, so the bar, the tray and the box read as one piece. */
+.chat.older-on :is(.composer, .reply-bar) { background: linear-gradient(var(--well), var(--well)), var(--s2); }
+.chat.older-on .pending-files { margin: 0 12px -10px; padding: 10px 8px 18px; border-radius: 14px 14px 0 0; background: linear-gradient(var(--well), var(--well)), var(--s2); box-shadow: inset 0 0 0 1px var(--edge); }
+.chat.older-on .reply-bar + .pending-files { border-radius: 0; }
+/* Phones and tablets: a round arrow above the message box, on the right. */
+.composer-wrap > .jump-arrow { position: absolute; right: 18px; bottom: calc(100% + 12px); width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(var(--well), var(--well)), var(--s2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--edge), 0 8px 20px -8px rgba(0, 0, 0, .65); animation: ob-up .16s ease-out; }
+.composer-wrap > .jump-arrow:active { transform: scale(.94); }
+
+/* ---------- Long names in lists and rows: one line, ending in "…" ----------
+   Member list, DM list, voice channel members, message headers and mentions. The name is the part that shrinks;
+   tags (BOT), role icons and the time always stay whole. Profile cards and the full profile show the full name. */
+.chan-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-name:has(.chan-sub) .chan-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-name > .name, .vm-name > .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-name > .name { display: block; }
+.member-name > :not(.name), .msg-body header > :not(.msg-name) { flex: none; }
+.msg-body header { flex-wrap: nowrap; min-width: 0; }
+.msg-name { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-name > .name { white-space: nowrap; }
+.mention { display: inline-block; max-width: min(100%, 22em); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+/* ---------- Message box height ----------
+   One line until the text itself wraps; grows with it up to about 9 lines on desktop and 6 on phones and tablets,
+   then scrolls inside. The placeholder never wraps (it ends in "…"), so an empty box is always one line. */
+.editor .cm-line:has(.cm-placeholder) { white-space: nowrap; overflow: hidden; }
+.editor .cm-placeholder { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
+.composer .editor { max-height: calc(9 * 1.4em + 14px); }
+/* Scrolls only at the cap (Composer sets .scrolls); never sideways, and a scroll at its end doesn't drag the chat. */
+.composer .editor { overflow: hidden; overscroll-behavior: contain; scrollbar-width: thin; }
+.composer .editor.scrolls { overflow-y: auto; }
+:root[data-ui="mobile"] .composer .editor { max-height: calc(6 * 1.4em + 14px); }
+/* Touch: no desktop resize corner on the edit box. */
+:root[data-ui="mobile"] .edit-ed { resize: none; }
+/* Typed text matches the messages (the chosen message text size), in the message box and the edit box. */
+:is(.composer, .edit-ed) :is(.cm-editor, .cm-content) { font-size: var(--msg-font, var(--font, 15px)); }
+:root[data-ui="mobile"] :is(.composer, .edit-ed) :is(.cm-editor, .cm-content) { font-size: max(16px, var(--msg-font, 16px)); }
+/* Message box buttons (attach, timestamp, GIF, emoji): a slightly thinner line so their small details (the GIF
+   letters, the calendar) read clearly. */
+.composer .icon-btn svg, .edit-row .icon-btn svg { stroke-width: 2; }
+
+/* ---------- Hold menu for a message (phones and tablets) ----------
+   Comes up like the emoji card and pushes the chat up instead of covering it: no dark cover, the held message stays
+   in view just above the card with a soft highlight, and the chat stays live (holding its text selects it). Solid
+   (no blur behind it) with a short slide, so it opens snappily; halfway up at first, drag up for the rest. */
+.ctx-scrim.held-scrim { background: none !important; pointer-events: none; }
+.held-scrim > .ctx { pointer-events: auto; }
+/* Every card from the bottom looks and moves like the message one (DMs, channels, servers, people, dropdowns) */
+.ctx.ctx-sheet, .ctx.ctx-sheet.ctx-held { max-height: 56vh; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+  background: var(--md-surface-container, var(--s2)); box-shadow: 0 -1px 0 var(--edge), 0 -14px 34px -16px rgba(0,0,0,.7);
+  animation: hold-up .2s cubic-bezier(.2, .8, .2, 1); will-change: transform; }
+@keyframes hold-up { from { transform: translateY(100%); } }
+:root[data-reduce-motion] .ctx.ctx-sheet { animation: none; }
+:root.hold-open .messages-inner { padding-bottom: var(--hold-h, 0px); }
+.msg.held { background: color-mix(in srgb, var(--pri) 14%, transparent) !important; box-shadow: inset 3px 0 0 var(--pri); border-radius: 0; transition: background-color .2s; }
+/* Rounded blocks of rows, like Discord's (thin lines between rows inside a block) */
+.ctx-grouped .ctx-group { display: flex; flex-direction: column; margin: 0 0 10px; border-radius: 16px; overflow: hidden; flex: none;
+  background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.ctx-grouped .ctx-group.plain { background: none; overflow: visible; margin-bottom: 4px; }
+.ctx-grouped .ctx-group .ctx-item { border-radius: 0; padding-left: 16px; }
+.ctx-grouped .ctx-group .ctx-item + .ctx-item { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 8%, transparent); }
+.ctx-grouped .ctx-group:last-child { margin-bottom: 0; }
+/* The reaction row on touch: big targets, your emoji, then the full picker */
+.ctx-sheet .ctx-quick { gap: 8px; padding: 2px 0 4px; margin: 0; box-shadow: none; }
+.ctx-sheet .ctx-quick button { height: 50px; border-radius: 14px; box-shadow: none; background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.ctx-sheet .ctx-quick .cemoji { width: 28px; height: 28px; }
+.ctx-quick .cq-more { color: var(--fg2); }
+.cq-double { display: flex; align-items: center; gap: 6px; padding: 6px 4px 8px; color: var(--fg2); font-weight: 700; font-size: 14px; }
+.cq-double .cemoji, .cq-double .uemoji-img { width: 20px; height: 20px; }
+.cq-double .link { color: var(--pri); font-weight: 800; background: none; border: 0; padding: 0; cursor: pointer; }
+/* Wider screens (tablets): a centred card rather than one stretched across the whole width. */
+/* Every card from the bottom (hold menus, dropdowns), not only the message one. */
+@media (min-width: 701px) { .ctx.ctx-sheet { width: min(580px, 100%); max-width: 580px; margin-inline: auto; } }
+
+/* ---------- Input sensitivity: one slider like Discord's ----------
+   The track is yellow below the handle (too quiet, not sent) and green above it (sent); the live mic level runs along
+   it as a light bar. "Decide for me": just the level bar, green. */
+.sens { position: relative; height: 30px; margin: 8px 0 2px; --sens-at: 45%; --sens-level: 0%; }
+.sens-track { position: absolute; left: 0; right: 0; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px; overflow: hidden;
+  background: linear-gradient(to right, var(--idle, #f0b232) 0 var(--sens-at), var(--online) var(--sens-at) 100%); }
+.sens.auto .sens-track { background: color-mix(in srgb, var(--fg) 14%, transparent); }
+.sens-level { position: absolute; left: 0; top: 2px; bottom: 2px; width: var(--sens-level); border-radius: 2px; background: rgba(255,255,255,.75); transition: width 60ms linear; }
+.sens.auto .sens-level { top: 0; bottom: 0; background: var(--online); }
+.sens.open .sens-track { box-shadow: 0 0 0 2px color-mix(in srgb, var(--online) 45%, transparent); }
+.sens-range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; }
+.sens-range::-webkit-slider-runnable-track { background: transparent; height: 100%; }
+.sens-range::-moz-range-track { background: transparent; }
+.sens-range::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: 5px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.sens-range::-moz-range-thumb { width: 20px; height: 20px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+:root[data-ui="mobile"] .sens { height: 36px; }
+:root[data-ui="mobile"] .sens-range::-webkit-slider-thumb { width: 26px; height: 26px; margin-top: 5px; }
+/* A link preview's several pictures: the attachment grid, inside the card */
+.em-grid { margin-top: 8px; width: min(100%, 460px); }
+.mg-more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.55); color: #fff; font-size: 26px; font-weight: 900; border: 0; cursor: zoom-in; }
+
+/* Server and channel settings, stepped like your own Settings on phones and narrow windows: the menu is a screen of
+   its own (with its own way out), a section opens full screen with a back arrow. Wide windows keep the side menu
+   and the bar on top; the page title there is the bar's job. */
+.stepped-head { display: none; }
+@media (max-width: 900px) {
+  .settings.stepped .settings-bar { display: none; }
+  .settings.stepped .stepped-head { display: flex; }
+  .settings.stepped .snav-head:first-of-type { margin-top: 4px; }
+}
+/* Bigger section headers in settings menus on phones (User settings, Server, You, People…) */
+:root[data-ui="mobile"] .snav-head { font-size: 16px; font-weight: 850; letter-spacing: 0; padding-top: 14px; padding-bottom: 6px; }
+
+/* Server settings > Channels: categories like Stoat's (count, ⋮ menu, drag handle), channels under them */
+.cc-page { gap: 14px; }
+.cc-cats { display: flex; flex-direction: column; gap: 14px; }
+.cc-cat { border-radius: 16px; background: color-mix(in srgb, var(--fg) 4%, transparent); box-shadow: inset 0 0 0 1px var(--edge); overflow: hidden; }
+.cc-cat.sorting, .cc-row.sorting { position: relative; z-index: 3; box-shadow: 0 10px 26px -10px rgba(0,0,0,.7), inset 0 0 0 1px var(--edge); background: var(--s2); }
+.cc-head { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 6px 4px 12px; font-weight: 850; font-size: 15px; box-shadow: inset 0 -1px 0 var(--edge); }
+.cc-head .cc-grip { margin-left: -6px; }
+.cc-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-head .count { font-size: 12px; font-weight: 800; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg2); }
+.cc-list { display: flex; flex-direction: column; }
+.cc-row { display: flex; align-items: center; gap: 4px; min-height: 46px; padding: 0 6px; }
+.cc-row + .cc-row { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent); }
+.cc-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 8px; border: 0; background: none; color: var(--fg); font: inherit; font-weight: 700; text-align: left; border-radius: 10px; cursor: pointer; }
+.cc-open span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-open:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.cc-grip { cursor: grab; touch-action: none; color: var(--fg2); }
+.cc-empty { padding: 12px 16px; margin: 0; }
+/* Saved themes */
+.theme-name { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; min-width: 0; }
+.theme-dots { width: 26px; height: 26px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+/* Streaming card on profiles: the stream's picture (while you're in that call) and who else is there */
+.pv-frame { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; margin-top: 10px; background: #000; }
+.pv-people { display: flex; align-items: center; gap: 4px; margin-top: 10px; }
+.pv-people .av { box-shadow: 0 0 0 2px var(--s1); border-radius: 50%; }
+.pv-people .av + .av { margin-left: -8px; }
+.pv-people small { margin-left: 6px; color: var(--fg2); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-more { font-size: 11px; font-weight: 800; color: var(--fg2); margin-left: 2px; }
+/* Recent photos in the + card (Android) */
+/* Photos straight in the card (no frame around them), tiles like the search Media tab's: rounded, a small gap.
+   The whole card scrolls, buttons included. */
+.att-photos-head { display: flex; align-items: center; gap: 10px; margin: 14px 2px 8px; }
+.att-photos-head > span { flex: 1; font-weight: 850; font-size: 15px; }
+.att-view { flex: none; }
+.att-view button { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; font-size: 13px; }
+.att-recent { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: max-content; gap: 3px; }
+.att-day h4 { margin: 14px 2px 8px; font-size: 15px; font-weight: 850; }
+.att-day:first-child h4 { margin-top: 2px; }
+.att-photo { position: relative; aspect-ratio: 1; padding: 0; border: 0; border-radius: 8px; background: var(--well); overflow: hidden; cursor: pointer; }
+.att-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.att-photo.on img { transform: scale(.88); border-radius: 6px; }
+.att-photo img { transition: transform .15s cubic-bezier(.2, .8, .2, 1); }
+.att-photo.on { background: color-mix(in srgb, var(--pri) 22%, var(--well)); }
+.att-tick { position: absolute; top: 6px; right: 6px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--pri); color: var(--on-pri); font-size: 13px; font-weight: 900; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,.4); }
+.att-add-row { position: sticky; bottom: 4px; z-index: 3; display: flex; justify-content: flex-end; pointer-events: none; margin-top: -8px; }
+.att-add { pointer-events: auto; min-height: 48px; padding: 0 22px; border-radius: 24px; gap: 8px; font-size: 15px; box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+/* The scroll handle: shows while scrolling; hold and drag it, with the month beside it */
+.att-scrub { position: fixed; right: 6px; z-index: 97; width: 34px; display: flex; align-items: center; justify-content: flex-end; touch-action: none;
+  opacity: 0; pointer-events: none; transition: opacity .25s; }
+.att-scrub.on { opacity: 1; pointer-events: auto; }
+.att-scrub-thumb { width: 30px; height: 100%; border-radius: 15px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--s1) 88%, transparent); color: var(--fg); box-shadow: 0 2px 10px rgba(0,0,0,.45), inset 0 0 0 1px var(--edge); }
+.att-scrub.dragging .att-scrub-thumb { background: var(--pri); color: var(--on-pri); }
+.att-scrub-date { position: absolute; right: 40px; white-space: nowrap; padding: 8px 14px; border-radius: 999px; font-weight: 850; font-size: 15px;
+  background: color-mix(in srgb, var(--s1) 94%, transparent); color: var(--fg); box-shadow: 0 4px 16px rgba(0,0,0,.45); }
+.att-vid { position: absolute; right: 6px; bottom: 6px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,.55); color: #fff; }
+.att-allow { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--fg) 6%, transparent); font-weight: 750; }
+.att-allow span { flex: 1; }
+/* Message box: the send button as far from the right edge as the attach icon's glyph is from the left, and lifted by
+   its 3D edge so it reads as centred on the box's middle line. */
+.composer .send-btn { margin: 0 3px 0 4px; }
+:root:not([data-style="flat"]) .composer .send-btn:not(:disabled) { transform: translateY(-1px); }
+:root:not([data-style="flat"]) .composer .send-btn:active:not(:disabled) { transform: translateY(1px); }
+
+/* Side lists (channels and DMs, members): no scroll bar until you point at the list, then a thin one, like Discord's.
+   (Windows otherwise draws its full-size bar beside the names.) */
+:is(.side .chans, .members-col, .dmp-col) { scrollbar-width: none; }
+:is(.side .chans, .members-col, .dmp-col):hover { scrollbar-width: thin; }
+:is(.side .chans, .members-col, .dmp-col)::-webkit-scrollbar { width: 0; height: 0; }
+:is(.side .chans, .members-col, .dmp-col):hover::-webkit-scrollbar { width: 6px; }
+:is(.side .chans, .members-col, .dmp-col)::-webkit-scrollbar-thumb { border-radius: 3px; background: color-mix(in srgb, var(--fg) 22%, transparent); }
+/* Nothing in a row may ever push the list sideways (that's what put a horizontal bar under long names). */
+.side .chans, .members-col { overflow-x: hidden; }
+/* Scheduled messages and slowmode: a small line under the message box */
+.composer-notes { display: flex; align-items: center; gap: 8px; min-height: 18px; margin: 3px 6px -6px; }
+.composer-notes .slow-chip { padding: 0; margin: 0; font-size: 12px; }
+.composer-notes .sched-chip { height: 22px; padding: 0 10px; margin: 0; font-size: 12px; }
+
+/* DM list: a little more room between people on desktop; the pin groups and "Direct messages" sit close together
+   (like Discord's), and the hint in an empty pin group is shorter. */
+@media (min-width: 701px) { :root:not([data-ui="mobile"]) .side .chans .chan.dm { min-height: 44px; margin-bottom: 2px; } }
+.chans .pin-cat { margin-top: 10px; }
+.chans .pin-cat + .chan, .chans .cat.static + .chan { margin-top: 2px; }
+.chans .cat.static { margin-top: 10px; }
+.chans .fav-empty { padding: 6px 12px 4px; margin: 0; }
+:root[data-ui="mobile"] .chans .chan.dm { min-height: 48px; }
+
+/* "Delete message?" pop-up, like Discord's */
+.del-dialog { width: min(440px, calc(100vw - 32px)); padding: 20px 20px 16px; animation: pop-in .14s ease-out; }
+.del-dialog h3 { margin: 0 0 4px; font-size: 19px; font-weight: 900; }
+.del-dialog > p { margin: 0 0 14px; }
+.del-preview { display: flex; gap: 12px; padding: 12px; border-radius: 12px; background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); max-height: 220px; overflow: hidden; }
+.del-body { min-width: 0; flex: 1; }
+.del-head { display: flex; align-items: baseline; gap: 8px; font-weight: 850; }
+.del-head time { font-size: 12px; font-weight: 600; color: var(--fg2); }
+.del-text { margin-top: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
+.del-tip { margin: 12px 0 0; font-size: 12.5px; color: var(--fg2); }
+.del-dialog .dialog-actions { margin-top: 16px; }
+
+/* Reacting: the chip bumps, and the emoji floats up from where you reacted */
+.reaction.bump-mine { animation: re-pop .42s cubic-bezier(.3, 1.6, .5, 1); }
+.reaction.bump-more { animation: re-pulse .35s ease-out; }
+@keyframes re-pop { 0% { transform: scale(1); } 35% { transform: scale(1.22); } 100% { transform: scale(1); } }
+@keyframes re-pulse { 50% { transform: scale(1.08); } }
+.react-burst { position: fixed; z-index: 120; pointer-events: none; font-size: 38px; line-height: 1; transform: translate(-50%, -50%); animation: re-burst .85s cubic-bezier(.2, .8, .3, 1) forwards; filter: drop-shadow(0 4px 10px rgba(0,0,0,.35)); }
+.react-burst img { width: 40px; height: 40px; object-fit: contain; display: block; }
+@keyframes re-burst {
+  0% { transform: translate(-50%, -50%) scale(.3); opacity: 0; }
+  20% { transform: translate(-50%, -60%) scale(1.25); opacity: 1; }
+  45% { transform: translate(-50%, -75%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -190%) scale(.9); opacity: 0; } }
+:root[data-reduce-motion] :is(.reaction.bump-mine, .reaction.bump-more) { animation: none; }
+/* While dragging a channel: drop here to take it out of its category */
+.uncat-drop { margin: 6px 8px 2px; padding: 8px 10px; border-radius: 10px; border: 1.5px dashed color-mix(in srgb, var(--fg) 25%, transparent); color: var(--fg2); font-size: 12.5px; font-weight: 800; text-align: center; }
+.uncat-drop.drop-into { border-color: var(--pri); color: var(--fg); background: color-mix(in srgb, var(--pri) 14%, transparent); }
+/* A moving picture held on its first frame (StillImg): sized and placed exactly like the picture */
+canvas.still-frame { display: inline-block; object-fit: inherit; }
+.av canvas.av-img, .media.gif canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- Home search (HomeSearch.tsx): phones get a full screen, desktop a window; the quick switcher ---------- */
+.hsearch { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--md-surface-container-low, var(--s1));
+  padding-top: var(--sa-top); animation: hs-in .2s cubic-bezier(.2, .8, .2, 1); }
+@keyframes hs-in { from { opacity: 0; transform: translateY(14px); } }
+:root[data-reduce-motion] .hsearch { animation: none; }
+.hsearch.hs-window { position: relative; inset: auto; z-index: auto; height: 100%; padding-top: 0; background: none; animation: none; }
+.hs-modal { width: min(720px, calc(100vw - 32px)); height: min(78vh, 760px); padding: 6px 0 0; overflow: hidden; }
+.hs-head, .hs-tabs { flex: none; }
+.hs-tabs button { transition: background-color .2s, color .15s; }
+.hs-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.hs-page { padding: 4px 10px calc(16px + var(--sa-bottom)); }
+@keyframes slide-l { from { transform: translateX(-26px); opacity: 0; } }
+@keyframes slide-r { from { transform: translateX(26px); opacity: 0; } }
+:root:not([data-reduce-motion]) .slide-l { animation: slide-l .22s cubic-bezier(.2, .8, .2, 1); }
+:root:not([data-reduce-motion]) .slide-r { animation: slide-r .22s cubic-bezier(.2, .8, .2, 1); }
+.hs-sec { display: flex; align-items: center; margin: 14px 6px 6px; font-size: calc(13px * var(--ui-text, 1)); font-weight: 850; color: var(--fg2); }
+.hs-sec .link { font-size: calc(13px * var(--ui-text, 1)); font-weight: 800; color: var(--pri); background: none; border: 0; padding: 0; cursor: pointer; }
+.hs-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 8px; border-radius: 12px; text-align: left; min-width: 0; }
+.hs-row:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+/* Message results are the chat search's cards */
+button.mp-item.hs-msg { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.hs-ic { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg2); overflow: hidden; font-weight: 850; }
+.hs-ic img { width: 100%; height: 100%; object-fit: cover; }
+.hs-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.hs-name { font-weight: 800; font-size: calc(var(--msg-font, var(--font, 15px)) + 1px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-text small { color: var(--fg2); font-weight: 650; font-size: calc(var(--msg-font, var(--font, 15px)) - 2px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-msg-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.hs-msg-text { color: var(--fg); font-size: var(--msg-font, var(--font, 15px)); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.hs-x { flex: none; color: var(--fg2); }
+.hs-media { padding: 4px 0; }
+/* Desktop: "Find or start a conversation" at the top of the Home list, like Discord's */
+.find-conv { display: block; width: calc(100% - 12px); margin: 2px 6px 8px; height: 32px; padding: 0 10px; border-radius: 8px; text-align: left; font-size: 13.5px; font-weight: 650;
+  color: var(--fg2); background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); cursor: pointer; }
+.find-conv:hover { color: var(--fg); }
+.qs-scrim { align-items: start; padding-top: 14vh; }
+.qs { width: min(560px, calc(100vw - 32px)); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.qs-input { height: 52px; padding: 0 14px; border-radius: 10px; font-size: 18px; background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--edge); color: var(--fg); outline: none; }
+.qs-list { max-height: min(52vh, 460px); overflow-y: auto; }
+.qs-list .hs-sec { margin: 10px 6px 4px; }
+.qs-opt { border-radius: 10px; cursor: pointer; }
+.qs-opt .hs-row { pointer-events: none; padding: 5px 8px; }
+.qs-opt .hs-row :is(.av, .hs-ic) { width: 32px !important; height: 32px !important; }
+.qs-opt.on { background: color-mix(in srgb, var(--pri) 18%, transparent); }
+.qs-tip { margin: 0; font-size: 12px; font-weight: 650; color: var(--fg2); }
+.hs-filter.on { color: var(--pri); background: color-mix(in srgb, var(--pri) 16%, transparent); }
+.hs-chips { display: flex; gap: 6px; padding: 0 12px 8px; overflow-x: auto; scrollbar-width: none; flex: none; align-items: center; }
+.hs-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 12px; border-radius: 999px; font-weight: 800; font-size: calc(13px * var(--ui-text, 1));
+  background: color-mix(in srgb, var(--pri) 20%, transparent); color: var(--fg); }
+.hs-clear { flex: none; font-size: calc(13px * var(--ui-text, 1)); font-weight: 800; color: var(--pri); background: none; border: 0; padding: 0 6px; cursor: pointer; }
+a.mp-item.hs-link { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; text-decoration: none; color: inherit; }
+
+/* Emoji ⇄ GIFs on phones works as one card: switching doesn't replay the card's slide-up (that looked like a reload);
+   the contents slide in from the new tab's side (.xs-in-l / .xs-in-r) and the tab highlight slides across with them. */
+:is(.emoji-pop, .gif-pop):is(.xs-in-l, .xs-in-r) { animation: none !important; }
+.xs-top:not(.xs-desk) .xs-tabs button { position: relative; z-index: 0; }
+.xs-top:not(.xs-desk) .xs-tabs button.on { background: transparent; }
+.xs-top:not(.xs-desk) .xs-tabs button.on::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--fg) 12%, transparent); }
+@keyframes pill-from-l { from { transform: translateX(calc(-100% - 4px)); } }
+@keyframes pill-from-r { from { transform: translateX(calc(100% + 4px)); } }
+:root:not([data-reduce-motion]) .xs-in-r .xs-top .xs-tabs button.on::before { animation: pill-from-l .24s cubic-bezier(.2, .8, .2, 1); }
+:root:not([data-reduce-motion]) .xs-in-l .xs-top .xs-tabs button.on::before { animation: pill-from-r .24s cubic-bezier(.2, .8, .2, 1); }
+/* The tab rows in search panels slide their pages too (HomeSearch uses .slide-l / .slide-r) */
+/* Search results laid out like messages: picture on the left, name (one line, "…") and a short age, text beside it */
+.mp-item.mp-msg { display: flex; align-items: flex-start; gap: 12px; }
+.mp-msg > .av { flex: none; }
+.mp-msg-body { flex: 1; min-width: 0; }
+.mp-msg-body header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; min-width: 0; }
+.mp-msg-body .mp-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-msg-body time { flex: none; }
+.hs-msg-top .hs-name { flex: 0 1 auto; min-width: 0; }
+.hs-when, .hs-where { flex: none; color: var(--fg2); font-weight: 650; font-size: calc(var(--msg-font, var(--font, 15px)) - 2px); }
+.hs-where { display: block; margin: -1px 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The message box's buttons sit on the middle of a single line of text (at any text size; they hung low with bigger
+   text), and move to the bottom once the text runs over several lines (Composer sets .multi). */
+.composer:not(.multi) { align-items: center; }
+
+/* Desktop settings: the page's header stays at the top while the page scrolls under it. The header sits outside the
+   scrolling part (.spage-scroll), so it needs no background of its own and looks just as before. Phones: the wrapper
+   doesn't change the layout (their header is sticky inside the page). */
+.spage-scroll { display: contents; }
+@media (min-width: 701px) {
+  .settings-card .spage:has(> .spage-scroll) { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+  .settings-card .spage:has(> .spage-scroll) > .spage-head { flex: none; width: calc(100% - 32px); }
+  .settings-card .spage > .spage-scroll { display: block; flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 40px; }
 }

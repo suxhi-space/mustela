@@ -103,7 +103,7 @@ const t = (m: number) => new Date(Date.now() - m * 60_000);
 const P = (id: string): Person => { const p = people.find((x) => x.id === id)!; return ROLE[id] ? { ...p, colour: ROLE[id]!.colour } : p; };
 let n = 0;
 const seed = (ch: string, a: string, text: string, m: number, me: Person, extra: Partial<Msg> = {}): Msg =>
-  ({ id: `m${++n}`, channelId: ch, author: a === "me" ? me : P(a), text, at: t(m), ...extra });
+  ({ id: `m${String(++n).padStart(5, "0")}` /* sorts by time, like Stoat's ids */, channelId: ch, author: a === "me" ? me : P(a), text, at: t(m), ...extra });
 
 export class DemoBackend implements ChatBackend {
   readonly me: Person;
@@ -157,7 +157,7 @@ export class DemoBackend implements ChatBackend {
         seed("c1", "u2", "Everything has a performance rating, so a profile can't turn your phone into a slideshow. Code for the curious:\n```ts\nconst rating = rateProfile(profile).total.label; // \"Good\"\n```", 41, me, { reactions: [{ emoji: "🔥", users: ["u1", "u4"] }] }),
         seed("c1", "u4", "Settings sync across your devices through your Stoat account. Here's the meadow from this morning:", 22, me, { attachments: [IMG] }),
         seed("c1", "u4", "> Settings sync across your devices\nincluding your theme, not just your profile ✨", 21, me),
-        seed("c1", "me", "Compact mode is nice for the phone. ||the dark theme is better though||", 9, me, { replyIds: ["m5"], editedAt: t(8) }),
+        seed("c1", "me", "Compact mode is nice for the phone. ||the dark theme is better though||", 9, me, { replyIds: ["m00005"], editedAt: t(8) }),
         seed("c1", "u7", "Tip: type `:fire:` for 🔥, or hover a message to react. Docs: https://developers.stoat.chat", 6, me),
         seed("c1", "u5", "Try switching accounts from the bottom-left menu, <@me>!", 4, me, { mentionsMe: true }),
         seed("c1", "u4", "https://gifbox.me/view/demo-wave", 3, me, { embeds: [{ kind: "image", gif: true, url: "https://gifbox.me/view/demo-wave", image: { url: scene(200, 320, 320, 200), width: 320, height: 200 } }] }),
@@ -194,7 +194,7 @@ export class DemoBackend implements ChatBackend {
     const sid = "big";
     if (!extraServers.some((x) => x.id === sid)) {
       const channels = Array.from({ length: 240 }, (_, i) => ({ id: `big${i}`, name: `channel-${i}`, kind: "text" as const }));
-      extraServers.push({ id: sid, name: "Big Server", channels });
+      extraServers.push({ id: sid, name: "Big Server", memberCount: 24_000, channels });
     }
     const big = extraServers.find((x) => x.id === sid)!;
     this.cats[sid] = Array.from({ length: 12 }, (_, k) => ({ id: `bigcat${k}`, title: `Category ${k + 1}`, channels: big.channels.slice(k * 20, k * 20 + 20).map((c) => c.id) }));
@@ -284,7 +284,7 @@ export class DemoBackend implements ChatBackend {
       id: `up${Date.now()}${i}`, name: f.name, url: URL.createObjectURL(f), previewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined,
       type: f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file", size: f.size,
     }));
-    const m: Msg = { id: crypto.randomUUID(), channelId, author: this.me, text: o.text, at: new Date(), attachments: atts, replyIds: o.replies?.map((r) => r.id) };
+    const m: Msg = { id: `m9${Date.now()}${Math.random().toString(36).slice(2, 6)}`, channelId, author: this.me, text: o.text, at: new Date(), attachments: atts, replyIds: o.replies?.map((r) => r.id) };
     (this.store[channelId] ??= []).push(m);
     this.emit({ t: "message", m });
     if (channelId === "d1" || channelId === "c1") this.fakeReply(channelId);
@@ -297,7 +297,7 @@ export class DemoBackend implements ChatBackend {
       this.emit({ t: "typing", channelId: ch, people: [who] });
       this.typingTimer = setTimeout(() => {
         this.emit({ t: "typing", channelId: ch, people: [] });
-        const m: Msg = { id: crypto.randomUUID(), channelId: ch, author: who, text: ["nice 😄", "ooh, agreed", "**love** that"][Math.floor(Math.random() * 3)]!, at: new Date() };
+        const m: Msg = { id: `m9${Date.now()}${Math.random().toString(36).slice(2, 6)}`, channelId: ch, author: who, text: ["nice 😄", "ooh, agreed", "**love** that"][Math.floor(Math.random() * 3)]!, at: new Date() };
         (this.store[ch] ??= []).push(m);
         this.emit({ t: "message", m });
       }, 1800);
@@ -315,7 +315,13 @@ export class DemoBackend implements ChatBackend {
     this.emit({ t: "update", m: { ...m } });
   }
   typing() {}
-  markUnread(channelId: string) { if (this.read.delete(channelId)) this.emit({ t: "activity" }); }
+  // Like Stoat: read up to just before the message, a marker no message has as its id.
+  markUnread(channelId: string, messageId: string) {
+    const list = this.store[channelId] ?? [], i = list.findIndex((m) => m.id === messageId);
+    this.read.delete(channelId);
+    this.readUpTo[channelId] = i > 0 ? `${list[i - 1]!.id}~` : "m";
+    this.emit({ t: "activity" });
+  }
   ack(channelId: string) { if (!this.read.has(channelId)) { this.read.add(channelId); this.emit({ t: "activity" }); } }
   onEvent(cb: (e: ChatEvent) => void) { this.listeners.add(cb); return () => void this.listeners.delete(cb); }
   async updateMe(p: MeUpdate) {
@@ -344,8 +350,8 @@ export class DemoBackend implements ChatBackend {
   }
   emojis(): CustomEmoji[] {
     const dot = (h: number) => "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="hsl(${h} 70% 55%)"/><circle cx="11" cy="13" r="2.5" fill="#fff"/><circle cx="21" cy="13" r="2.5" fill="#fff"/><path d="M10 20q6 6 12 0" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>`);
-    return [["01HZDEMOEMOJIAAAAAAAAAAAAA", "garden_smile", 140], ["01HZDEMOEMOJIBBBBBBBBBBBBB", "petal_happy", 330], ["01HZDEMOEMOJICCCCCCCCCCCCC", "sky_grin", 205]]
-      .map(([id, name, h]) => ({ id: id as string, name: name as string, url: dot(h as number), serverId: "s1", serverName: "Glass Garden" }));
+    return [["01HZDEM0EM0J1AAAAAAAAAAAAA", "garden_smile", 140], ["01HZDEM0EM0J1BBBBBBBBBBBBB", "petal_happy", 330], ["01HZDEM0EM0J1CCCCCCCCCCCCC", "sky_grin", 205]]
+      .map(([id, name, h]) => ({ id: id as string, name: name as string, url: dot(h as number), animated: id === "01HZDEM0EM0J1AAAAAAAAAAAAA", serverId: "s1", serverName: "Glass Garden" }));
   }
   emojiUrl(id: string) { return this.emojis().find((e) => e.id === id)?.url ?? ""; }
 
@@ -371,6 +377,7 @@ export class DemoBackend implements ChatBackend {
   async deleteRole(_s: string, rid: string) { this.roleList = this.roleList.filter((r) => r.id !== rid); }
   serverEmojis(sid: string) { return this.emojis().filter((e) => e.serverId === sid); }
   async uploadEmoji() { throw new Error("Uploading emoji needs a real Stoat account."); }
+  async renameEmoji() { throw new Error("Renaming emoji needs a real Stoat account."); }
   async deleteEmoji() { throw new Error("Deleting emoji needs a real Stoat account."); }
   async invites() { return [...this.inviteList.map((i) => ({ ...i, creator: P("u1") }))]; }
   async createInvite() { const code = Math.random().toString(36).slice(2, 10); this.inviteList.push({ code, channelName: "general" }); return code; }

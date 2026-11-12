@@ -9,7 +9,7 @@ import { ColorPickerHost } from "./ColorPicker";
 import { ReactionsHost } from "./chat/Reactions";
 import { applyWindowFrame, hasTitleBar, TitleBar } from "./TitleBar";
 import { activeAccount } from "../lib/session/book";
-import { addingAccount, book, boot, error, openAccount, phase, removeAccountById, setAddingAccount, startAppearance } from "./store";
+import { addingAccount, book, boot, error, openAccount, phase, removeAccountById, setAddingAccount, startAppearance, warming } from "./store";
 
 export function App() {
   startAppearance();
@@ -41,6 +41,7 @@ export function App() {
       <Match when={phase() === "login"}><Login /></Match>
       <Match when={phase() === "ready"}>
         <Shell />
+        <Show when={warming()}><div class="warming" role="status"><span class="warming-dot" />Connecting…</div></Show>
         <Show when={addingAccount()}><div class="scrim full"><Login /></div></Show>
       </Match>
     </Switch>

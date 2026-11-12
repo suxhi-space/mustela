@@ -1,3 +1,4 @@
+import { gifsMove, StillImg } from "../StillImg";
 import { PACKED_EMOJI_RE } from "../../lib/emoji";
 import { UEmoji } from "./UEmoji";
 import { createEffect, createMemo, createSignal, For, Match, Switch, type JSX } from "solid-js";
@@ -29,11 +30,9 @@ const customName = (id: string) => backend()?.emojis().find((e) => e.id === id)?
 function CustomEmoji(props: { id: string }) {
   const url = () => backend()?.emojiUrl(props.id) ?? "";
   const animated = () => !!backend()?.emojis().find((e) => e.id === props.id)?.animated;
-  const [still, setStill] = createSignal<string | null>(null);
   const [hover, setHover] = createSignal(false);
-  createEffect(() => { if (animated() && !device().perf.gifs) void stillOf(url()).then(setStill); });
-  const src = () => (animated() && !device().perf.gifs && !hover() && still()) || url();
-  return <img class="cemoji" data-emoji-id={props.id} src={src()} alt={`:${customName(props.id)}:`} loading="lazy" draggable={false}
+  // Holds still (first frame) when GIFs and animated emoji shouldn't move; pointing at it plays it.
+  return <StillImg class="cemoji" data-emoji-id={props.id} src={url()} still={animated() && !gifsMove() && !hover()} alt={`:${customName(props.id)}:`} loading="lazy" draggable={false}
     onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)} />;
 }
 

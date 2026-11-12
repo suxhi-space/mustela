@@ -17,7 +17,7 @@ export interface A11yPrefs {
 
 export const DEFAULT_VOICE_PREFS: VoicePrefs = {
   inputDevice: "", outputDevice: "", videoDevice: "", echoCancellation: true, noiseSuppression: true, autoGain: true,
-  outputVolume: 100, screenQuality: "720p30", joinMuted: false, joinDeafened: false, autoSensitivity: true, threshold: -55, soundboardVolume: 80, entrySound: "",
+  outputVolume: 100, inputVolume: 100, screenQuality: "720p30", joinMuted: false, joinDeafened: false, autoSensitivity: true, threshold: -55, soundboardVolume: 80, entrySound: "",
 };
 
 function sanitizeVoice(raw: unknown): VoicePrefs {
@@ -29,6 +29,7 @@ function sanitizeVoice(raw: unknown): VoicePrefs {
     inputDevice: str(r.inputDevice), outputDevice: str(r.outputDevice), videoDevice: str(r.videoDevice),
     echoCancellation: r.echoCancellation !== false, noiseSuppression: r.noiseSuppression !== false, autoGain: r.autoGain !== false,
     outputVolume: typeof r.outputVolume === "number" && Number.isFinite(r.outputVolume) ? Math.max(0, Math.min(200, Math.round(r.outputVolume))) : d.outputVolume,
+    inputVolume: typeof r.inputVolume === "number" && Number.isFinite(r.inputVolume) ? Math.max(0, Math.min(200, Math.round(r.inputVolume))) : d.inputVolume,
     screenQuality: (["720p30", "1080p30", "1080p60"] as const).includes(r.screenQuality as any) ? (r.screenQuality as VoicePrefs["screenQuality"]) : d.screenQuality,
     joinMuted: r.joinMuted === true,
     joinDeafened: r.joinDeafened === true,
@@ -132,10 +133,12 @@ export interface PerfPrefs {
   blur: boolean;
   /** Hold everything still when the system asks for less motion (Windows' "Animation effects" off, and the like) */
   systemMotion: boolean;
+  /** In servers with over 1,000 members: decorations, nameplates and rainbow names in the chat and member list hold still */
+  bigStill: boolean;
 }
 /** Linux's WebKitGTK is the slowest engine at blur and canvas, and some GPU drivers crash with it, so it starts lighter. */
 const isLinux = () => typeof navigator !== "undefined" && /Linux|X11/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
-export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "full", lighterInCalls: true, background: false, gifs: true, blur: !isLinux(), systemMotion: false });
+export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "full", lighterInCalls: true, background: false, gifs: true, blur: !isLinux(), systemMotion: false, bigStill: true });
 
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
@@ -176,6 +179,7 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
         gifs: typeof p.gifs === "boolean" ? p.gifs : d0.gifs,
         blur: typeof p.blur === "boolean" ? p.blur : d0.blur,
         systemMotion: typeof p.systemMotion === "boolean" ? p.systemMotion : d0.systemMotion,
+        bigStill: typeof p.bigStill === "boolean" ? p.bigStill : d0.bigStill,
       };
     })(),
     titleBar: oneOf(r.titleBar, ["mustela", "system"], d.titleBar),

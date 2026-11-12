@@ -1,3 +1,4 @@
+import { motionOk, StillImg } from "./StillImg";
 import { friendNick } from "./nicks";
 import { createMemo, createSignal, Show } from "solid-js";
 import { TextWithEmoji } from "./chat/EmojiText";
@@ -30,13 +31,18 @@ export function Avatar(props: {
   profileRef?: (el: HTMLElement) => void;
 }) {
   const size = () => props.size ?? 40;
+  // The status dot: big enough to read at a glance on small avatars, not oversized on big ones.
+  const dot = () => Math.round(Math.min(24, Math.max(11, size() * 0.36)));
   const { ref, profile } = createPerson(() => props.person, () => props.profile);
-  const anim = createAnim(profile, "decor");
+  // In a chat or a member list (big servers can hold those still); found once the picture is on the page.
+  const [el, setEl] = createSignal<HTMLElement>();
+  // (A profile card always moves, wherever it opens.)
+  const anim = createAnim(profile, "decor", () => { const e = el(); return !!e && !e.closest(".pcard") && !!e.closest(".chat, .members-col, .members-sheet, .member"); });
   const [broken, setBroken] = createSignal(false);
   const slot = () => profile()?.decor ?? { preset: 0, hue: 0, speed: 8, intensity: 8 };
   const h = () => hueOf(props.person.id);
   return (
-    <span class="av" style={{ width: `${size()}px`, height: `${size()}px` }} ref={(el) => { ref(el); props.profileRef?.(el); }}>
+    <span class="av" style={{ width: `${size()}px`, height: `${size()}px` }} ref={(e) => { ref(e); setEl(e); props.profileRef?.(e); }}>
       <Show when={slot().preset}>
         <DecorCanvas slot={slot} size={size()} animate={anim() && !props.still} />
       </Show>
@@ -44,10 +50,11 @@ export function Avatar(props: {
         when={props.person.avatarUrl && !broken()}
         fallback={<span class="av-img av-fallback" style={{ background: `hsl(${h()} 45% 42%)`, "font-size": `${size() * 0.42}px` }}>{props.person.name.slice(0, 1).toUpperCase()}</span>}
       >
-        <img class="av-img" src={props.person.avatarUrl} alt="" loading="lazy" onError={() => setBroken(true)} />
+        {/* Animated avatars hold still while Mustela is behind another window ("Keep animating in the background" off). */}
+        <StillImg class="av-img" src={props.person.avatarUrl!} still={!!props.still || !motionOk()} alt="" loading="lazy" onError={() => setBroken(true)} />
       </Show>
       <Show when={props.presence !== false && props.person.online !== undefined}>
-        <span class={`av-dot p-${props.person.online ? props.person.presence ?? "online" : "offline"}`} classList={{ on: !!props.person.online }} title={props.person.online ? (props.person.presence ?? "online") : "offline"} style={{ width: `${Math.max(9, size() * 0.3)}px`, height: `${Math.max(9, size() * 0.3)}px` }} />
+        <span class={`av-dot p-${props.person.online ? props.person.presence ?? "online" : "offline"}`} classList={{ on: !!props.person.online }} title={props.person.online ? (props.person.presence ?? "online") : "offline"} style={{ width: `${dot()}px`, height: `${dot()}px`, "border-width": size() >= 56 ? "3.5px" : undefined }} />
       </Show>
     </span>
   );

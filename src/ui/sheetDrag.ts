@@ -4,7 +4,8 @@ import { zoomNow } from "./appSize";
  * are scrolled to the top (or by the top edge) and pull down. Let go past a third of its height, or flick it, and it
  * slides away; otherwise it springs back. Pulling it up (or scrolling it) grows it to full height first.
  */
-export function dragToClose(card: HTMLElement, close: () => void, opts: { full?: boolean } = {}) {
+/** `half`: open at its own (half) height and grow only when pulled up or scrolled, never by itself (the hold menu). */
+export function dragToClose(card: HTMLElement, close: () => void, opts: { full?: boolean; half?: boolean } = {}) {
   let y0 = 0, t0 = 0, dy = 0, dragging = false, armed = false;
   // Only when the contents are taller than the card. A short card stays its own height (no empty
   // space under the text). A tall one eases up to just under the status bar, and you can still
@@ -12,7 +13,7 @@ export function dragToClose(card: HTMLElement, close: () => void, opts: { full?:
   const overflowing = () => card.scrollHeight > card.clientHeight + 12;
   const grow = () => { if (opts.full) card.classList.add("sheet-full"); else if (overflowing()) card.classList.add("sheet-tall"); };
   card.addEventListener("scroll", () => { if (card.scrollTop > 4) grow(); }, { passive: true });
-  const watch = new ResizeObserver(() => grow());
+  const watch = new ResizeObserver(() => { if (!opts.half) grow(); });
   watch.observe(card);
   for (const child of card.children) watch.observe(child);
   const scroller = () => (card.scrollTop > 0 ? card : (card.querySelector<HTMLElement>("[data-sheet-scroll]") ?? card));

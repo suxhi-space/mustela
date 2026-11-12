@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-recent-photos"
+description = "Enables the recent_photos command without any pre-configured scope."
+commands.allow = ["recent_photos"]
+
+[[permission]]
+identifier = "deny-recent-photos"
+description = "Denies the recent_photos command without any pre-configured scope."
+commands.deny = ["recent_photos"]

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-pending-media"
+description = "Enables the pending_media command without any pre-configured scope."
+commands.allow = ["pending_media"]
+
+[[permission]]
+identifier = "deny-pending-media"
+description = "Denies the pending_media command without any pre-configured scope."
+commands.deny = ["pending_media"]

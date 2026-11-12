@@ -19,7 +19,8 @@ export function GroupInvite(props: { channel: ChannelInfo; onClose(): void; onOp
   const [q, setQ] = createSignal("");
   const [picked, setPicked] = createSignal<string[]>([]);
   const [busy, setBusy] = createSignal(false);
-  const list = () => (friends() ?? []).filter((f) => !inside().has(f.id) && f.name.toLowerCase().includes(q().trim().toLowerCase()));
+  // By display name or username, like the other people searches.
+  const list = () => { const t = q().trim().toLowerCase(); return (friends() ?? []).filter((f) => !inside().has(f.id) && (!t || f.name.toLowerCase().includes(t) || (f.username ?? "").toLowerCase().includes(t))); };
   const toggle = (p: Person) => setPicked(picked().includes(p.id) ? picked().filter((x) => x !== p.id) : [...picked(), p.id].slice(0, 49));
   async function go() {
     setBusy(true);

@@ -1,3 +1,4 @@
+import { MOBILE_UI } from "../target";
 import { createResource, createSignal, For, Show } from "solid-js";
 import type { NotifyLevel } from "../../lib/backend/types";
 import { notify } from "../../lib/notify";
@@ -22,14 +23,14 @@ export function NotificationsPage() {
   return (
     <div class="page">
       <Group title="On this device" hint="Mustela notifies you about direct messages and mentions unless you're looking at that conversation or it's muted.">
-        <Row icon="bell" label="Desktop notifications"><Switch label="Show notifications" on={device().notifications} onChange={(notifications) => updateDevice({ notifications })} /></Row>
+        <Row icon="bell" label={MOBILE_UI ? "Notifications" : "Desktop notifications"}><Switch label="Show notifications" on={device().notifications} onChange={(notifications) => updateDevice({ notifications })} /></Row>
         <Row label="Show message text" hint="Off shows only who sent it"><Switch label="Show message text" disabled={!device().notifications} on={device().notifyPreview} onChange={(notifyPreview) => updateDevice({ notifyPreview })} /></Row>
         <Show when={platform === "android"}>
           <Row label="When Mustela is closed" hint="Checks for new messages about once a minute while you use your phone, and every 15 minutes or so while it's asleep. You stay offline, and it doesn't keep your phone awake.">
             <Switch label="Notifications when Mustela is closed" disabled={!device().notifications} on={device().closedNotify} onChange={(closedNotify) => updateDevice({ closedNotify })} />
           </Row>
         </Show>
-        <Row label="Unread badge" hint="Mention count on the app icon and window title"><Switch label="Unread badge" on={device().badge} onChange={(badge) => updateDevice({ badge })} /></Row>
+        <Row label="Unread badge" hint={MOBILE_UI ? "Mention count on the app icon" : "Mention count on the app icon and window title"}><Switch label="Unread badge" on={device().badge} onChange={(badge) => updateDevice({ badge })} /></Row>
         <Row label="Send a test notification" hint={test() === "blocked" ? "Notifications are blocked. Allow them for Mustela in your system settings." : test() === "ok" ? "Sent." : undefined}>
           <button class="btn small" onClick={async () => setTest((await notify("Mustela", "Notifications are working.")) ? "ok" : "blocked")}>Test</button>
         </Row>

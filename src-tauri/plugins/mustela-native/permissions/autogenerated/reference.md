@@ -26,6 +26,12 @@ Accent color and native voice call commands
 - `allow-watch`
 - `allow-watch-alive`
 - `allow-watch-clear`
+- `allow-notify-message`
+- `allow-recent-photos`
+- `allow-request-photos`
+- `allow-photo-file`
+- `allow-take-media`
+- `allow-pending-media`
 
 ## Permission Table
 
@@ -247,6 +253,32 @@ Denies the media_file command without any pre-configured scope.
 <tr>
 <td>
 
+`mustela-native:allow-notify-message`
+
+</td>
+<td>
+
+Enables the notify_message command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-notify-message`
+
+</td>
+<td>
+
+Denies the notify_message command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `mustela-native:allow-overlay-allowed`
 
 </td>
@@ -266,6 +298,58 @@ Enables the overlay_allowed command without any pre-configured scope.
 <td>
 
 Denies the overlay_allowed command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-pending-media`
+
+</td>
+<td>
+
+Enables the pending_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-pending-media`
+
+</td>
+<td>
+
+Denies the pending_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-photo-file`
+
+</td>
+<td>
+
+Enables the photo_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-photo-file`
+
+</td>
+<td>
+
+Denies the photo_file command without any pre-configured scope.
 
 </td>
 </tr>
@@ -299,6 +383,32 @@ Denies the pip command without any pre-configured scope.
 <tr>
 <td>
 
+`mustela-native:allow-recent-photos`
+
+</td>
+<td>
+
+Enables the recent_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-recent-photos`
+
+</td>
+<td>
+
+Denies the recent_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `mustela-native:allow-request-overlay`
 
 </td>
@@ -318,6 +428,32 @@ Enables the request_overlay command without any pre-configured scope.
 <td>
 
 Denies the request_overlay command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-request-photos`
+
+</td>
+<td>
+
+Enables the request_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-request-photos`
+
+</td>
+<td>
+
+Denies the request_photos command without any pre-configured scope.
 
 </td>
 </tr>
@@ -526,6 +662,32 @@ Enables the system_bars command without any pre-configured scope.
 <td>
 
 Denies the system_bars command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-take-media`
+
+</td>
+<td>
+
+Enables the take_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-take-media`
+
+</td>
+<td>
+
+Denies the take_media command without any pre-configured scope.
 
 </td>
 </tr>

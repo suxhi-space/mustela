@@ -8,13 +8,13 @@ import { currentServer, openProfileEditor, profileView, setProfileView } from ".
 import { attempt, openMenu, toast } from "./menu";
 import { userMenu } from "./menus";
 import { call, joinCall } from "./call/state";
-import type { Person } from "../lib/backend/types";
+import type { Person, VoicePresence } from "../lib/backend/types";
 import { hex, mix, textOn, contrast } from "../lib/color";
 import { CANONICAL_HEIGHT, CANONICAL_WIDTH, markerHeight } from "../lib/marker/codec";
 import type { ProfileConfig } from "../lib/profile/model";
 import { createAnim } from "./anim";
 import { Avatar, createPerson, NameText } from "./Avatar";
-import { createProfileInfo, createSize, refreshProfile } from "./hooks";
+import { createProfileInfo, createSize, refreshProfile, mutualOf } from "./hooks";
 import { EffectCanvas, FrameCanvas } from "./Paint";
 import { backend } from "./store";
 import { Icon } from "./icons";
@@ -103,6 +103,7 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
                 <button class="btn small" onClick={() => void joinCall({ id: v().channelId, name: v().channelName, kind: "voice" })}>Join</button>
               </Show>
             </div>
+            <VoiceExtras person={props.person} v={v()} />
           </section>
         )}</Show>
         <Show when={act()}>{(a) => <ActivityCard a={a()} />}</Show>
@@ -132,6 +133,46 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
 }
 
 const fmtDay = (d: Date) => d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+/**
+ * A frame of someone's stream, grabbed once per person and kept until Mustela restarts. Only possible while you're
+ * in that call watching it (a stream isn't sent to anyone who isn't); otherwise there's no picture.
+ */
+const streamFrames = new Map<string, string>();
+async function grabFrame(uid: string): Promise<string | null> {
+  if (streamFrames.has(uid)) return streamFrames.get(uid)!;
+  const track = call.handle()?.video(uid, "screen");
+  if (!track) return null;
+  const v = document.createElement("video");
+  v.muted = true; v.playsInline = true; v.srcObject = new MediaStream([track]);
+  try {
+    await v.play();
+    await new Promise((r) => (v.readyState >= 2 ? r(null) : v.addEventListener("loadeddata", () => r(null), { once: true })));
+    const w = Math.min(480, v.videoWidth || 480), h = Math.round(w * ((v.videoHeight || 270) / (v.videoWidth || 480)));
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    cv.getContext("2d")!.drawImage(v, 0, 0, w, h);
+    const url = cv.toDataURL("image/jpeg", 0.7);
+    streamFrames.set(uid, url);
+    return url;
+  } catch { return null; } finally { v.pause(); v.srcObject = null; }
+}
+
+/** Under "In voice" / "Streaming": who else is in the call, and (while you're in it) a picture of the stream. */
+function VoiceExtras(props: { person: Person; v: VoicePresence }) {
+  const [spaces] = createResource(() => props.v.channelId, () => backend()!.spaces());
+  const others = () => (spaces()?.flatMap((s) => s.channels).find((c) => c.id === props.v.channelId)?.voice ?? []).filter((m) => m.id !== props.person.id);
+  const [frame] = createResource(() => (props.v.screen && call.active() && call.channel()?.id === props.v.channelId ? props.person.id : null), (uid) => grabFrame(uid));
+  return (<>
+    <Show when={frame()}>{(src) => <img class="pv-frame" src={src()} alt={`${props.person.name}'s stream`} />}</Show>
+    <Show when={others().length}>
+      <div class="pv-people" title={others().map((m) => m.name).join(", ")}>
+        <For each={others().slice(0, 6)}>{(m) => <Avatar person={m} size={22} presence={false} still />}</For>
+        <Show when={others().length > 6}><span class="pv-more">+{others().length - 6}</span></Show>
+        <small>{others().length === 1 ? `with ${others()[0]!.name}` : `with ${others().length} others`}</small>
+      </div>
+    </Show>
+  </>);
+}
+
 /** When someone made their Stoat account: the first 10 characters of a Stoat id are the time it was made. */
 function joinedStoat(id: string) {
   const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -333,7 +374,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
   useBack(() => props.onClose());
   void refreshProfile(props.person.id);
   const [tab, setTab] = createSignal<"activity" | "friends" | "servers">("activity");
-  const [mutual] = createResource(() => props.person.id, (id) => backend()!.mutual(id));
+  const [mutual] = createResource(() => props.person.id, (id) => mutualOf(id));
   const info = createProfileInfo(() => props.person.id);
   const act = () => (self() ? activity.current() : info()?.activity) ?? null;
   const voice = () => (self() ? null : backend()?.voiceOf(props.person.id) ?? null);
@@ -408,7 +449,7 @@ export function DmProfile(props: { person: Person }) {
 
 /** Mutual servers and friends, each a row that opens into its list (the DM side card, and the card on phones). */
 function MutualLists(props: { person: Person }) {
-  const [mutual] = createResource(() => props.person.id, (id) => backend()!.mutual(id));
+  const [mutual] = createResource(() => props.person.id, (id) => mutualOf(id));
   const [openList, setOpenList] = createSignal<"servers" | "friends" | null>(null);
   const toggle = (k: "servers" | "friends") => setOpenList(openList() === k ? null : k);
   return (

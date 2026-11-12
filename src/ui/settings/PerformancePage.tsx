@@ -26,7 +26,10 @@ export function PerformancePage() {
         <Row label="Lighter during calls" hint="Animations slow down in a call, and again while you share or watch a stream. Decorations in the call move only while that person talks.">
           <Switch label="Lighter during calls" on={p().lighterInCalls} onChange={(lighterInCalls) => set({ lighterInCalls })} />
         </Row>
-        <Row label="Keep animating in the background" hint="Off: everything holds still while another window, like a game, is in front.">
+        <Row label="Still profile effects in big servers" hint="In servers with over 1,000 members, decorations, nameplates and rainbow names in the chat and member list hold still. Profile cards still move.">
+          <Switch label="Still profile effects in big servers" on={p().bigStill} onChange={(bigStill) => set({ bigStill })} />
+        </Row>
+        <Row label="Keep animating in the background" hint="Off: while another window, like a game, is in front, decorations, GIFs, animated emoji and muted videos hold still. A video with sound keeps playing.">
           <Switch label="Keep animating in the background" on={p().background} onChange={(background) => set({ background })} />
         </Row>
         <Row label="Reduce motion" hint="Moved to Settings > Accessibility, with the other motion and text options." />

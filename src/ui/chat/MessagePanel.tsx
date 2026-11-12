@@ -8,6 +8,7 @@ import { Icon } from "../icons";
 import { requestJump } from "../nav";
 import { backend } from "../store";
 import { Select } from "../controls";
+import { shortAgo } from "../time";
 import { Markdown } from "./Markdown";
 import { openGallery } from "./Gallery";
 import { ytEmbed } from "./videoFull";
@@ -185,7 +186,9 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
     for (const m of [...hits(), ...(hist() ?? [])]) if (!m.system) seen.set(m.author.id, m.author);
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
   });
-  /** Everyone a filter can name: the members, the people in the results and history, the other person in a DM. */
+  /** Everyone a filter can name: the members, the people in the results and history, the other person in a DM, you.
+   *  (The From and Mentions chips use this too: they used to list only people already in the results or history,
+   *  so on phones From showed no one until the search box had been tapped.) */
   const allPeople = createMemo(() => {
     const seen = new Map<string, Person>();
     for (const p of people()) seen.set(p.id, p);
@@ -223,6 +226,13 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
   const pageList = () => results().slice(page() * PAGE, (page() + 1) * PAGE);
   const pageCount = () => Math.ceil(results().length / PAGE) + (more() && q() ? 1 : 0);
   let listEl: HTMLDivElement | undefined;
+  // Switching tabs slides the new tab's contents in from its side.
+  const TAB_ORDER: Tab[] = ["messages", "media", "links", "files"];
+  createEffect(on(tab, (t, prev) => {
+    if (!listEl || !prev || t === prev) return;
+    listEl.classList.remove("slide-l", "slide-r"); void listEl.offsetWidth;
+    listEl.classList.add(TAB_ORDER.indexOf(t) > TAB_ORDER.indexOf(prev) ? "slide-r" : "slide-l");
+  }));
   const goPage = (n: number) => {
     if (n < 0 || n >= pageCount()) return;
     setPage(n);
@@ -277,8 +287,9 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
   };
   const jumpTo = (m: Msg) => {
     requestJump(m.channelId, m.id);
-    // Where the panel covers the chat (phones, narrow windows), get out of the way so the message is seen.
-    if (narrowLayout()) props.onClose(); else setPreview(null);
+    // Where the panel covers the chat (phones, tablets either way up, narrow windows), get out of the way so the
+    // message is seen.
+    if (narrowLayout() || MOBILE_UI) props.onClose(); else setPreview(null);
   };
   /** A result: on computers it's shown where it was in the chat, like Discord; phones and tablets show it in context here first. */
   const openResult = (m: Msg) => (MOBILE_UI ? setPreview(m) : jumpTo(m));
@@ -367,12 +378,12 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
         </Show>
         <Show when={filtersOpen()}><FiltersDialog /></Show>
         <div class="mp-filters" classList={{ "mobile-only": !MOBILE_UI }}>
-          <Select label="From" value={from()} onChange={setFrom} options={[{ v: "", label: "From anyone" }, ...people().map((p) => ({ v: p.id, label: `From ${p.name}` }))]} />
+          <Select label="From" value={from()} onChange={setFrom} options={[{ v: "", label: "From anyone" }, ...allPeople().slice().sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ v: p.id, label: `From ${p.name}` }))]} />
           <Show when={tab() === "messages"}>
             <Select label="Has" value={hasF()} onChange={(v) => setHasF(v as Has)}
               options={[{ v: "", label: "Has anything" }, { v: "media", label: "Has media" }, { v: "link", label: "Has a link" }, { v: "file", label: "Has a file" }]} />
           </Show>
-          <Select label="Mentions" value={mentions()} onChange={setMentions} options={[{ v: "", label: "Mentions anyone" }, ...people().map((p) => ({ v: p.id, label: `Mentions ${p.name}` }))]} />
+          <Select label="Mentions" value={mentions()} onChange={setMentions} options={[{ v: "", label: "Mentions anyone" }, ...allPeople().slice().sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ v: p.id, label: `Mentions ${p.name}` }))]} />
           <Select label="Author type" value={kind()} onChange={(v) => setKind(v as Kind)} options={[{ v: "", label: "People and bots" }, { v: "people", label: "Only people" }, { v: "bots", label: "Only bots" }]} />
           <Select label="Date" value={when()} onChange={(v) => setWhen(v as When)} options={[{ v: "", label: "Any time" }, { v: "on", label: "Sent on" }, { v: "before", label: "Before" }, { v: "after", label: "After" }]} />
           <Show when={when()}>
@@ -389,11 +400,12 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
               <Show when={pins() ? !found.loading : !(q() ? searching() && !pageList().length : hist.loading)} fallback={<div class="loading-row"><div class="spinner small" /></div>}>
                 <Show when={!(pins() ? found.error : searchErr())} fallback={<p class="empty">{pins() ? (found.error as Error)?.message || "Couldn't load these." : searchErr()}</p>}>
                   <For each={pins() ? found() : pageList()} fallback={<p class="empty">{pins() ? "Nothing is pinned here yet. Right-click a message to pin it." : "No messages match. Try fewer words or another filter."}</p>}>{(m) => (
-                    <button class="mp-item" onClick={() => openResult(m)}>
+                    <button class="mp-item mp-msg" onClick={() => openResult(m)}>
+                      <Avatar person={m.author} size={40} presence={false} still />
+                      <div class="mp-msg-body">
                       <header>
-                        <Avatar person={m.author} size={24} presence={false} still />
                         <NameText person={m.author} class="mp-name" />
-                        <time>{fmtStamp(m.at)}</time>
+                        <time title={fmtStamp(m.at)}>{shortAgo(m.at)}</time>
                       </header>
                       <Show when={m.text} fallback={<em class="muted">{m.attachments?.length ? `${m.attachments.length} attachment${m.attachments.length > 1 ? "s" : ""}` : "Empty message"}</em>}><div class="mp-text-wrap" ref={(el) => queueMicrotask(() => markWords(el, terms()))}><Markdown text={m.text} class="mp-text" /></div></Show>
                       <Show when={m.attachments?.some(isMedia)}>
@@ -401,6 +413,7 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
                           <span class="mp-thumb" classList={{ spoiled: !!a.spoiler }}><Show when={a.type === "image"} fallback={<video src={`${a.url}#t=0.1`} muted playsinline preload="metadata" />}><img src={a.previewUrl ?? a.url} alt="" loading="lazy" /></Show></span>
                         )}</For></span>
                       </Show>
+                      </div>
                     </button>
                   )}</For>
                 </Show>
@@ -466,8 +479,11 @@ function MessagePreview(props: { m: Msg; onClose(): void; onJump(): void }) {
     const i = l.findIndex((x) => x.id === props.m.id);
     return i < 0 ? [props.m] : l.slice(Math.max(0, i - 3), i + 4);
   };
+  // The message stays in the middle while the pictures around it load, until you scroll it yourself.
+  let target: HTMLElement | undefined, touched = false;
+  const center = () => { if (!touched) target?.scrollIntoView({ block: "center" }); };
   return (
-    <div class="mp-preview" role="dialog" aria-label="Message preview">
+    <div class="mp-preview" role="dialog" aria-label="Message preview" onPointerDown={() => (touched = true)} onWheel={() => (touched = true)}>
       <header class="mp-head">
         <button class="icon-btn" onClick={props.onClose} aria-label="Back to results"><Icon name="back" size={18} /></button>
         <h3>In context</h3>
@@ -475,13 +491,13 @@ function MessagePreview(props: { m: Msg; onClose(): void; onJump(): void }) {
       <div class="mp-pv-list">
         <Show when={!around.loading} fallback={<div class="loading-row"><div class="spinner small" /></div>}>
           <For each={near()}>{(x) => (
-            <article class="mp-pv-msg" classList={{ target: x.id === props.m.id }} ref={(el) => { if (x.id === props.m.id) queueMicrotask(() => el.scrollIntoView({ block: "center" })); }}>
+            <article class="mp-pv-msg" classList={{ target: x.id === props.m.id }} ref={(el) => { if (x.id === props.m.id) { target = el; queueMicrotask(center); } }}>
               <Avatar person={x.author} size={32} presence={false} still />
               <div>
                 <header><NameText person={x.author} class="mp-name" /><time>{fmtStamp(x.at)}</time></header>
                 <Show when={x.text}><Markdown text={x.text} class="mp-text" /></Show>
                 <Show when={x.attachments?.some(isMedia)}>
-                  <span class="mp-thumbs"><For each={x.attachments!.filter(isMedia).slice(0, 4)}>{(a) => <img src={a.previewUrl ?? a.url} alt="" loading="lazy" />}</For></span>
+                  <span class="mp-thumbs"><For each={x.attachments!.filter(isMedia).slice(0, 4)}>{(a) => <img src={a.previewUrl ?? a.url} alt="" onLoad={center} />}</For></span>
                 </Show>
                 <Show when={x.attachments?.some((a) => !isMedia(a))}><small class="muted">{x.attachments!.filter((a) => !isMedia(a)).map((a) => a.name).join(", ")}</small></Show>
               </div>

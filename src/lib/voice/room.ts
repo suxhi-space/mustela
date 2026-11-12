@@ -186,7 +186,9 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
   let heldOpen = false, soundsPlaying = 0;
   const voiceGain = (open: boolean) => (open && !heldOpen ? 1 : 0);
   /** The microphone's mixer (see the soundboard below), once the mic is published. */
-  let mixer: { ctx: AudioContext; voice: GainNode; sounds: GainNode; src: MediaStreamAudioSourceNode; dest: MediaStreamAudioDestinationNode } | null = null;
+  let mixer: { ctx: AudioContext; level: GainNode; voice: GainNode; sounds: GainNode; src: MediaStreamAudioSourceNode; dest: MediaStreamAudioDestinationNode } | null = null;
+  /** Input volume (the mic menu's slider): a gain step in the mixer, before the gate. */
+  let inVolume = (prefs.inputVolume ?? 100) / 100;
 
   /* ---- input sensitivity: a noise gate in front of the microphone ---- */
   let gate: { ctx: AudioContext; timer: number; clone: MediaStreamTrack } | null = null;
@@ -235,14 +237,15 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       const c = o.audioContext;
       const src = c.createMediaStreamSource(new MediaStream([o.track]));
       const dest = c.createMediaStreamDestination();
-      const sounds = c.createGain(), voice = c.createGain();
-      src.connect(voice).connect(dest);
+      const sounds = c.createGain(), voice = c.createGain(), level = c.createGain();
+      level.gain.value = inVolume;
+      src.connect(level).connect(voice).connect(dest);
       sounds.connect(dest);
-      mixer = { ctx: c, voice, sounds, src, dest };
+      mixer = { ctx: c, level, voice, sounds, src, dest };
       processor.processedTrack = dest.stream.getAudioTracks()[0];
     },
     async restart(o) { await processor.destroy(); await processor.init(o); },
-    async destroy() { mixer?.src.disconnect(); mixer?.voice.disconnect(); mixer?.sounds.disconnect(); mixer = null; },
+    async destroy() { mixer?.src.disconnect(); mixer?.level.disconnect(); mixer?.voice.disconnect(); mixer?.sounds.disconnect(); mixer = null; },
   };
   let soundTrack: { dest: MediaStreamAudioDestinationNode } | null = null;
   async function playOnOwnTrack(data: ArrayBuffer, volume: number) {
@@ -375,6 +378,12 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       ping();
     },
     setOutputVolume: (v) => { outVolume = v / 100; applyAll(); },
+    setInputVolume: (v) => {
+      inVolume = Math.max(0, Math.min(2, v / 100));
+      if (mixer) mixer.level.gain.value = inVolume;
+      // Turned off its default, the mixer is needed for it to apply at all.
+      else if (inVolume !== 1) void attachMixer();
+    },
     setSensitivity: (auto, threshold) => { const was = sens.auto; sens = { auto, threshold }; if (was !== auto || (!auto && !gate)) startGate(); },
     state: () => ({ mic: room.localParticipant.isMicrophoneEnabled && !heldOpen, cam: room.localParticipant.isCameraEnabled, screen: room.localParticipant.isScreenShareEnabled || !!nativeShare, deaf }),
     playSound: async (data, volume = 1) => {

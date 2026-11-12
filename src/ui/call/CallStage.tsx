@@ -1,4 +1,5 @@
 import { PHONE_QUERY } from "../hooks";
+import { VolumeRow } from "./VolumeRow";
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js";
 import type { ChannelInfo, Person, VoiceMember, VoicePrefs } from "../../lib/backend/types";
 import { Select, Slider, Switch } from "../controls";
@@ -53,17 +54,6 @@ export function VideoFill(props: { id: string; source?: "camera" | "screen"; fit
 }
 
 /** A volume slider row for the right-click menu (0-200%, like Discord). */
-function VolumeRow(props: { label: string; value: number; onChange(v: number): void }) {
-  const [v, setV] = createSignal(Math.round(props.value * 100));
-  return (
-    <div class="ctx-volume" onClick={(e) => e.stopPropagation()}>
-      <span class="ctx-label">{props.label}<b>{v()}%</b></span>
-      <input type="range" min={0} max={200} step={5} value={v()} aria-label={props.label}
-        onInput={(e) => { setV(+e.currentTarget.value); props.onChange(+e.currentTarget.value / 100); }} />
-    </div>
-  );
-}
-
 /**
  * Right-click (or hold) someone in a voice channel, laid out like Discord's: who they are, how they sound to you,
  * what you see, friends, and (with the permissions) moving and server-muting them. Only what Stoat and Mustela can

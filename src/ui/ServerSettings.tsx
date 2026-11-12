@@ -7,9 +7,9 @@ import { Avatar } from "./Avatar";
 import { ColorInput, Group, Row, Select, Switch } from "./controls";
 import { FlagEditor, OverrideEditor } from "./Permissions";
 import { Icon } from "./icons";
-import { attempt, confirmDialog, copy, promptDialog } from "./menu";
-import { createChannel } from "./menus";
-import { setServerSettings, type ServerTab } from "./nav";
+import { attempt, confirmDialog, copy, openMenu, promptDialog } from "./menu";
+import { createCategory, createChannel } from "./menus";
+import { setChannelSettings, setServerSettings, type ServerTab } from "./nav";
 import { backend } from "./store";
 
 const b = () => backend()!;
@@ -39,24 +39,32 @@ function Overview(props: { info: ServerInfo; bump(): void }) {
   const pick = (kind: "icon" | "banner") => {
     const i = document.createElement("input");
     i.type = "file"; i.accept = "image/*";
-    i.onchange = () => { const f = i.files?.[0]; if (f) void attempt(() => b().editServer(props.info.id, { [kind]: f }), "Saved").then(props.bump); };
+    // Through the crop tool first, like profile pictures (square icon, 16:9 banner); GIFs can skip it to keep moving.
+    i.onchange = () => { const f = i.files?.[0]; if (f) void cropImage(f, kind === "icon" ? "server-icon" : "server-banner").then((c) => c && attempt(() => b().editServer(props.info.id, { [kind]: c }), "Saved").then(props.bump)); };
     i.click();
   };
   return (
     <div class="page">
-      <div class="ss-hero" style={props.info.bannerUrl ? { "background-image": `url("${props.info.bannerUrl.replace(/"/g, "%22")}")` } : {}}>
+      <div class="ss-hero" classList={{ editable: can() }} onClick={(e) => can() && pick((e.target as Element).closest(".ss-icon") ? "icon" : "banner")} style={props.info.bannerUrl ? { "background-image": `url("${props.info.bannerUrl.replace(/"/g, "%22")}")` } : {}}>
         <span class="ss-icon">
           <Show when={props.info.iconUrl} fallback={<span>{props.info.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 3)}</span>}><img src={props.info.iconUrl} alt="" /></Show>
         </span>
-        <Show when={can()}>
-          <div class="ss-hero-actions">
-            <button class="btn small" onClick={() => pick("icon")}>Change icon</button>
-            <button class="btn small" onClick={() => pick("banner")}>Change banner</button>
-            <Show when={props.info.iconUrl}><button class="btn small danger" onClick={() => void attempt(() => b().editServer(props.info.id, { icon: null }), "Icon removed").then(props.bump)}>Remove icon</button></Show>
-            <Show when={props.info.bannerUrl}><button class="btn small danger" onClick={() => void attempt(() => b().editServer(props.info.id, { banner: null }), "Banner removed").then(props.bump)}>Remove banner</button></Show>
-          </div>
-        </Show>
       </div>
+      {/* Change and remove under the banner, one tile each (on a phone, four buttons on the banner spilled over it). */}
+      <Show when={can()}>
+        <div class="ss-pics">
+          <div class="ss-pic">
+            <span>Server icon</span>
+            <button class="btn small" onClick={() => pick("icon")}>{props.info.iconUrl ? "Change" : "Add"}</button>
+            <Show when={props.info.iconUrl}><button class="icon-btn danger" aria-label="Remove icon" title="Remove icon" onClick={() => void attempt(() => b().editServer(props.info.id, { icon: null }), "Icon removed").then(props.bump)}><Icon name="trash" size={18} /></button></Show>
+          </div>
+          <div class="ss-pic">
+            <span>Banner</span>
+            <button class="btn small" onClick={() => pick("banner")}>{props.info.bannerUrl ? "Change" : "Add"}</button>
+            <Show when={props.info.bannerUrl}><button class="icon-btn danger" aria-label="Remove banner" title="Remove banner" onClick={() => void attempt(() => b().editServer(props.info.id, { banner: null }), "Banner removed").then(props.bump)}><Icon name="trash" size={18} /></button></Show>
+          </div>
+        </div>
+      </Show>
       <Group title="Server">
         <div class="row col">
           <label class="field">Server name<input value={name()} maxLength={32} disabled={!can()} onInput={(e) => setName(e.currentTarget.value)} /></label>
@@ -158,29 +166,106 @@ function Identity(props: { info: ServerInfo }) {
   );
 }
 
+/**
+ * Channels grouped under their categories, like Stoat's: "Uncategorised" first, then each category with its count
+ * and a menu (create a channel in it, rename, delete). Drag a category or a channel by its handle to reorder (finger
+ * or mouse); a channel's menu moves it to another category. Tap a channel for its own settings. Everything saves to
+ * the server's real category order.
+ */
 function Channels(props: { info: ServerInfo }) {
+  const sid = props.info.id;
   const [spaces, { refetch }] = createResource(() => b().spaces());
-  const chans = () => spaces()?.find((s) => s.id === props.info.id)?.channels ?? [];
-  onCleanup(b().onEvent((e) => { if (e.t === "activity") void refetch(); }));
+  const [tick, bump] = useTick();
+  const refresh = () => { void refetch(); bump(); setTimeout(bump, 600); };
+  onCleanup(b().onEvent((e) => { if (e.t === "activity") refresh(); }));
+  const chans = () => spaces()?.find((s) => s.id === sid)?.channels.filter((c) => c.kind === "text" || c.kind === "voice") ?? [];
+  const cats = createMemo(() => { tick(); spaces(); return b().categories(sid); });
+  const byId = (id: string) => chans().find((c) => c.id === id);
+  const inCats = createMemo(() => new Set(cats().flatMap((c) => c.channels)));
+  const loose = () => chans().filter((c) => !inCats().has(c.id));
+  const save = (next: typeof cats extends () => infer T ? T : never) => attempt(() => b().saveCategories(sid, next)).then(refresh);
+  const moveCat = (from: number, to: number) => void save(moved(cats(), from, to));
+  const moveIn = (catId: string, from: number, to: number) => void save(cats().map((c) => (c.id === catId ? { ...c, channels: moved(c.channels.filter(byId), from, to) } : c)));
+  const moveTo = (chId: string, catId: string | null) => void save(cats().map((c) => ({ ...c, channels: c.id === catId ? [...c.channels.filter((x) => x !== chId), chId] : c.channels.filter((x) => x !== chId) })));
+  const catMenu = (el: Element, cat: { id: string; title: string }, i: number) => openMenu(el, [
+    { label: "Create channel", icon: "plus", sub: [
+      { label: "Text channel", icon: "hash", onSelect: () => void createChannel(sid, "text", cat.id).then(refresh) },
+      { label: "Voice channel", icon: "speaker", onSelect: () => void createChannel(sid, "voice", cat.id).then(refresh) },
+    ] },
+    { label: "Rename category", icon: "pencil", onSelect: async () => {
+      const v = await promptDialog("Rename category", "Category name", "Save", cat.title, { max: 32 });
+      if (v?.trim() && v.trim() !== cat.title) await save(cats().map((c) => (c.id === cat.id ? { ...c, title: v.trim() } : c)));
+    } },
+    ...(i > 0 ? [{ label: "Move up", icon: "up", onSelect: () => moveCat(i, i - 1) }] : []),
+    ...(i < cats().length - 1 ? [{ label: "Move down", icon: "down", onSelect: () => moveCat(i, i + 1) }] : []),
+    { sep: true },
+    { label: "Delete category", icon: "trash", danger: true, onSelect: async () => {
+      if (await confirmDialog(`Delete ${cat.title}?`, "Its channels aren't deleted. They move to Uncategorised.", "Delete category", true)) await save(cats().filter((c) => c.id !== cat.id));
+    } },
+  ]);
+  const chanMenu = (el: Element, ch: { id: string; name: string }, catId: string | null, i: number, n: number) => openMenu(el, [
+    { label: "Channel settings", icon: "gear", onSelect: () => setChannelSettings({ id: ch.id }) },
+    ...(catId && i > 0 ? [{ label: "Move up", icon: "up", onSelect: () => moveIn(catId, i, i - 1) }] : []),
+    ...(catId && i < n - 1 ? [{ label: "Move down", icon: "down", onSelect: () => moveIn(catId, i, i + 1) }] : []),
+    { label: "Move to category", icon: "folder", sub: [
+      { label: "Uncategorised", checked: !catId, onSelect: () => moveTo(ch.id, null) },
+      ...cats().map((c) => ({ label: c.title, checked: c.id === catId, onSelect: () => moveTo(ch.id, c.id) })),
+    ] },
+    { label: "Rename", icon: "pencil", onSelect: async () => {
+      const v = await promptDialog("Rename channel", "Channel name", "Save", ch.name, { max: 32 });
+      if (v?.trim()) await attempt(() => b().editChannel(ch.id, { name: v.trim() }), "Saved").then(refresh);
+    } },
+    { sep: true },
+    { label: "Delete channel", icon: "trash", danger: true, onSelect: async () => {
+      if (await confirmDialog(`Delete #${ch.name}?`, "Every message in it is deleted too. This can't be undone.", "Delete channel", true)) await attempt(() => b().deleteChannel(ch.id), "Channel deleted").then(refresh);
+    } },
+  ]);
+  const ChanRow = (p: { id: string; catId: string | null; i: number; n: number }) => {
+    const c = () => byId(p.id);
+    return (
+      <Show when={c()}>{(ch) => (
+        <div class="cc-row" data-sort>
+          <Show when={p.catId}><button class="icon-btn cc-grip" aria-label={`Drag ${ch().name}`} title="Drag to reorder" onPointerDown={(e) => dragSort(e, (from, to) => moveIn(p.catId!, from, to))}><Icon name="grip" size={16} /></button></Show>
+          <button class="cc-open" onClick={() => setChannelSettings({ id: ch().id })}>
+            <Icon name={ch().kind === "voice" ? "speaker" : "hash"} size={17} class="muted" /><span>{ch().name}</span>
+          </button>
+          <button class="icon-btn" aria-label={`${ch().name} options`} title="Options" onClick={(e) => chanMenu(e.currentTarget, ch(), p.catId, p.i, p.n)}><Icon name="dots" size={18} /></button>
+        </div>
+      )}</Show>
+    );
+  };
   return (
-    <div class="page">
+    <div class="page cc-page">
       <div class="dialog-actions start">
-        <button class="btn small primary" onClick={() => void createChannel(props.info.id, "text").then(refetch)}><Icon name="hash" size={14} />New text channel</button>
-        <button class="btn small" onClick={() => void createChannel(props.info.id, "voice").then(refetch)}><Icon name="speaker" size={14} />New voice channel</button>
+        <button class="btn small primary" onClick={() => void createChannel(sid, "text").then(refresh)}><Icon name="hash" size={14} />New text channel</button>
+        <button class="btn small" onClick={() => void createChannel(sid, "voice").then(refresh)}><Icon name="speaker" size={14} />New voice channel</button>
+        <button class="btn small" onClick={() => void createCategory(sid).then(refresh)}><Icon name="folder" size={14} />New category</button>
       </div>
-      <Group title="Channels" count={chans().length}>
-        <For each={chans()} fallback={<Row label={<span class="muted">No channels yet.</span>} />}>{(c) => (
-          <Row label={<span class="ss-chan"><Icon name={c.kind === "voice" ? "speaker" : "hash"} size={16} />{c.name}<Show when={c.category}><small class="muted">{c.category}</small></Show></span>} hint={c.description}>
-            <button class="icon-btn" aria-label={`Rename ${c.name}`} title="Rename" onClick={async () => {
-              const v = await promptDialog("Rename channel", "Channel name", "Save", c.name, { max: 32 });
-              if (v?.trim()) await attempt(() => b().editChannel(c.id, { name: v.trim() }), "Saved").then(refetch);
-            }}><Icon name="pencil" size={16} /></button>
-            <button class="icon-btn danger" aria-label={`Delete ${c.name}`} title="Delete" onClick={async () => {
-              if (await confirmDialog(`Delete #${c.name}?`, "Every message in it is deleted too. This can't be undone.", "Delete channel", true)) await attempt(() => b().deleteChannel(c.id), "Channel deleted").then(refetch);
-            }}><Icon name="trash" size={16} /></button>
-          </Row>
-        )}</For>
-      </Group>
+      <Show when={loose().length || !cats().length}>
+        <section class="cc-cat">
+          <header class="cc-head"><span class="cc-title">Uncategorised</span><span class="count">{loose().length}</span></header>
+          <div class="cc-list">
+            <For each={loose()} fallback={<p class="muted small cc-empty">No channels yet.</p>}>{(c, i) => <ChanRow id={c.id} catId={null} i={i()} n={loose().length} />}</For>
+          </div>
+        </section>
+      </Show>
+      <div class="cc-cats">
+        <For each={cats()}>{(cat, i) => {
+          const ids = () => cat.channels.filter(byId);
+          return (
+            <section class="cc-cat" data-sort>
+              <header class="cc-head">
+                <button class="icon-btn cc-grip" aria-label={`Drag ${cat.title}`} title="Drag to reorder" onPointerDown={(e) => dragSort(e, moveCat)}><Icon name="grip" size={16} /></button>
+                <span class="cc-title">{cat.title}</span><span class="count">{ids().length}</span><span class="grow" />
+                <button class="icon-btn" aria-label={`${cat.title} options`} title="Options" onClick={(e) => catMenu(e.currentTarget, cat, i())}><Icon name="dots" size={18} /></button>
+              </header>
+              <div class="cc-list">
+                <For each={ids()} fallback={<p class="muted small cc-empty">Empty. Use ⋮ to create a channel here, or move one in.</p>}>{(id, k) => <ChanRow id={id} catId={cat.id} i={k()} n={ids().length} />}</For>
+              </div>
+            </section>
+          );
+        }}</For>
+      </div>
     </div>
   );
 }
@@ -290,6 +375,13 @@ function Emojis(props: { info: ServerInfo }) {
               <img src={e.url} alt="" />
               <span>:{e.name}:</span>
               <Show when={can()}>
+                <button class="icon-btn" aria-label={`Rename :${e.name}:`} title="Rename" onClick={async () => {
+                  const v = await promptDialog(`Rename :${e.name}:`, "Emoji name", "Save", e.name, { max: 32, placeholder: "emoji_name" });
+                  const name = v?.trim().toLowerCase();
+                  if (!name || name === e.name) return;
+                  if (!/^[a-z0-9_]{1,32}$/.test(name)) { await confirmDialog("That name won't work", "Use lowercase letters, numbers and underscores.", "OK"); return; }
+                  await attempt(() => b().renameEmoji(e.id, name), "Emoji renamed").then(bump);
+                }}><Icon name="pencil" size={14} /></button>
                 <button class="icon-btn danger" aria-label={`Delete :${e.name}:`} title="Delete" onClick={async () => {
                   if (await confirmDialog(`Delete :${e.name}:?`, "It disappears from messages that used it.", "Delete emoji", true)) await attempt(() => b().deleteEmoji(e.id), "Emoji deleted").then(bump);
                 }}><Icon name="trash" size={14} /></button>
@@ -393,14 +485,18 @@ function Bans(props: { info: ServerInfo }) {
 export function ServerSettings(props: { id: string; tab?: ServerTab }) {
   const [tick, bump] = useTick();
   const info = createMemo(() => { tick(); return b().serverInfo(props.id); });
-  const [tab, setTab] = createSignal<ServerTab>(props.tab ?? "overview");
+  const [tab, setTabRaw] = createSignal<ServerTab>(props.tab ?? "overview");
   const close = () => setServerSettings(null);
-  useBack(close);
+  // Phones (like your own Settings): the menu fills the screen, a section opens full screen with a back arrow.
+  const [narrow, setNarrow] = createSignal(!props.tab);
+  const setTab = (t: ServerTab) => { setTabRaw(t); setNarrow(false); };
+  const small = () => matchMedia("(max-width: 900px)").matches;
+  useBack(() => (narrow() || !small() ? close() : setNarrow(true)));
   const tabs = () => TABS.filter((t) => info() && t.can(info()!));
   const groups = () => [...new Set(tabs().map((t) => t.group))];
   const page = (id: ServerTab, el: () => JSX.Element) => <Match when={tab() === id}>{el()}</Match>;
   return (
-    <div class="settings" role="dialog" aria-label="Server settings" onKeyDown={(e) => e.key === "Escape" && close()} onClick={(e) => e.target === e.currentTarget && close()}>
+    <div class="settings stepped" role="dialog" aria-label="Server settings" data-narrow={narrow() ? "nav" : "page"} onKeyDown={(e) => e.key === "Escape" && close()} onClick={(e) => e.target === e.currentTarget && close()}>
       <div class="settings-card">
       <header class="bar settings-bar panel">
         <h2>{info()?.name ?? "Server"} settings</h2>
@@ -410,6 +506,10 @@ export function ServerSettings(props: { id: string; tab?: ServerTab }) {
       <Show when={info()} fallback={<p class="empty center">This server isn't available.</p>}>{(i) => (
         <div class="settings-body">
           <nav class="snav panel" role="tablist" aria-label="Server settings sections">
+            <div class="snav-top">
+              <button class="icon-btn" onClick={close} aria-label="Close server settings"><Icon name="back" size={22} /></button>
+              <h2>{i().name}</h2>
+            </div>
             <For each={groups()}>{(g) => (
               <>
                 <h3 class="snav-head">{g}</h3>
@@ -434,6 +534,10 @@ export function ServerSettings(props: { id: string; tab?: ServerTab }) {
             </Show>
           </nav>
           <div class="spage panel" role="tabpanel">
+            <header class="spage-head stepped-head">
+              <button class="icon-btn snav-back" onClick={() => setNarrow(true)} aria-label="All server settings"><Icon name="back" size={22} /></button>
+              <h2>{TABS.find((t) => t.id === tab())?.label}</h2>
+            </header>
             <Pick>
               {page("overview", () => <Overview info={i()} bump={bump} />)}
               {page("identity", () => <Identity info={i()} />)}

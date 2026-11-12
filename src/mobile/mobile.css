@@ -35,15 +35,6 @@
 .profile-pop .pcard { min-height: 0; border-radius: 22px; padding-bottom: 6px; }
 .profile-pop .pc-avatar, .profile-pop .pc-name { cursor: default; }
 
-/* ---------- "You're viewing older messages": the same slim bar as desktop, tucked behind the message box ---------- */
-.jump-present { display: none !important; }
-.chat .older-bar, .chat .older-bar.desk-only { display: flex !important; left: 10px; right: 10px; transform: none; bottom: calc(var(--composer-h, 70px) - 14px); z-index: 20;
-  justify-content: space-between; white-space: nowrap; padding: 5px 6px 19px 14px; border-radius: 14px 14px 0 0; font-size: 13px;
-  box-shadow: 0 -8px 22px -12px rgba(0, 0, 0, .55); }
-.chat .older-bar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.composer-wrap { z-index: 21; }
-.chat.older-on .composer { background: linear-gradient(var(--well), var(--well)), var(--s2); }
-.chat.older-on .typing { visibility: hidden; }
 
 /* ---------- "N new messages": one compact line ---------- */
 .since-bar { font-size: 12.5px; }
@@ -56,6 +47,9 @@
 @media (min-width: 701px) {
   .app { padding: calc(var(--gapx) + var(--sa-top)) calc(var(--gapx) + var(--sa-right)) calc(var(--gapx) + var(--sa-bottom)) var(--sa-left); }
   .userpanel { left: calc(8px + var(--sa-left)); }
+  /* The frame above already clears the navigation bar and the keyboard: the message box adding them again lifted it
+     twice as high as the keyboard (the big empty gap under it while typing on a tablet). */
+  .composer-wrap { padding-bottom: 12px; }
 }
 /* Held upright: the card comes up from the bottom, the screen's width (up to 600px on a tablet), with a handle;
    pull it down to close (sheetDrag.ts). Sideways it stays centred. */
@@ -135,7 +129,7 @@
 .mp-head:has(.mp-search) > .grow { display: none; }
 .mp-search { height: 46px !important; border-radius: 14px; }
 .mp-search input { font-size: 16px; }
-.mp-tabs button { min-height: 40px; padding: 8px 16px; font-size: 14px; }
+.mp-tabs button { min-height: 40px; padding: 8px 16px; font-size: calc(14px * var(--ui-text, 1)); }
 .mp-filters .select, .mp-filters select, .mp-date { min-height: 44px; }
 .mp-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .mp-filters > * { flex: 0 0 auto !important; }
@@ -151,13 +145,14 @@
 /* Settings rows, member and channel rows */
 .group-body > .row { min-height: 56px; }
 .snav button { min-height: 50px; }
-.chans .chan { min-height: 44px; }
+.chans .chan { min-height: 40px; }
 .member { min-height: 52px; }
 /* The rest of the fingertip check (anything you tap under ~40px) */
-.chans .cat { min-height: 38px; }
+.chans .cat { min-height: 40px; }
 .cat-add { min-width: 38px; min-height: 38px; }
 .bar .bar-peer { min-height: 42px; }
-.composer .send-btn { width: 40px; height: 42px; flex: none; }
+/* Send (round, styled in styles.css): the size of the box's other buttons here. */
+.composer .send-btn { width: 40px; height: 40px; margin: 1px 1px 1px 2px; }
 .voice-members .vm-who { min-height: 40px; }
 .since-bar .sb-jump, .since-bar .sb-read { min-height: 42px; }
 .reply-ref { min-height: 32px; }
@@ -185,8 +180,9 @@
 .soundboard .sb-sec { font-size: 13px; margin-top: 8px; }
 
 /* ---------- a tall card eases up under the status bar. A short one stays as tall as its content. ---------- */
-.profile-pop { transition: padding-top .7s linear; }
-.sheet-tall { max-height: calc(100% - var(--sa-top) - 6px) !important; height: auto; transition: max-height .7s linear; }
+/* Growing a card: a quick ease-out (it was a 0.7s linear crawl that lagged behind the finger). */
+.profile-pop { transition: padding-top .3s cubic-bezier(.2, .8, .2, 1); }
+.sheet-tall { max-height: calc(100% - var(--sa-top) - 6px) !important; height: auto; transition: max-height .3s cubic-bezier(.2, .8, .2, 1); }
 /* Your own card pulled up: the whole screen under the status bar, like Discord's */
 .sheet-full { height: calc(100% - var(--sa-top) - 6px) !important; max-height: none !important; transition: height .28s cubic-bezier(.2,.8,.2,1); overflow-y: auto; }
 .profile-pop:has(.sheet-tall) { padding-top: calc(var(--sa-top) + 6px); }
@@ -225,7 +221,10 @@ body, .settings, .settings-card { background-attachment: scroll !important; }
 .members-sheet { position: relative; width: min(600px, 100%) !important; max-width: none; max-height: calc(100% - var(--sa-top) - 40px); margin: 0;
   border-radius: 24px 24px 0 0 !important; padding: 18px 8px calc(10px + var(--sa-bottom)) !important; overflow-y: auto; overscroll-behavior: contain;
   animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
-.members-sheet::before { content: ""; position: sticky; top: -10px; display: block; width: 40px; height: 5px; margin: -10px auto 8px; border-radius: 3px; background: rgba(255, 255, 255, .5); }
+.members-sheet { padding-top: 0 !important; }
+.members-sheet::before { content: ""; position: sticky; top: 0; z-index: 4; display: block; height: 20px; margin: 0 -8px 2px; background-color: inherit;
+  background-image: linear-gradient(color-mix(in srgb, var(--fg) 35%, transparent), color-mix(in srgb, var(--fg) 35%, transparent));
+  background-size: 40px 5px; background-position: center 8px; background-repeat: no-repeat; border-radius: 24px 24px 0 0; }
 
 /* Search media: three across, like a phone gallery. */
 .mp-list.gallery { grid-template-columns: repeat(3, 1fr); gap: 3px; padding-inline: 4px; }
@@ -296,7 +295,7 @@ body, .settings, .settings-card { background-attachment: scroll !important; }
    keyboard up, the message box no longer rides up next to the search. */
 @media (min-width: 901px) {
   .members-col.panel-col { display: block; position: absolute; inset: 0; z-index: 6; width: auto; background: var(--md-surface-container-low, var(--s1)); box-shadow: none; }
-  .main-body:has(> .members-col.panel-col) :is(.composer-wrap, .older-bar, .since-bar, .jump-present, .typing) { visibility: hidden; }
+  .main-body:has(> .members-col.panel-col) :is(.composer-wrap, .since-bar, .typing) { visibility: hidden; }
 }
 
 /* Videos: the player's own full-screen button can't open in the phone's web view, so it's hidden; Mustela's own
@@ -342,7 +341,18 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
 .att-scrim { position: fixed; inset: 0; z-index: 95; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .4); }
 .att-card { width: 100%; max-width: 600px; margin: 0 auto; padding: 10px 14px calc(16px + var(--sa-bottom)); border-radius: 24px 24px 0 0;
   background: var(--md-surface-container-high, var(--s2)) !important; display: flex; flex-direction: column; gap: 12px; animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
-.att-handle { align-self: center; width: 40px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--fg) 35%, transparent); }
+/* Opens halfway like the other cards and scrolls as one piece; pulling up (or scrolling) grows it (sheetDrag.ts).
+   With photos, they run to the bottom edge: no empty strip under them. */
+.att-card { max-height: 56vh; overflow-y: auto; overscroll-behavior: contain; }
+.att-card:has(.att-recent) { padding-bottom: calc(10px + var(--sa-bottom, 0px)); }
+.att-card > * { flex: none; }
+/* The handle is a band across the card's top that stays put while it scrolls, so what scrolls never runs into the card's
+   rounded edge (the same band tops the hold cards and the member list). */
+.att-handle { position: sticky; top: -10px; z-index: 4; align-self: stretch; height: 22px; margin: -10px -14px -10px; background: inherit; border-radius: 24px 24px 0 0; }
+.att-handle::after, .ctx-sheet > .ctx-grab::after { content: ""; position: absolute; left: 50%; top: 9px; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 35%, transparent); }
+.ctx-sheet > .ctx-grab { position: sticky; top: -6px; z-index: 4; align-self: stretch; width: auto; height: 20px; margin: -6px -12px 0; border-radius: 24px 24px 0 0; background: inherit; }
+.ctx-sheet > .ctx-grab::after { top: 8px; }
 .att-big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .att-big button { aspect-ratio: 1 / .82; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 18px;
   background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); font-weight: 800; font-size: 15px; }
@@ -357,7 +367,90 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
 
 /* Phones: a little more room between icons, so each is easier to hit */
 @media (max-width: 700px) {
-  .main-bar { gap: 8px; }
-  .main-bar .icon-btn { width: 44px; height: 44px; }
+  /* The chat header's buttons sit close together so the name gets the room (like Discord's) */
+  .main-bar { gap: 0; }
+  .main-bar .icon-btn { width: 40px; height: 44px; }
+  .main-bar h2, .main-bar .chat-title { min-width: 0; }
+  .main-bar > :is(svg.ic, .av, img) { margin-right: 8px; }
+  .main-bar > .back { margin-right: 4px; }
   .composer > .icon-btn, .composer .c-actions .icon-btn { margin: 0 3px; }
 }
+
+/* ---------- The keyboard never hides what you're typing in ----------
+   Android reports the keyboard's height (--keyboard): dialogs (nickname, rename, prompts) re-centre in the room above
+   it, and the emoji or GIF card lifts while you type in its search. */
+/* The page already made room for the keyboard (some tablets shrink it): nothing more to lift. */
+:root { --kb-pad: var(--keyboard, 0px); }
+:root[data-kb-resized] { --kb-pad: 0px; --sa-bottom: 0px; }
+/* Tablets: the app stays full height while typing and only the chat column makes room (keyboard.ts) */
+:root[data-kb-lift] .app { height: var(--kb-full, 100%); }
+/* Typing a message: the conversation and the message box ride up. Typing in search: nothing else moves (the message
+   box and the user bar stay down behind the keyboard), and the search results end where the keyboard starts. */
+:root[data-kb-lift][data-kb-chat] .main .chat { padding-bottom: var(--kb-shrink, 0px); }
+:root[data-kb-lift] .members-col.panel-col { box-sizing: border-box; padding-bottom: var(--kb-shrink, 0px); }
+.scrim:not(.full), .pop-scrim:not(.sheet) { padding-bottom: max(var(--sa-bottom, 0px), var(--kb-pad)); transition: padding-bottom .18s ease-out; }
+.scrim:not(.full) > .modal { max-height: calc(100% - 8px); }
+/* Small dialogs (rename, nickname, confirm) keep their own size with the keyboard up: when space is short the
+   backdrop scrolls instead, and the box being typed in is scrolled into view (keyboard.ts). Squeezed to fit, a
+   phone that both shrinks the page and reports the keyboard left only the title showing. */
+.scrim:not(.full) { overflow-y: auto; }
+/* !important: the general phone cap on every dialog's height (styles.css, .modal:not(.sheet)…) is more specific and
+   kept the card short while its contents spilled out below it, with no card behind them. */
+.scrim:not(.full) > :is(.modal.dialog, .modal.group-invite) { max-height: none !important; overflow: visible; margin-block: auto; align-self: start; flex: none; }
+/* New message works like the other dialogs with the keyboard up (it used to shrink to just its title); its friends
+   list scrolls inside it. */
+.modal.group-invite .gi-list { max-height: min(42vh, 360px); overflow-y: auto; }
+:is(.emoji-pop.emoji-sheet, .gif-pop.gif-sheet) { bottom: var(--kb-pad) !important; transition: bottom .18s ease-out, height .2s; }
+
+/* "Someone is typing" floats just above the message box instead of keeping a 20px row free under the chat, so the
+   newest message sits closer to the box (like Discord's). */
+:root[data-ui="mobile"] .typing { height: 22px; margin: -22px 0 0 10px; padding: 0 10px; width: fit-content; max-width: calc(100% - 20px); position: relative; z-index: 3;
+  border-radius: 11px; pointer-events: none; visibility: hidden; background: color-mix(in srgb, var(--s1) 92%, transparent); box-shadow: 0 2px 8px -4px rgba(0,0,0,.5); }
+:root[data-ui="mobile"] .typing:has(.dots) { visibility: visible; }
+
+/* Friends on phones: the tabs get their own row under the header, as pills like the search tabs (four of them wrapped
+   into a block taller than the header, half of it hidden under the status bar). */
+@media (max-width: 700px) {
+  .friends > .bar { flex-wrap: wrap; height: auto !important; min-height: var(--hdr-h, 56px); row-gap: 4px; padding-bottom: 8px; }
+  .friends > .bar h2 { display: block !important; }
+  .friends > .bar .friends-tabs { order: 10; flex: 1 0 100%; max-width: none; margin: 0; display: flex; flex-wrap: nowrap; gap: 4px; overflow-x: auto; scrollbar-width: none;
+    padding: 0; background: none; box-shadow: none; border-radius: 0; height: auto; }
+  .friends > .bar .friends-tabs button { flex: none; min-height: 38px; padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 800; color: var(--fg2); background: none; box-shadow: none; }
+  .friends > .bar .friends-tabs button.on { background: color-mix(in srgb, var(--pri) 22%, transparent); color: var(--fg); }
+}
+
+/* Swiping back from a chat: the list underneath eases in with the chat (a little parallax and fade), like Discord's,
+   instead of sitting there flat. --swipe goes 0 → 1 with the finger (gestures.ts). */
+.app.swiping :is(.rail, .side) { transform: translateX(calc((var(--swipe, 0) - 1) * 28px)); opacity: calc(.55 + var(--swipe, 0) * .45);
+  transition: transform var(--swipe-t, 0s) cubic-bezier(.2, .8, .2, 1), opacity var(--swipe-t, 0s); will-change: transform; }
+.app.swiping .main { box-shadow: -10px 0 24px rgba(0, 0, 0, .35); will-change: transform; }
+
+/* Tablets: Home's search field opens the search screen like the phone's search button. A real field to tap, not the
+   thin desktop bar. */
+.find-conv.find-tab { display: flex; align-items: center; gap: 8px; height: 42px; margin: 4px 8px 10px; width: calc(100% - 16px); padding: 0 14px;
+  border-radius: 21px; font-size: 15px; font-weight: 650; }
+/* Tablets: Home search covers the chat area (like a chat's search does), not the whole screen. */
+.hs-main { position: absolute; inset: 0; z-index: 7; display: flex; flex-direction: column; background: var(--md-surface-container-low, var(--s1)); border-radius: inherit; overflow: hidden; }
+.hs-main > .hsearch { flex: 1; min-height: 0; animation: hs-in .2s cubic-bezier(.2, .8, .2, 1); }
+:root[data-kb-lift] .hs-main { box-sizing: border-box; padding-bottom: var(--kb-shrink, 0px); }
+
+/* An attached file before sending (tap it on phones and tablets): a big look at it, Mark as spoiler and Remove. */
+.pf.pf-tap { cursor: pointer; }
+.pf.pf-tap:active { transform: scale(.97); }
+.file-card { gap: 14px; }
+.fc-name { margin: 2px 4px 0; font-size: 19px; font-weight: 850; line-height: 1.25; overflow-wrap: anywhere; }
+.fc-preview { position: relative; display: grid; place-items: center; min-height: 140px; max-height: 42vh; border-radius: 16px; overflow: hidden; background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.fc-preview :is(img, video) { display: block; max-width: 100%; max-height: 42vh; object-fit: contain; }
+.fc-preview.fc-spoiled :is(img, video) { filter: blur(18px) brightness(.8); }
+.fc-tag { position: absolute; padding: 6px 14px; border-radius: 999px; background: rgba(0, 0, 0, .65); color: #fff; font-weight: 900; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.fc-file { display: grid; place-items: center; gap: 6px; padding: 26px; color: var(--fg2); }
+.fc-rows { border-radius: 16px; background: color-mix(in srgb, var(--fg) 7%, transparent); overflow: hidden; }
+.fc-row { display: flex; align-items: center; gap: 14px; min-height: 58px; padding: 0 16px; font-size: 16px; font-weight: 700; cursor: pointer; }
+.fc-remove { min-height: 52px; border-radius: 16px; font-size: 16px; gap: 8px; justify-content: center; }
+.file-card > * { align-self: stretch; }
+.file-card .fc-name { text-align: left; }
+.file-card .fc-remove { width: 100%; }
+/* The X on an attached file's tile: removes it straight away (tapping the rest of the tile opens its card) */
+.pf .pf-x { position: absolute; top: 4px; right: 4px; z-index: 2; width: 28px; height: 28px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: rgba(0, 0, 0, .62); color: #fff; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .25); }
+.pf .pf-x::before { content: ""; position: absolute; inset: -8px; } /* a bigger area to tap than it looks */

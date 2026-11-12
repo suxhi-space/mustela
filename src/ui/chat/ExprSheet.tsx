@@ -55,6 +55,8 @@ export function useExprSheet(close: () => void) {
     if (!t || t.closest(".emoji-pop, .gif-pop, .composer button[aria-label='Keyboard'], .menu, .ctx, .toast")) return;
     close();
   };
+  // Opened by switching tabs (Emoji ⇄ GIFs): its contents slide in from that side instead of just appearing.
+  const switched = handoff !== undefined;
   onMount(() => {
     // Another tab's card just closed: take over its size (and the chat above doesn't jump). Otherwise a fresh card.
     gen++;
@@ -142,7 +144,7 @@ export function useExprSheet(close: () => void) {
   onCleanup(() => { removeEventListener("touchmove", onMove); removeEventListener("touchend", onEnd); removeEventListener("touchcancel", onEnd); });
   /** Back to half height (after picking an emoji from the tall card, so the message box shows again). */
   const collapse = () => { if (big()) { setBig(false); sync(); } };
-  return { height, dragging: () => drag() !== 0, grip, sync, bind, collapse };
+  return { height, dragging: () => drag() !== 0, grip, sync, bind, collapse, switched };
 }
 
 /**

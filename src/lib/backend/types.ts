@@ -183,6 +183,8 @@ export interface Space {
   description?: string;
   /** The "Home" pseudo-space: friends + direct messages */
   home?: boolean;
+  /** About how many members (Stoat's count): big servers can hold profile effects still (Settings > Performance) */
+  memberCount?: number;
   channels: ChannelInfo[];
 }
 
@@ -259,6 +261,8 @@ export interface VoicePrefs {
   autoGain: boolean;
   /** 0-200 */
   outputVolume: number;
+  /** Your microphone's volume in the call, 0-200 */
+  inputVolume: number;
   screenQuality: "720p30" | "1080p30" | "1080p60";
   joinMuted: boolean;
   /** Join calls deafened (set from the user panel while not in a call) */
@@ -287,6 +291,8 @@ export interface VoiceHandle {
   /** Optional extras the web engine supports */
   setDeaf?(on: boolean): Promise<void>;
   setOutputVolume?(v: number): void;
+  /** Your microphone's volume, 0-200 (100 = as it comes) */
+  setInputVolume?(v: number): void;
   /** Input sensitivity: auto, or a gate at `threshold` dB */
   setSensitivity?(auto: boolean, threshold: number): void;
   state?(): { mic: boolean; cam: boolean; screen: boolean; deaf: boolean };
@@ -424,6 +430,8 @@ export interface ChatBackend {
   serverEmojis(serverId: string): CustomEmoji[];
   uploadEmoji(serverId: string, name: string, file: File): Promise<void>;
   deleteEmoji(emojiId: string): Promise<void>;
+  /** New name for a server emoji (Manage Customisation). */
+  renameEmoji(emojiId: string, name: string): Promise<void>;
   invites(serverId: string): Promise<InviteRow[]>;
   createInvite(channelId: string): Promise<string>;
   deleteInvite(code: string): Promise<void>;

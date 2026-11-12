@@ -44,3 +44,15 @@ describe("favorite categories", () => {
     expect(e.favRail).toBe(false);
   });
 });
+
+describe("saved themes keep the window material", () => {
+  const base = { id: "t1", name: "Night", look: { seed: "#123456" }, style: {}, picture: false, at: 1 };
+  it("keeps it", () => {
+    const t = sanitizeExt({ themes: [{ ...base, window: { material: "mica", opacity: 70 } }] }).themes![0]!;
+    expect(t.window).toEqual({ material: "mica", opacity: 70 });
+  });
+  it("cleans junk and leaves older themes without one", () => {
+    expect(sanitizeExt({ themes: [{ ...base, window: { material: "glass", opacity: 5 } }] }).themes![0]!.window).toEqual({ material: "none", opacity: 40 });
+    expect(sanitizeExt({ themes: [base] }).themes![0]!.window).toBeUndefined();
+  });
+});

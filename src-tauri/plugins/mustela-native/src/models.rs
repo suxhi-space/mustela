@@ -108,6 +108,9 @@ pub struct MediaFile {
   pub url: String,
   pub name: String,
   pub share: bool,
+  /// "save", "share" or "open" (empty: from `share`)
+  #[serde(default)]
+  pub mode: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -133,4 +136,44 @@ pub struct WatchAlive {
 #[serde(rename_all = "camelCase")]
 pub struct WatchClear {
   pub channel: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentPhotos {
+  pub limit: u32,
+  /// Where to start (the `next` of the previous page), for the + card filling in as you scroll
+  #[serde(default)]
+  pub offset: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhotoFile {
+  pub uri: String,
+}
+
+/** Android: take a photo (or a video) with the phone's own camera app, into Mustela's cache (Camera.kt). */
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TakeMedia {
+  pub video: bool,
+}
+
+/** A chat notification (phones and tablets): Notifier.kt shows it like the ones while Mustela is closed. */
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyMessage {
+  pub channel: String,
+  pub kind: String,
+  pub title: String,
+  pub id: String,
+  pub author: String,
+  pub author_id: String,
+  pub avatar: String,
+  pub text: String,
+  pub at: i64,
+  pub api: String,
+  pub token: String,
+  pub accent: i32,
 }

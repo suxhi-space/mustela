@@ -1,4 +1,10 @@
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
+
+/**
+ * In a big server (over 1,000 members) with "Still profile effects in big servers" on: decorations and nameplates in
+ * its chat and member list hold still (Shell sets this for the server you're in). Profile cards still move.
+ */
+export const [stillLists, setStillLists] = createSignal(false);
 import type { ProfileConfig } from "../lib/profile/model";
 import { slotCost, type SlotKind } from "../lib/profile/presets";
 import { rateProfile } from "../lib/profile/rating";
@@ -22,10 +28,11 @@ export function ratingOf(c: ProfileConfig) {
  * the global animation budget while it does, and gives it back on cleanup.
  * A profile rated worse than the viewer's limit never animates.
  */
-export function createAnim(cfg: Accessor<ProfileConfig | null | undefined>, part: SlotKind): Accessor<boolean> {
+export function createAnim(cfg: Accessor<ProfileConfig | null | undefined>, part: SlotKind, inList?: () => boolean): Accessor<boolean> {
   const [on, setOn] = createSignal(false);
   createEffect(() => {
     const c = cfg();
+    if (stillLists() && inList?.()) { setOn(false); return; }
     settings().maxRating; // re-evaluate when the viewer changes their limit
     if (!c || !c[part].preset) { setOn(false); return; }
     const release = budget.tryAcquire(slotCost(part, c[part]), ratingOf(c).total.rating);

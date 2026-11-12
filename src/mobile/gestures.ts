@@ -21,16 +21,45 @@ function untilViewChanges(app: HTMLElement) {
   mo.observe(app, { attributes: true, attributeFilter: ["data-view"] });
 }
 
+/** Something under the finger that scrolls sideways itself (the "active now" strip, filter chips, a row of pictures). */
+function inSideScroller(t: Element | null): boolean {
+  for (let e = t; e && e !== document.body; e = e.parentElement) {
+    if (e.scrollWidth > e.clientWidth + 2) { const o = getComputedStyle(e).overflowX; if (o === "auto" || o === "scroll") return true; }
+  }
+  return false;
+}
+
+/** How far a swipe goes before the chat starts moving (in screen pixels). */
+const DEAD = 24;
+
 export function installGestures() {
   let start: { x: number; y: number; t: number; view: string } | null = null;
   let mode: "drawer" | "left" | null = null;
   let main: HTMLElement | null = null, app: HTMLElement | null = null;
-  let dx = 0;
+  let dx = 0, raf = 0;
+  /** The list under your finger, held still while a sideways swipe moves the screen (so it doesn't wobble). */
+  let frozen: HTMLElement | null = null, startEl: Element | null = null;
+  const freeze = () => {
+    for (let e = startEl; e && e !== document.body; e = e.parentElement) {
+      if (e instanceof HTMLElement && e.scrollHeight > e.clientHeight + 2) { const o = getComputedStyle(e).overflowY; if (o === "auto" || o === "scroll") { frozen = e; e.style.overflowY = "hidden"; return; } }
+    }
+  };
+  // Moves are drawn once per frame (touch events can come faster than the screen redraws).
+  const draw = () => {
+    raf = 0;
+    if (mode !== "drawer" || !main || !app) return;
+    const shown = Math.max(0, dx - DEAD);
+    main.style.transform = `translateX(${shown / zoomNow()}px)`; // finger movement in the app's own (zoomed) pixels
+    app.style.setProperty("--swipe", String(Math.min(1, shown / innerWidth)));
+    app.classList.toggle("swiping", shown > 0); // the channel list shows underneath once the chat moves
+  };
 
   const reset = () => {
     if (main) { main.style.transform = ""; main.style.transition = ""; }
-    app?.classList.remove("swiping");
-    start = null; mode = null; main = null; app = null; dx = 0;
+    cancelAnimationFrame(raf); raf = 0;
+    app?.classList.remove("swiping"); app?.style.removeProperty("--swipe");
+    if (frozen) { frozen.style.overflowY = ""; frozen = null; }
+    start = null; mode = null; main = null; app = null; dx = 0; startEl = null;
   };
 
   addEventListener("touchstart", (e) => {
@@ -38,9 +67,10 @@ export function installGestures() {
     if (e.touches.length !== 1 || !phoneLayout()) return;
     const t = e.target as Element | null;
     app = document.querySelector<HTMLElement>(".app");
-    if (!app || !t || t.closest(IGNORE) || document.querySelector(".scrim, .pop-scrim, .menu-scrim, .settings, .modal")) { app = null; return; }
+    if (!app || !t || t.closest(IGNORE) || inSideScroller(t) || document.querySelector(".scrim, .pop-scrim, .menu-scrim, .settings, .modal")) { app = null; return; }
     const p = e.touches[0]!;
     start = { x: p.clientX, y: p.clientY, t: Date.now(), view: app.dataset.view ?? "nav" };
+    startEl = t;
   }, { passive: true });
 
   addEventListener("touchmove", (e) => {
@@ -54,14 +84,19 @@ export function installGestures() {
       if (start.view === "chat" && x > 0) {
         mode = "drawer";
         main = app.querySelector<HTMLElement>(".main");
-        app.classList.add("swiping"); // the channel list shows underneath
       } else if (x < 0) mode = "left";
       else { start = null; return; }
     }
+    // A sideways swipe owns the touch from here on: the list underneath stops scrolling up and down with it (the chat
+    // wobbled while sliding). Done by holding that list still, not by blocking the touch: a listener that may block
+    // touches makes Android wait for Mustela before every scroll step, which made all scrolling less smooth.
+    if (!frozen) freeze();
     if (mode === "drawer" && main) {
       dx = Math.max(0, x);
+      // A short swipe doesn't move the chat at all: it only starts sliding once the swipe is long enough to mean it,
+      // then follows the finger from there.
       main.style.transition = "none";
-      main.style.transform = `translateX(${dx / zoomNow()}px)`; // finger movement in the app's own (zoomed) pixels
+      if (!raf) raf = requestAnimationFrame(draw);
     } else dx = x;
   }, { passive: true });
 
@@ -70,11 +105,14 @@ export function installGestures() {
     const fast = Math.abs(dx) / Math.max(1, Date.now() - start.t) > 0.5; // a flick counts even if short
     const w = innerWidth;
     if (mode === "drawer" && main) {
-      const go = dx > w * 0.25 || (fast && dx > 40);
+      const go = dx - DEAD > w * 0.22 || (fast && dx > DEAD + 24);
       const m = main, a = app;
-      m.style.transition = "transform .18s ease-out";
+      cancelAnimationFrame(raf); raf = 0;
+      m.style.transition = "transform .2s cubic-bezier(.2, .8, .2, 1)";
       m.style.transform = go ? `translateX(${w / zoomNow()}px)` : "translateX(0)";
-      start = null; mode = null; main = null; app = null; dx = 0;
+      if (a) { a.style.setProperty("--swipe-t", ".2s"); a.style.setProperty("--swipe", go ? "1" : "0"); }
+      if (frozen) { frozen.style.overflowY = ""; frozen = null; }
+      start = null; mode = null; main = null; app = null; dx = 0; startEl = null;
       setTimeout(() => {
         // The list is already on screen under the chat you swiped away: switching to it must not play its
         // "slide in" again (it jumped left, faded and slid back). .settling holds the animations off for the switch.
@@ -82,7 +120,7 @@ export function installGestures() {
         if (go && a) { a.classList.add("swiped"); untilViewChanges(a); }
         if (go) backToList();
         m.style.transition = ""; m.style.transform = "";
-        a?.classList.remove("swiping");
+        a?.classList.remove("swiping"); a?.style.removeProperty("--swipe"); a?.style.removeProperty("--swipe-t");
       }, 190);
       return;
     }

@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { badgeNum } from "./badge";
 import { MOBILE_UI } from "./target";
 import type { ServerFolder, Space } from "../lib/backend/types";
 import { Icon } from "./icons";
@@ -159,24 +160,30 @@ export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: stri
   const mentions = (s: Space) => s.channels.reduce((n, c) => n + (c.mentions ?? 0), 0);
   const zone = (e: DragEvent): "before" | "into" => (e.offsetY < (e.currentTarget as HTMLElement).clientHeight * 0.28 ? "before" : "into");
 
+  let dragAt = 0, dropped = false;
   const Orb = (op: { s: Space; inFolder?: boolean }) => (
     <button class="orb" classList={{ on: props.current === op.s.id, unread: unread(op.s) && props.current !== op.s.id, "drop-before": drop()?.id === op.s.id && drop()?.mode === "before", "drop-into": drop()?.id === op.s.id && drop()?.mode === "into" && !op.inFolder }}
       title={op.s.name} aria-label={op.s.name} aria-current={props.current === op.s.id ? "true" : undefined} draggable={canDrag()}
-      onDragStart={(e) => { e.dataTransfer!.setData(MIME, op.s.id); e.dataTransfer!.effectAllowed = "move"; setDragging(op.s.id); }}
-      onDragEnd={() => { setDragging(null); setDrop(null); }}
+      onDragStart={(e) => { e.dataTransfer!.setData(MIME, op.s.id); e.dataTransfer!.effectAllowed = "move"; setDragging(op.s.id); dragAt = Date.now(); dropped = false; }}
+      // A click where the mouse moved a pixel or two starts a drag instead (no click follows), which made switching
+      // servers need a second click. A "drag" let go quickly without landing anywhere is the click it was meant to be.
+      onDragEnd={() => { setDragging(null); setDrop(null); if (!dropped && Date.now() - dragAt < 350) props.onOpen(op.s.id); }}
       onDragOver={(e) => { if (!e.dataTransfer?.types.includes(MIME) || dragging() === op.s.id) return; e.preventDefault(); setDrop({ id: op.s.id, mode: op.inFolder || dragging()?.startsWith("folder-") ? "before" : zone(e) }); }}
       onDragLeave={() => drop()?.id === op.s.id && setDrop(null)}
       onDrop={(e) => {
         const from = e.dataTransfer?.getData(MIME), d = drop(); setDrop(null);
-        if (!from || !d) return; e.preventDefault();
+        if (!from || !d) return; e.preventDefault(); dropped = true;
         void (from.startsWith("folder-") ? moveFolder(from, op.s.id) : onDrop(from, d));
       }}
       onClick={() => props.onOpen(op.s.id)} onContextMenu={(e) => serverRightClick(e, op.s)}>
       <Show when={op.s.iconUrl} fallback={<span>{initials(op.s.name)}</span>}><img src={op.s.iconUrl} alt="" /></Show>
-      <Show when={mentions(op.s)}><span class="badge orb-badge">{mentions(op.s)}</span></Show>
       <Show when={op.s.channels.some((c) => c.voice?.length)}>
-        <i class="orb-voice" classList={{ live: op.s.channels.some((c) => c.voice?.some((v) => v.screen)) }} title="People are in voice"><Icon name="speaker" size={11} /></i>
+        {/* Someone sharing their screen: a screen instead of the speaker (same green). */}
+        <i class="orb-voice" title={op.s.channels.some((c) => c.voice?.some((v) => v.screen)) ? "Someone is sharing their screen" : "People are in voice"}>
+          <Icon name={op.s.channels.some((c) => c.voice?.some((v) => v.screen)) ? "screen" : "speaker"} size={11} />
+        </i>
       </Show>
+      <Show when={mentions(op.s)}><span class="badge orb-badge">{badgeNum(mentions(op.s))}</span></Show>
     </button>
   );
 
@@ -199,7 +206,7 @@ export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: stri
                 onDragLeave={() => drop()?.id === f().id && setDrop(null)}
                 onDrop={(e) => {
                   const from = e.dataTransfer?.getData(MIME), d = drop(); setDrop(null);
-                  if (!from || !d) return; e.preventDefault();
+                  if (!from || !d) return; e.preventDefault(); dropped = true;
                   void (from.startsWith("folder-") ? moveFolder(from, f().id) : d.mode === "into" ? onDrop(from, d) : (async () => {
                     // Before a folder: lift the server out and put it there.
                     const { folders, top } = lift(state().folders, state().top, from);
@@ -212,7 +219,7 @@ export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: stri
                     <For each={list().slice(0, 4)}>{(s) => <span class="fg-cell"><Show when={s.iconUrl} fallback={initials(s.name).slice(0, 2)}><img src={s.iconUrl} alt="" /></Show></span>}</For>
                   </span>
                 }><Icon name="folder" size={22} /></Show>
-                <Show when={!open() && n()}><span class="badge orb-badge">{n()}</span></Show>
+                <Show when={!open() && n()}><span class="badge orb-badge">{badgeNum(n())}</span></Show>
               </button>
               <Show when={open()}><For each={list()}>{(s) => <Orb s={s} inFolder />}</For></Show>
             </div>

@@ -22,7 +22,7 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn call_audio(&self, _: SetMic) -> Result<()> { Ok(()) }
   pub fn landscape(&self, _: SetMic) -> Result<()> { Ok(()) }
   pub fn system_bars(&self, _: SetMic) -> Result<()> { Ok(()) }
-  pub fn media_file(&self, _: MediaFile) -> Result<()> { Ok(()) }
+  pub fn media_file(&self, _: MediaFile) -> Result<serde_json::Value> { Ok(serde_json::Value::Null) }
   pub fn install_apk(&self, _: InstallApk) -> Result<()> { Ok(()) }
   pub fn audio_outputs(&self) -> Result<AudioOutputs> { Ok(AudioOutputs::default()) }
   pub fn set_audio_output(&self, _: SetOutput) -> Result<()> { Ok(()) }
@@ -35,4 +35,10 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn watch(&self, _: Watch) -> Result<()> { Ok(()) }
   pub fn watch_alive(&self, _: WatchAlive) -> Result<()> { Ok(()) }
   pub fn watch_clear(&self, _: WatchClear) -> Result<()> { Ok(()) }
+  pub fn notify_message(&self, _: NotifyMessage) -> Result<()> { Ok(()) }
+  pub fn recent_photos(&self, _: RecentPhotos) -> Result<serde_json::Value> { Ok(serde_json::json!({ "allowed": false, "items": [] })) }
+  pub fn request_photos(&self) -> Result<()> { Ok(()) }
+  pub fn photo_file(&self, _: PhotoFile) -> Result<serde_json::Value> { Ok(serde_json::Value::Null) }
+  pub fn take_media(&self, _: TakeMedia) -> Result<serde_json::Value> { Ok(serde_json::json!({ "cancelled": true })) }
+  pub fn pending_media(&self) -> Result<serde_json::Value> { Ok(serde_json::json!({})) }
 }

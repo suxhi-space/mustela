@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, type Accessor } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type Accessor, type JSX } from "solid-js";
 import { openMenu, toast } from "../menu";
 import { holdToOpen, markHeld } from "../hold";
 import { quickTimes, schedule, scheduled, sendNow, unschedule } from "../schedule";
@@ -9,7 +9,8 @@ import { plain } from "../../lib/markdown";
 import { Avatar, NameText } from "../Avatar";
 import { getDraft, getFiles, setDraft, setFiles, type PendingFile } from "../drafts";
 import { Icon } from "../icons";
-import { backend } from "../store";
+import { backend, platform } from "../store";
+import { inTauri } from "../../lib/platform";
 import { createEditor, type ChipLookup, type EditorApi } from "./Editor";
 import { completionToken } from "./complete";
 import { FormatBar, formatKey } from "./FormatBar";
@@ -19,6 +20,7 @@ import { createPhone } from "../hooks";
 import { Portal } from "solid-js/web";
 import { dragToClose } from "../sheetDrag";
 import { useBack } from "../back";
+import { Switch } from "../controls";
 import { formatTime } from "../../lib/markdown";
 
 const MAX_FILES = 5;
@@ -81,6 +83,8 @@ export function Composer(props: {
   onIncomingTaken?(): void;
   /** Sends a GIF link straight away, like Stoat */
   sendGif?(url: string): Promise<void>;
+  /** Shown stuck to the top of the message box (the "viewing older messages" bar, or the arrow on phones) */
+  above?: JSX.Element;
 }) {
   const [text, setText] = createSignal("");
   const [files, setFilesSig] = createSignal<PendingFile[]>([]);
@@ -188,6 +192,34 @@ export function Composer(props: {
     setSel(0);
   }
 
+  /* ---------- the camera (Android: the phone's own camera app, saved only in Mustela's cache, see Camera.kt) ---------- */
+  const nativeCamera = () => platform === "android" && inTauri();
+  async function takeCamera(video: boolean, again = false) {
+    const channel = cid();
+    // Remembered in case Android closes Mustela while the camera is open: it reopens this chat and attaches it then.
+    try { localStorage.setItem(CAPTURE_KEY, JSON.stringify({ channel, at: Date.now() })); } catch { /* storage off */ }
+    const { invoke } = await import("@tauri-apps/api/core");
+    const r = await invoke<NativeFile & { cancelled?: boolean; permission?: boolean }>("plugin:mustela-native|take_media", { payload: { video } })
+      .catch((e) => { toast((e as Error)?.message || String(e) || "Couldn't open the camera.", true); return null; });
+    if (r?.permission === false) {
+      // Android asked for the camera: once you've answered, try again (once).
+      if (!again && (await answered())) return takeCamera(video, true);
+      try { localStorage.removeItem(CAPTURE_KEY); } catch { /* fine */ }
+      toast("Mustela needs the camera for this. Allow it in Android's settings for Mustela.", true);
+      return;
+    }
+    try { localStorage.removeItem(CAPTURE_KEY); } catch { /* fine */ }
+    if (r?.data && cid() === channel) addFiles([nativeFile(r)]);
+  }
+  // Mustela was closed while the camera was open, and has just opened this chat again: pick up what was taken.
+  onMount(() => {
+    if (!nativeCamera()) return;
+    const c = pendingCapture();
+    if (!c || c.channel !== cid()) return;
+    try { localStorage.removeItem(CAPTURE_KEY); } catch { /* fine */ }
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke<NativeFile>("plugin:mustela-native|pending_media")).then((r) => { if (r?.data && cid() === c.channel) addFiles([nativeFile(r)]); }).catch(() => {});
+  });
+
   /* ---------- files ---------- */
   function addFiles(list: FileList | File[] | null | undefined) {
     if (!list) return;
@@ -211,6 +243,8 @@ export function Composer(props: {
   }
   const dropFile = (id: number) => { const p = files().find((x) => x.id === id); if (p?.thumb) URL.revokeObjectURL(p.thumb); setFiles2(files().filter((x) => x.id !== id)); };
   const toggleSpoiler = (id: number) => setFiles2(files().map((x) => (x.id === id ? { ...x, spoiler: !x.spoiler } : x)));
+  /** Phones and tablets: the attached file whose card is open (preview, spoiler, remove). */
+  const [fileCard, setFileCard] = createSignal<number | null>(null);
   createEffect(on(() => props.incoming?.(), (f) => { if (f?.length) { addFiles(f); props.onIncomingTaken?.(); } }));
 
   /* ---------- per-channel drafts ---------- */
@@ -340,17 +374,36 @@ export function Composer(props: {
     active = ed;
     onCleanup(() => { if (active === ed) active = undefined; ed?.destroy(); ed = undefined; });
   });
+  // The box scrolls only once the text really reaches its line cap. Below that it can't scroll at all: on phones and
+  // some computers a line came out a fraction of a pixel taller than the box, so a single line could be scrolled (and
+  // Windows drew a scroll bar beside it).
+  onMount(() => {
+    const content = () => host.querySelector<HTMLElement>(".cm-content");
+    const fit = () => {
+      const c = content();
+      host.classList.toggle("scrolls", !!c && c.getBoundingClientRect().height > host.clientHeight + 3);
+      // One line of text: the buttons sit on its middle, whatever the text size. More lines: they stay at the bottom.
+      const lh = c ? parseFloat(getComputedStyle(c).lineHeight) || 0 : 0;
+      const pad = c ? parseFloat(getComputedStyle(c).paddingTop) + parseFloat(getComputedStyle(c).paddingBottom) : 0;
+      host.closest(".composer")?.classList.toggle("multi", !!c && lh > 0 && c.getBoundingClientRect().height - pad > lh * 1.5);
+    };
+    const ro = new ResizeObserver(fit);
+    // The editor is built again when you switch chats; follow its new content.
+    const watch = () => { ro.disconnect(); ro.observe(host); const c = content(); if (c) ro.observe(c); };
+    const mo = new MutationObserver(watch);
+    mo.observe(host, { childList: true });
+    watch();
+    const hold = () => { if (!host.classList.contains("scrolls") && host.scrollTop) host.scrollTop = 0; };
+    host.addEventListener("scroll", hold, { passive: true });
+    onCleanup(() => { ro.disconnect(); mo.disconnect(); host.removeEventListener("scroll", hold); });
+  });
   // Names for chips arrive after the member list loads.
   createEffect(on(() => props.people().length, () => ed?.refresh(), { defer: true }));
   createEffect(on(placeholder, (p) => ed?.setPlaceholder(p), { defer: true }));
 
   return (
     <div class="composer-wrap" ref={wrap} classList={{ "fmt-open": !items().length && !!selection() }}>
-      <Show when={scheduled(cid()).length}>
-        <button type="button" class="sched-chip" onClick={(e) => scheduledMenu(e.currentTarget)}>
-          <Icon name="clock" size={14} />{scheduled(cid()).length === 1 ? "1 scheduled message" : `${scheduled(cid()).length} scheduled messages`}
-        </button>
-      </Show>
+      {props.above}
       <Show when={pickTime()}>
         <div class="scrim" onClick={(e) => e.target === e.currentTarget && setPickTime(false)}>
           <form class="modal panel sched-dialog" role="dialog" aria-label="Schedule message" onSubmit={(e) => { e.preventDefault(); const v = (e.currentTarget.elements.namedItem("when") as HTMLInputElement).value; const at = v ? new Date(v).getTime() : NaN; if (at > Date.now()) { setPickTime(false); scheduleAt(at); } }}>
@@ -409,12 +462,19 @@ export function Composer(props: {
       <Show when={files().length}>
         <div class="pending-files">
           <For each={files()}>{(p) => (
-            <div class="pf panel-inset" classList={{ "pf-spoiled": p.spoiler }}>
+            <div class="pf panel-inset" classList={{ "pf-spoiled": p.spoiler, "pf-tap": MOBILE_UI }}
+              role={MOBILE_UI ? "button" : undefined} tabIndex={MOBILE_UI ? 0 : undefined} aria-label={MOBILE_UI ? `${p.file.name.replace(/^SPOILER_/, "")}: preview, spoiler or remove` : undefined}
+              onClick={() => { if (MOBILE_UI && !busy()) setFileCard(p.id); }}>
               <Show when={p.thumb} fallback={<Icon name="file" size={26} />}>
                 <img src={p.thumb} alt="" decoding="async" />
               </Show>
               <span class="pf-name">{p.file.name.replace(/^SPOILER_/, "")}</span>
-              <Show when={!busy()}>
+              {/* Phones and tablets: tap the tile for a card (preview, spoiler, remove); the X removes it straight away. */}
+              <Show when={!busy() && MOBILE_UI}>
+                <button type="button" class="pf-x" aria-label={`Remove ${p.file.name}`} onClick={(e) => { e.stopPropagation(); dropFile(p.id); }}><Icon name="close" size={14} /></button>
+              </Show>
+              {/* Computers: small buttons on the tile. */}
+              <Show when={!busy() && !MOBILE_UI}>
                 <div class="pf-tools">
                   <button class="icon-btn" classList={{ on: p.spoiler }} aria-pressed={p.spoiler} aria-label={p.spoiler ? "Don't send as a spoiler" : "Send as a spoiler"} title={p.spoiler ? "Spoiler on" : "Mark as spoiler"} onClick={() => toggleSpoiler(p.id)}><Icon name={p.spoiler ? "eye-off" : "eye"} size={14} /></button>
                   <button class="icon-btn" aria-label={`Remove ${p.file.name}`} title="Remove" onClick={() => dropFile(p.id)}><Icon name="close" size={14} /></button>
@@ -425,15 +485,15 @@ export function Composer(props: {
           )}</For>
         </div>
       </Show>
+      <Show when={fileCard() !== null && files().find((x) => x.id === fileCard())}>{(p) => (
+        <FileCard file={p()} onClose={() => setFileCard(null)} onSpoiler={() => toggleSpoiler(p().id)} onRemove={() => { dropFile(p().id); setFileCard(null); }} />
+      )}</Show>
       <Show when={progress() !== null}>
         <div class="upload-bar" role="progressbar" aria-label="Uploading" aria-valuenow={Math.round((progress() ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100}>
           <span style={{ width: `${Math.round((progress() ?? 0) * 100)}%` }} /><small>Uploading… {Math.round((progress() ?? 0) * 100)}%</small>
         </div>
       </Show>
       <Show when={err()}><p class="err composer-err" role="alert">{err()}</p></Show>
-      <Show when={rules().slowmode && rules().canSend}>
-        <div class="slow-chip" role="status"><Icon name="info" size={13} />{wait() > 0 ? `Slowmode: you can send again in ${wait()}s` : `Slowmode is on: one message every ${rules().slowmode}s`}</div>
-      </Show>
       <form class="composer" classList={{ locked: !rules().canSend }} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <Show when={rules().canSend && rules().canUpload}>
           <button type="button" class="icon-btn" aria-label="Attach files" title="Attach files" onClick={(e) => (MOBILE_UI ? attachSheet(e.currentTarget) : fileInput.click())}><Icon name="plus-circle" size={22} /></button>
@@ -446,9 +506,9 @@ export function Composer(props: {
           <input ref={videoInput} type="file" accept="video/*" capture="environment" hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
           <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }} />
           <Show when={attachOpen()}>
-            <AttachCard onClose={() => setAttachOpen(false)} big={[
-              { label: "Camera", icon: "camera", run: attachPick(() => photoInput.click()) },
-              { label: "Video", icon: "video", run: attachPick(() => videoInput.click()) },
+            <AttachCard onClose={() => setAttachOpen(false)} onFiles={(f) => addFiles(f)} big={[
+              { label: "Camera", icon: "camera", run: attachPick(() => (nativeCamera() ? void takeCamera(false) : photoInput.click())) },
+              { label: "Video", icon: "video", run: attachPick(() => (nativeCamera() ? void takeCamera(true) : videoInput.click())) },
               { label: "Photos", icon: "image", run: attachPick(() => mediaInput.click()) },
             ]} small={[
               { label: "Files", icon: "file", run: attachPick(() => fileInput.click()) },
@@ -470,7 +530,7 @@ export function Composer(props: {
             <button type="button" class="icon-btn" aria-label={phone() ? "Emoji and GIFs" : "Emoji"} title="Emoji" onClick={(e) => {
               if (phone()) (document.activeElement as HTMLElement | null)?.blur?.(); // the card takes the keyboard's place
               // Tablets: the keyboard comes back with the emoji; phones keep the card open for more instead.
-              openEmojiPicker(e.currentTarget, ({ text: x }) => { ed?.insertAtCaret(x); if (MOBILE_UI && !phone()) ed?.focus(); }, { ...(props.sendGif ? { gif: (url: string) => void props.sendGif!(url) } : {}), stay: phone() });
+              openEmojiPicker(e.currentTarget, ({ text: x }) => { ed?.insertAtCaret(x); if (MOBILE_UI && !phone()) ed?.focus(); }, { ...(props.sendGif ? { gif: (url: string) => void props.sendGif!(url) } : {}), stay: phone(), ...(phone() ? { back: () => ed?.deleteBack() } : {}) });
             }}><Icon name="smile" size={22} /></button>
           }>
             <button type="button" class="icon-btn" aria-label="Keyboard" title="Keyboard" onClick={() => { closeExpr(); ed?.focus(); }}><Icon name="keyboard" size={22} /></button>
@@ -487,6 +547,20 @@ export function Composer(props: {
           </Show>
         </Show>
       </form>
+      {/* Under the box, like Discord's (above it they came between the box and the "viewing older messages" bar). */}
+      <Show when={scheduled(cid()).length || (rules().slowmode && rules().canSend)}>
+        <div class="composer-notes">
+          <Show when={scheduled(cid()).length}>
+            <button type="button" class="sched-chip" onClick={(e) => scheduledMenu(e.currentTarget)}>
+              <Icon name="clock" size={14} />{scheduled(cid()).length === 1 ? "1 scheduled message" : `${scheduled(cid()).length} scheduled messages`}
+            </button>
+          </Show>
+          <span class="grow" />
+          <Show when={rules().slowmode && rules().canSend}>
+            <div class="slow-chip" role="status"><Icon name="clock" size={13} />{wait() > 0 ? `Slowmode: ${wait()}s` : `Slowmode: one message every ${rules().slowmode}s`}</div>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }
@@ -495,12 +569,12 @@ export function Composer(props: {
  * Phones and tablets: the + button's card, like Discord's. Big tiles for the camera, a video and your photos (Android's
  * own photo picker), and buttons for any file or a timestamp. Swipe it down or tap outside to close.
  */
-function AttachCard(props: { onClose(): void; big: { label: string; icon: string; run(): void }[]; small: { label: string; icon: string; run(): void }[] }) {
+function AttachCard(props: { onClose(): void; onFiles?(files: File[]): void; big: { label: string; icon: string; run(): void }[]; small: { label: string; icon: string; run(): void }[] }) {
   useBack(props.onClose);
   return (
     <Portal>
       <div class="pop-scrim att-scrim" onClick={props.onClose}>
-        <div class="att-card panel" role="dialog" aria-label="Add to your message" ref={(el) => onMount(() => dragToClose(el, props.onClose))} onClick={(e) => e.stopPropagation()}>
+        <div class="att-card panel" role="dialog" aria-label="Add to your message" ref={(el) => onMount(() => dragToClose(el, props.onClose, { half: true }))} onClick={(e) => e.stopPropagation()}>
           <span class="att-handle" aria-hidden="true" />
           <div class="att-big">
             <For each={props.big}>{(x) => <button type="button" onClick={x.run}><Icon name={x.icon} size={30} /><span>{x.label}</span></button>}</For>
@@ -508,8 +582,267 @@ function AttachCard(props: { onClose(): void; big: { label: string; icon: string
           <div class="att-small">
             <For each={props.small}>{(x) => <button type="button" onClick={x.run}><Icon name={x.icon} size={22} /><span>{x.label}</span></button>}</For>
           </div>
+          <Show when={props.onFiles && platform === "android" && inTauri()}><RecentPhotos onPick={(fs) => { props.onClose(); props.onFiles!(fs); }} /></Show>
         </div>
       </div>
     </Portal>
+  );
+}
+
+/** An attached file before sending, on phones and tablets: a big look at it, Mark as spoiler, and Remove (like Discord's). */
+function FileCard(props: { file: PendingFile; onClose(): void; onSpoiler(): void; onRemove(): void }) {
+  useBack(props.onClose);
+  const f = () => props.file.file;
+  const name = () => f().name.replace(/^SPOILER_/, "");
+  const video = () => f().type.startsWith("video/");
+  // The picture or video itself at full quality (not the small thumbnail on the tile), while the card is open.
+  const own = f().type.startsWith("image/") || video() ? URL.createObjectURL(f()) : null;
+  onCleanup(() => { if (own) URL.revokeObjectURL(own); });
+  const src = () => own;
+  const size = () => { const b = f().size; return b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`; };
+  return (
+    <Portal>
+      <div class="pop-scrim att-scrim" onClick={props.onClose}>
+        {/* Opens tall enough to show everything (the spoiler switch and Remove included), not halfway */}
+        <div class="att-card panel file-card" role="dialog" aria-label={name()} ref={(el) => onMount(() => dragToClose(el, props.onClose))} onClick={(e) => e.stopPropagation()}>
+          <span class="att-handle" aria-hidden="true" />
+          <h3 class="fc-name">{name()}</h3>
+          <div class="fc-preview" classList={{ "fc-spoiled": props.file.spoiler }}>
+            <Show when={src()} fallback={<div class="fc-file"><Icon name="file" size={44} /><small>{size()}</small></div>}>
+              <Show when={video()} fallback={<img src={src()!} alt="" />}><video src={src()!} controls playsinline muted /></Show>
+            </Show>
+            <Show when={props.file.spoiler}><span class="fc-tag">Spoiler</span></Show>
+          </div>
+          <div class="fc-rows">
+            <label class="fc-row"><Icon name="eye-off" size={22} /><span>Mark as spoiler</span><span class="grow" />
+              <Switch on={props.file.spoiler} onChange={props.onSpoiler} label="Mark as spoiler" /></label>
+          </div>
+          <button type="button" class="btn danger-fill fc-remove" onClick={props.onRemove}><Icon name="trash" size={18} />Remove file</button>
+        </div>
+      </div>
+    </Portal>
+  );
+}
+
+/** What Android hands back for a photo or video: the file as base64. */
+type NativeFile = { data?: string; mime?: string; name?: string };
+const nativeFile = (r: NativeFile) => {
+  const bin = atob(r.data!), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], r.name ?? "photo.jpg", { type: r.mime ?? "image/jpeg" });
+};
+/** A photo or video being taken for this chat (kept so it survives Android closing Mustela meanwhile). */
+export const CAPTURE_KEY = "mustela:capture";
+export function pendingCapture(): { channel: string; at: number } | null {
+  try {
+    const c = JSON.parse(localStorage.getItem(CAPTURE_KEY) ?? "null") as { channel?: string; at?: number } | null;
+    return c?.channel && c.at && Date.now() - c.at < 30 * 60_000 ? { channel: c.channel, at: c.at } : null;
+  } catch { return null; }
+}
+/** Android's permission prompt answered: the window gets its focus back (or 20 seconds pass). */
+function answered(): Promise<boolean> {
+  return new Promise((resolve) => {
+    let lost = !document.hasFocus();
+    const blur = () => { lost = true; };
+    const focus = () => { if (lost) done(true); };
+    const t = setTimeout(() => done(false), 20_000);
+    const done = (v: boolean) => { clearTimeout(t); removeEventListener("blur", blur); removeEventListener("focus", focus); resolve(v); };
+    addEventListener("blur", blur); addEventListener("focus", focus);
+  });
+}
+
+type Recent = { uri: string; thumb: string; mime: string; name: string; video: boolean; date?: number };
+
+/** Day headings like a gallery app's: Today, Yesterday, Nov 6, and the year once it isn't this one. */
+function dayLabel(ms: number) {
+  const d = new Date(ms), now = new Date();
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86_400_000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+}
+const monthLabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+const VIEW_KEY = "mustela:att-view";
+/**
+ * Android: your newest photos and videos right in the + card, like Discord's. Thumbnails only until you tap one;
+ * then that file is read and attached. Without access yet, one tap asks for it (on Android 14+ you can allow just
+ * the photos you choose).
+ */
+function RecentPhotos(props: { onPick(fs: File[]): void }) {
+  const call = <T,>(cmd: string, payload?: unknown) => import("@tauri-apps/api/core").then(({ invoke }) => invoke<T>(`plugin:mustela-native|${cmd}`, payload === undefined ? {} : { payload }));
+  type Page = { allowed: boolean; items: Recent[]; next?: number };
+  const [data, { refetch }] = createResource(() => call<Page>("recent_photos", { limit: 30 }).catch(() => null));
+  // More as you scroll: the whole card scrolls (buttons and photos together) and the next photos load near its end.
+  const [more, setMore] = createSignal<Recent[]>([]);
+  let next: number | undefined, loading = false;
+  createEffect(on(data, (d) => { setMore([]); next = d?.next; }));
+  const loadMore = async () => {
+    if (loading || next === undefined || more().length >= 300) return;
+    loading = true;
+    const p = await call<Page>("recent_photos", { limit: 30, offset: next }).catch(() => null);
+    loading = false;
+    next = p?.next;
+    if (p?.items.length) setMore((m) => [...m, ...p.items]);
+  };
+  const items = () => [...(data()?.items ?? []), ...more()];
+  let grid: HTMLDivElement | undefined;
+  let card: HTMLElement | null = null;
+  const near = () => { if (card && card.scrollHeight - card.scrollTop - card.clientHeight < 400) void loadMore(); };
+  onMount(() => requestAnimationFrame(() => {
+    card = grid?.closest<HTMLElement>(".att-card") ?? document.querySelector<HTMLElement>(".att-card");
+    card?.addEventListener("scroll", near, { passive: true });
+  }));
+  onCleanup(() => card?.removeEventListener("scroll", near));
+  const [busy, setBusy] = createSignal<string | null>(null);
+  /** Photos ticked so far, in the order you tapped them (up to 5: what one message can carry). */
+  const [picked, setPicked] = createSignal<string[]>([]);
+  const toggle = (r: Recent) => {
+    const now = picked();
+    if (now.includes(r.uri)) { setPicked(now.filter((u) => u !== r.uri)); return; }
+    if (now.length >= MAX_FILES) { toast(`You can add up to ${MAX_FILES} at a time.`); return; }
+    setPicked([...now, r.uri]); navigator.vibrate?.(6);
+  };
+  // Back from Android's permission prompt: look again.
+  const again = () => void refetch();
+  addEventListener("focus", again); document.addEventListener("visibilitychange", again);
+  onCleanup(() => { removeEventListener("focus", again); document.removeEventListener("visibilitychange", again); });
+  /** Reads the ticked photos (only now: the grid only ever had thumbnails) and adds them to the message together. */
+  const add = async () => {
+    if (busy() || !picked().length) return;
+    setBusy("add");
+    const out: File[] = [];
+    let failed = 0;
+    for (const uri of picked()) {
+      try {
+        const f = await call<{ data: string; mime: string; name: string }>("photo_file", { uri });
+        const bin = atob(f.data), bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        out.push(new File([bytes], f.name, { type: f.mime }));
+      } catch { failed++; }
+    }
+    setBusy(null);
+    if (failed) toast(failed === 1 ? "Couldn't open one of them. It may be too big (25 MB at most)." : `Couldn't open ${failed} of them. They may be too big (25 MB at most).`, true);
+    if (out.length) props.onPick(out);
+  };
+  // Grid, or grouped by day like a gallery app (remembered on this device).
+  const [byDate, setByDate] = createSignal((() => { try { return localStorage.getItem(VIEW_KEY) === "date"; } catch { return false; } })());
+  const setView = (v: boolean) => { setByDate(v); try { localStorage.setItem(VIEW_KEY, v ? "date" : "grid"); } catch { /* just this time */ } };
+  const days = createMemo(() => {
+    const out: { label: string; items: Recent[] }[] = [];
+    for (const r of items()) {
+      const label = r.date ? dayLabel(r.date) : "Earlier";
+      const last = out[out.length - 1];
+      if (last?.label === label) last.items.push(r); else out.push({ label, items: [r] });
+    }
+    return out;
+  });
+  const tile = (r: Recent) => {
+    const n = () => picked().indexOf(r.uri) + 1;
+    return (
+      <button type="button" role="listitem" class="att-photo" classList={{ on: n() > 0 }} data-date={r.date} aria-pressed={n() > 0}
+        aria-label={r.video ? `Video ${r.name}` : `Photo ${r.name}`} onClick={() => toggle(r)}>
+        <img src={r.thumb} alt="" loading="lazy" />
+        <Show when={r.video}><span class="att-vid"><Icon name="play" size={14} /></span></Show>
+        {/* Ticked: its number in the order you picked them, like a gallery app's */}
+        <Show when={n() > 0}><span class="att-tick" aria-hidden="true">{n()}</span></Show>
+      </button>
+    );
+  };
+
+  /*
+   * A scroll handle on the right, like a gallery app's: it shows while you scroll; hold it and drag to move through
+   * your photos quickly, with the month you're at beside it.
+   */
+  const TH = 46;
+  const [bar, setBar] = createSignal<{ top: number; label: string } | null>(null);
+  const [barOn, setBarOn] = createSignal(false);
+  const [dragging, setDragging] = createSignal(false);
+  let hideT: ReturnType<typeof setTimeout> | undefined, raf = 0;
+  // The handle's track runs beside the photos: from the "Recent" heading down (it only reaches the card's top once
+  // the buttons above have scrolled away), never over the Camera / Video / Photos buttons.
+  let head: HTMLDivElement | undefined;
+  const track = () => {
+    const r = card!.getBoundingClientRect();
+    const top = Math.max(Math.max(r.top, 0) + 20, head?.getBoundingClientRect().top ?? 0);
+    return { top, h: Math.max(40, r.bottom - 24 - top - TH), r };
+  };
+  const monthNow = () => {
+    if (!card) return "";
+    // The first photo showing at the top of the card.
+    const edge = Math.max(card.getBoundingClientRect().top, 0) + 40;
+    const el = [...card.querySelectorAll<HTMLElement>(".att-photo")].find((x) => x.getBoundingClientRect().bottom > edge);
+    const ms = Number(el?.dataset.date);
+    return ms ? monthLabel(ms) : "";
+  };
+  const place = () => {
+    raf = 0;
+    if (!card) return;
+    const max = card.scrollHeight - card.clientHeight;
+    if (max < 300 || items().length < 24) { setBar(null); return; }
+    const t = track();
+    setBar({ top: t.top + (card.scrollTop / max) * t.h, label: monthNow() });
+  };
+  const onScroll = () => {
+    if (!raf) raf = requestAnimationFrame(place);
+    setBarOn(true); clearTimeout(hideT);
+    hideT = setTimeout(() => { if (!dragging()) setBarOn(false); }, 1400);
+  };
+  onMount(() => requestAnimationFrame(() => card?.addEventListener("scroll", onScroll, { passive: true })));
+  onCleanup(() => { card?.removeEventListener("scroll", onScroll); clearTimeout(hideT); cancelAnimationFrame(raf); });
+  let grab = 0;
+  const dragTo = (y: number) => {
+    if (!card) return;
+    const t = track(), max = card.scrollHeight - card.clientHeight;
+    card.scrollTop = Math.max(0, Math.min(1, (y - grab - t.top) / t.h)) * max;
+  };
+
+  return (
+    <Show when={data()}>{(d) => (
+      <Show when={d().allowed} fallback={
+        <div class="att-allow"><Icon name="image" size={20} /><span>Show your recent photos here</span>
+          <button type="button" class="btn small primary" onClick={() => void call("request_photos")}>Allow</button></div>
+      }>
+        <div class="att-photos-head" ref={head}>
+          <span>Recent</span>
+          <div class="seg att-view" role="radiogroup" aria-label="Show photos">
+            <button type="button" role="radio" aria-checked={!byDate()} classList={{ on: !byDate() }} onClick={() => setView(false)}><Icon name="image" size={15} />All</button>
+            <button type="button" role="radio" aria-checked={byDate()} classList={{ on: byDate() }} onClick={() => setView(true)}><Icon name="calendar" size={15} />By date</button>
+          </div>
+        </div>
+        <Show when={byDate()} fallback={<div class="att-recent" role="list" aria-label="Recent photos" ref={grid}><For each={items()}>{tile}</For></div>}>
+          <div class="att-days" ref={grid}>
+            <For each={days()}>{(g) => (
+              <section class="att-day" aria-label={g.label}>
+                <h4>{g.label}</h4>
+                <div class="att-recent" role="list"><For each={g.items}>{tile}</For></div>
+              </section>
+            )}</For>
+          </div>
+        </Show>
+        {/* Ticked photos: one button adds them all (stays at the bottom of the card while you scroll) */}
+        <Show when={picked().length}>
+          <div class="att-add-row">
+            <button type="button" class="btn primary att-add" disabled={!!busy()} onClick={() => void add()}>
+              <Show when={busy()} fallback={<Icon name="send" size={18} />}><span class="spinner small" /></Show>
+              Add {picked().length}
+            </button>
+          </div>
+        </Show>
+        <Show when={bar()}>{(b) => (
+          <Portal>
+            <div class="att-scrub" classList={{ on: barOn() || dragging(), dragging: dragging() }} style={{ top: `${b().top}px`, height: `${TH}px` }}
+              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => { e.stopPropagation(); grab = e.clientY - b().top; setDragging(true); setBarOn(true); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); navigator.vibrate?.(8); }}
+              onPointerMove={(e) => { if (dragging()) dragTo(e.clientY); }}
+              onPointerUp={() => { setDragging(false); clearTimeout(hideT); hideT = setTimeout(() => setBarOn(false), 1400); }}
+              onPointerCancel={() => setDragging(false)}>
+              <Show when={dragging() && b().label}><span class="att-scrub-date">{b().label}</span></Show>
+              <span class="att-scrub-thumb" aria-hidden="true"><Icon name="up" size={12} /><Icon name="down" size={12} /></span>
+            </div>
+          </Portal>
+        )}</Show>
+      </Show>
+    )}</Show>
   );
 }

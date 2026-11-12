@@ -1,3 +1,4 @@
+import { startupMark } from "../../ui/perfLog";
 import { ulidBefore } from "../ulid";
 import type { ServerLooks } from "../profile/servers";
 import { Client } from "stoat.js";
@@ -7,7 +8,7 @@ import type { VoicePresence, AccountApi, BotRow, MfaProof,
 } from "./types";
 import { SEARCH_BATCH } from "./types";
 import { sanitizeProfile, type ProfileConfig } from "../profile/model";
-import { cachedBanner, forgetBanners, rememberBanner } from "../profile/cache";
+import { cachedBanner, forgetBanner, forgetBanners, rememberBanner } from "../profile/cache";
 import { packProfile, unpackProfile } from "../profile/pack";
 import { BANNER_HEIGHT, CANONICAL_HEIGHT, CANONICAL_WIDTH, decodeMarkerScaled, encodeMarker, markerHeight } from "../marker/codec";
 import { pullSettings, pushSettings, type MustelaSettings, type SyncApi } from "../sync/settings";
@@ -69,8 +70,16 @@ export function attachmentOf(f: any): Attachment {
   };
 }
 
-const GIF_ORIGINS = ["https://tenor.com", "https://giphy.com", "https://gifbox.me", "https://media.tenor.com", "https://media.giphy.com"];
-const isGifUrl = (u?: string) => { try { return !!u && GIF_ORIGINS.includes(new URL(u).origin); } catch { return false; } };
+/** GIF sites, with any of their media addresses (Tenor serves from media.tenor.com, media1.tenor.com, c.tenor.com…). */
+const GIF_SITES = /(^|\.)(tenor\.com|giphy\.com|gifbox\.me)$/i;
+/** A GIF link: from a GIF site, or a link straight to a .gif file (`file` for picture links only). */
+export const isGifUrl = (u?: string, file = false) => {
+  try {
+    if (!u) return false;
+    const x = new URL(u);
+    return x.protocol === "https:" && (GIF_SITES.test(x.hostname) || (file && /\.gif$/i.test(x.pathname)));
+  } catch { return false; }
+};
 
 /** Character codes some sites leave in their titles (&#x2019; and friends), as the characters. Text only. */
 export function unescapeHtml(s?: string): string | undefined {
@@ -94,7 +103,7 @@ export function embedOf(e: any): Embed | null {
         image: e.image ? { url: e.image.proxiedURL ?? e.image.url, width: e.image.width, height: e.image.height } : undefined,
         video: e.video ? { url: e.video.proxiedURL ?? e.video.url, width: e.video.width, height: e.video.height } : undefined,
       };
-    case "Image": return { kind: "image", gif: isGifUrl(e.url), url: e.url, image: { url: e.proxiedURL ?? e.url, width: e.width, height: e.height } };
+    case "Image": return { kind: "image", gif: isGifUrl(e.url, true), url: e.url, image: { url: e.proxiedURL ?? e.url, width: e.width, height: e.height } };
     case "Video": return { kind: "video", gif: isGifUrl(e.url), url: e.url, video: { url: e.proxiedURL ?? e.url, width: e.width, height: e.height } };
     case "Text":
       return {
@@ -234,21 +243,31 @@ export class StoatBackend implements ChatBackend {
   /** Opens the live connection for an existing session. Throws a friendly Error on failure. */
   static async open(baseURL: string | undefined, session: StoredSession): Promise<StoatBackend> {
     const base = normalizeBase(baseURL) ?? DEFAULT_API;
-    let config: any;
-    // A flaky network (or a laptop just waking up) gets a few tries before we give up.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        const r = await fetch(base + "/");
-        if (!r.ok) throw new Error();
-        config = await r.json();
-        break;
-      } catch {
+    // The server's info (where to connect, file server, features) barely ever changes: the copy from last time is
+    // used straight away and refreshed in the background, instead of a round trip before every start.
+    const configKey = `mustela:server-config:${base}`;
+    const fetchConfig = async () => {
+      const r = await fetch(base + "/");
+      if (!r.ok) throw new Error();
+      const c = await r.json();
+      try { localStorage.setItem(configKey, JSON.stringify(c)); } catch { /* fine */ }
+      return c;
+    };
+    let config: any = (() => { try { const c = JSON.parse(localStorage.getItem(configKey) ?? "null"); return c && typeof c === "object" && c.ws ? c : null; } catch { return null; } })();
+    if (config) void fetchConfig().catch(() => {});
+    // First time on this server: a flaky network (or a laptop just waking up) gets a few tries before we give up.
+    else for (let attempt = 0; ; attempt++) {
+      try { config = await fetchConfig(); break; }
+      catch {
         if (attempt >= 3) throw new Error("Couldn't reach the server. Check your connection.");
         await new Promise((res) => setTimeout(res, 800 * 2 ** attempt));
       }
     }
+    startupMark("server info");
     const client = new Client({ baseURL: base, autoReconnect: true, syncUnreads: true } as any, config);
     client.useExistingSession(session);
+    // Your notification and sidebar settings: asked for while the connection opens, not after it (one round trip less).
+    const notif = (client.api as any).post("/sync/settings/fetch", { keys: ["notifications", "ordering", "server-folders"] }).catch(() => null);
 
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => done(new Error("Timed out connecting. Try again.")), READY_TIMEOUT_MS);
@@ -269,8 +288,10 @@ export class StoatBackend implements ChatBackend {
       client.on("error", onError);
       client.connect(); // login() never connects on its own; this is what actually opens the socket
     });
+    startupMark("connected");
     const b = new StoatBackend(client, session);
-    await b.loadNotif();
+    b.applyNotif(await notif);
+    startupMark("settings");
     return b;
   }
 
@@ -338,7 +359,7 @@ export class StoatBackend implements ChatBackend {
     const order = this.serverOrder();
     const rank = (id: string) => { const i = order.indexOf(id); return i < 0 ? order.length : i; };
     const servers: Space[] = (this.client.servers.toList() as any[]).map((s, i) => ({ s, i })).sort((a, b) => rank(a.s.id) - rank(b.s.id) || a.i - b.i).map(({ s }) => ({
-      id: s.id, name: s.name, iconUrl: s.iconURL, bannerUrl: s.bannerURL, description: s.description,
+      id: s.id, name: s.name, iconUrl: s.iconURL, bannerUrl: s.bannerURL, description: s.description, memberCount: s.approximateMemberCount || undefined,
       channels: (s.orderedChannels as any[]).flatMap((cat) =>
         cat.channels.filter(Boolean).map((c: any) => this.channelInfo(c, cat.id === "default" ? undefined : cat.title, cat.id === "default" ? undefined : cat.id))),
     }));
@@ -445,12 +466,24 @@ export class StoatBackend implements ChatBackend {
       attachments.push(await this.upload("attachments", named, (sent) => opts.onProgress?.((done + sent) / total)));
       done += f.size;
     }
-    await ch.sendMessage({
+    const sent: any = await ch.sendMessage({
       content: opts.text || undefined,
       attachments: attachments.length ? attachments : undefined,
       replies: opts.replies?.length ? opts.replies : undefined,
     } as any);
+    // Your own message is read, whether or not the chat counted you as reading. Without this, Stoat could keep
+    // counting it as unread and show a dot for a chat where you sent the last message.
+    if (sent?.id) this.readUpTo(ch, sent.id);
   }
+
+  /** Mark a channel read up to this message (right away, here and on Stoat), and let the lists know. */
+  private readUpTo(ch: any, messageId: string) {
+    try {
+      void Promise.resolve(ch.ack(messageId, true)).catch(() => {});
+      (this.client as any).emit?.("channelAcknowledged", ch, messageId);
+    } catch { /* offline: Stoat catches up next time you read it */ }
+  }
+
 
   /** Uploads to Stoat's file server with progress (the SDK's fetch-based upload can't report any). */
   private upload(tag: string, file: File, onProgress?: (sentBytes: number) => void): Promise<string> {
@@ -508,9 +541,9 @@ export class StoatBackend implements ChatBackend {
   ack(channelId: string) { const ch: any = this.client.channels.get(channelId); if (ch?.unread) void ch.ack().catch?.(() => {}); }
   markUnread(channelId: string, messageId: string) {
     const ch: any = this.client.channels.get(channelId);
-    // Read up to just before this message: the smallest id from one millisecond earlier. The last flag
-    // stops the open conversation from marking it read again straight away (Stoat's own client does the same).
-    if (ch) void Promise.resolve(ch.ack(ulidBefore(messageId), true, false, true)).catch(() => {});
+    // Read up to just before this message: the smallest id from one millisecond earlier. (No "skip the next
+    // marking" flag: it silently swallowed the next real "read" instead; the open chat holds off by itself.)
+    if (ch) this.readUpTo(ch, ulidBefore(messageId));
   }
 
   onEvent(cb: (e: ChatEvent) => void) {
@@ -552,6 +585,8 @@ export class StoatBackend implements ChatBackend {
   private async gifFetch(path: string): Promise<any> {
     const g = this.gifbox;
     if (!g) return null;
+    // Mustela opens before it has finished connecting; give the session a few seconds to arrive instead of failing.
+    for (let i = 0; i < 40 && !(this.client as any).authenticationHeader?.[1]; i++) await new Promise((r) => setTimeout(r, 250));
     const [k, v] = (this.client as any).authenticationHeader as [string, string];
     const r = await fetch(`${g}/${path}`, { headers: { [k]: v } });
     if (!r.ok) throw new Error(`Gifbox ${r.status}`);
@@ -670,6 +705,7 @@ export class StoatBackend implements ChatBackend {
   uploadEmoji(id: string, name: string, file: File) {
     return this.wrap(async () => { const fid = await this.uploadTagged("emojis", file); await this.server(id).createEmoji(fid, { name }); }, "upload the emoji");
   }
+  renameEmoji(eid: string, name: string) { return this.wrap(async () => { const e: any = (this.client as any).emojis?.get?.(eid); if (!e) throw new Error("That emoji isn't there any more."); await e.edit({ name }); }, "rename the emoji"); }
   deleteEmoji(eid: string) { return this.wrap(async () => { const e: any = (this.client as any).emojis?.get?.(eid); await e?.delete(); }, "delete the emoji"); }
   invites(id: string) {
     return this.wrap(async () => ((await this.server(id).fetchInvites()) as any[]).map((i) => ({
@@ -846,11 +882,9 @@ export class StoatBackend implements ChatBackend {
       }));
     }
   }
-  private async loadNotif() {
-    try {
-      const r: any = await (this.client.api as any).post("/sync/settings/fetch", { keys: ["notifications", "ordering", "server-folders"] });
-      for (const k of ["notifications", "ordering", "server-folders"]) this.applySynced(k, r?.[k]?.[1]);
-    } catch { /* keep defaults */ }
+  private applyNotif(r: any) {
+    if (!r) return; // couldn't fetch: keep defaults
+    for (const k of ["notifications", "ordering", "server-folders"]) this.applySynced(k, r?.[k]?.[1]);
   }
   /** Server ids in sidebar order, folders opened up in place. */
   private serverOrder(): string[] {
@@ -934,7 +968,7 @@ export class StoatBackend implements ChatBackend {
     }
     if (remove.length) body.remove = remove;
     await (this.client.api as any).patch("/users/@me", body);
-    this.profiles.delete(this.sess.user_id);
+    this.forgetMine();
   }
 
   async friends(): Promise<Friends> {
@@ -1040,6 +1074,12 @@ export class StoatBackend implements ChatBackend {
     return info;
   }
 
+  /**
+   * Your profile changed (banner, look, about me): forget every copy of it, the one kept on this device for a day
+   * included. Before, that one kept showing your old banner on your own card after you saved a new one.
+   */
+  private forgetMine() { this.profiles.delete(this.sess.user_id); this.profileAt.delete(this.sess.user_id); forgetBanner(this.sess.user_id); }
+
   /** "Forget cached profiles" in Advanced: everyone's read again, here and in the copy kept on this device. */
   forgetProfiles() { this.profiles.clear(); this.profileAt.clear(); forgetBanners(); }
 
@@ -1087,7 +1127,7 @@ export class StoatBackend implements ChatBackend {
       : await this.cloud.publishProfile(all.main, undefined, looks);
     if (!r.tried) throw new Error("Server looks are kept on your sync server: link one in Mustela sync first.");
     if (r.failed === r.tried) throw new Error("None of your sync servers took the change.");
-    this.profiles.delete(this.sess.user_id);
+    this.forgetMine();
     return at;
   }
 
@@ -1101,14 +1141,14 @@ export class StoatBackend implements ChatBackend {
       const r = await cloud;
       await this.clearBannerStrip(banner);
       if (r.tried && r.failed === r.tried) throw new Error("None of your sync servers could keep your profile private. Update them, or choose Everyone.");
-      this.profiles.delete(this.sess.user_id);
+      this.forgetMine();
       return;
     }
     if (opts.banner === false) {
       const r = await cloud;
       if (!r.tried) throw new Error("Link a sync server first, or turn the banner copy back on.");
       if (r.failed === r.tried) throw new Error("None of your sync servers accepted the profile.");
-      this.profiles.delete(this.sess.user_id);
+      this.forgetMine();
       return;
     }
     // Published taller than shown (960×480): the picture fills the top 960×448 and the profile strip
@@ -1154,7 +1194,7 @@ export class StoatBackend implements ChatBackend {
     const png = await cv.convertToBlob({ type: "image/png" }); // lossless: we add no loss of our own
     const id = await this.client.uploadFile("backgrounds", new File([png], "banner.png", { type: "image/png" }));
     await (this.client.api as any).patch("/users/@me", { profile: { background: id } });
-    this.profiles.delete(this.sess.user_id);
+    this.forgetMine();
   }
 
   /** Re-uploads my banner without a profile strip (or the new picture as it is), if it had one. */

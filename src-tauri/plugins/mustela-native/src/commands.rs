@@ -65,7 +65,7 @@ pub(crate) async fn screen_stop<R: Runtime>(app: AppHandle<R>) -> Result<()> { a
 
 /// Phones: save a picture or video to Downloads (share false), or hand its link to the share sheet (share true).
 #[command]
-pub(crate) async fn media_file<R: Runtime>(app: AppHandle<R>, payload: MediaFile) -> Result<()> { app.mustela_native().media_file(payload) }
+pub(crate) async fn media_file<R: Runtime>(app: AppHandle<R>, payload: MediaFile) -> Result<serde_json::Value> { app.mustela_native().media_file(payload) }
 
 /// Android: check for messages while Mustela is closed (see MessageWatch.kt).
 #[command]
@@ -78,3 +78,25 @@ pub(crate) async fn watch_alive<R: Runtime>(app: AppHandle<R>, payload: WatchAli
 /// Android: a conversation was opened, so its notification goes.
 #[command]
 pub(crate) async fn watch_clear<R: Runtime>(app: AppHandle<R>, payload: WatchClear) -> Result<()> { app.mustela_native().watch_clear(payload) }
+
+/// Android: your newest photos and videos for the + card (small thumbnails), or allowed=false.
+#[command]
+pub(crate) async fn recent_photos<R: Runtime>(app: AppHandle<R>, payload: RecentPhotos) -> Result<serde_json::Value> { app.mustela_native().recent_photos(payload) }
+
+#[command]
+pub(crate) async fn request_photos<R: Runtime>(app: AppHandle<R>) -> Result<()> { app.mustela_native().request_photos() }
+
+/// Android: a picked photo or video itself (base64), to attach.
+#[command]
+pub(crate) async fn photo_file<R: Runtime>(app: AppHandle<R>, payload: PhotoFile) -> Result<serde_json::Value> { app.mustela_native().photo_file(payload) }
+
+/// Android: a photo or video from the phone's camera app, kept only in Mustela's cache until attached.
+#[command]
+pub(crate) async fn take_media<R: Runtime>(app: AppHandle<R>, payload: TakeMedia) -> Result<serde_json::Value> { app.mustela_native().take_media(payload) }
+
+/// Android: what the camera took while Mustela was closed (Android needed the memory), if anything.
+#[command]
+pub(crate) async fn pending_media<R: Runtime>(app: AppHandle<R>) -> Result<serde_json::Value> { app.mustela_native().pending_media() }
+
+#[command]
+pub(crate) async fn notify_message<R: Runtime>(app: AppHandle<R>, payload: NotifyMessage) -> Result<()> { app.mustela_native().notify_message(payload) }

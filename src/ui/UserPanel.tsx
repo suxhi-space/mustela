@@ -1,4 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { VolumeRow } from "./call/VolumeRow";
+import { applyVoicePrefs } from "./call/state";
+import type { VoicePrefs } from "../lib/backend/types";
 import { MOBILE_UI } from "./target";
 import { dragToClose } from "./sheetDrag";
 import { useBack } from "./back";
@@ -28,18 +31,43 @@ async function devices(kind: MediaDeviceKind) {
   try { return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === kind && d.deviceId !== "default" && d.deviceId !== "communications"); } catch { return []; }
 }
 
-/** The chevron menus beside mute and deafen: pick a device, or jump to voice settings. */
+/** Input profiles, like Discord's: the voice processing switches in one pick. */
+const PROFILES = [
+  // Voice isolation: background noise and echo cut. Studio: your mic as it is, nothing filtered.
+  { label: "Voice isolation", on: true },
+  { label: "Studio", on: false },
+] as const;
+
+/**
+ * The chevron menus beside mute and deafen, laid out like Discord's: the device list as a sub-menu, the volume right
+ * there (with your live level under the mic's), and the voice settings.
+ */
 async function deviceMenu(el: Element, kind: "audioinput" | "audiooutput") {
   const list = await devices(kind);
-  const v = device().voice, key = kind === "audioinput" ? "inputDevice" : "outputDevice";
+  const input = kind === "audioinput";
+  const v = device().voice, key = input ? "inputDevice" : "outputDevice";
+  const setVoice = (p: Partial<VoicePrefs>) => { updateDevice({ voice: { ...device().voice, ...p } }); applyVoicePrefs(); };
+  const name = (d: MediaDeviceInfo, i: number) => d.label || `${input ? "Microphone" : "Speaker"} ${i + 1}`;
+  const current = list.findIndex((d) => d.deviceId === v[key]);
+  const profile = PROFILES.find((p) => v.echoCancellation === p.on && v.noiseSuppression === p.on && v.autoGain === p.on);
   const items: MenuItem[] = [
-    { header: kind === "audioinput" ? "Input device" : "Output device" },
-    { label: "System default", checked: !v[key], onSelect: () => updateDevice({ voice: { ...device().voice, [key]: "" } }) },
-    ...list.map((d, i): MenuItem => ({ label: d.label || `${kind === "audioinput" ? "Microphone" : "Speaker"} ${i + 1}`, checked: v[key] === d.deviceId, onSelect: () => updateDevice({ voice: { ...device().voice, [key]: d.deviceId } }) })),
+    { label: input ? "Input device" : "Output device", hint: current >= 0 ? name(list[current]!, current) : "System default", icon: input ? "mic" : "headphones", sub: [
+      { label: "System default", checked: !v[key], onSelect: () => setVoice({ [key]: "" }) },
+      ...list.map((d, i): MenuItem => ({ label: name(d, i), checked: v[key] === d.deviceId, onSelect: () => setVoice({ [key]: d.deviceId }) })),
+    ] },
+    ...(input ? [{ label: "Input profile", hint: profile?.label ?? "Custom", icon: "sparkle", sub: [
+      ...PROFILES.map((p): MenuItem => ({ label: p.label, checked: profile === p, onSelect: () => setVoice({ echoCancellation: p.on, noiseSuppression: p.on, autoGain: p.on }) })),
+      { label: "Custom", checked: !profile, onSelect: () => setSettingsOpen("voice") },
+    ] } as MenuItem] : []),
+    { sep: true },
+    { custom: () => input
+      ? <VolumeRow label="Input volume" value={v.inputVolume / 100} micLevel onChange={(x) => setVoice({ inputVolume: Math.round(x * 100) })} />
+      : <VolumeRow label="Output volume" value={v.outputVolume / 100} onChange={(x) => setVoice({ outputVolume: Math.round(x * 100) })} /> },
     { sep: true },
     { label: "Voice settings", icon: "gear", onSelect: () => setSettingsOpen("voice") },
   ];
-  openMenu(el, items);
+  // Fully above the nameplate, so it stays in view (like Discord's).
+  openMenu(el, items, { above: el.closest(".userpanel") });
 }
 
 /** Your card (status, accounts, edit profile): opened from the bottom-left panel, or "You" on a phone. */

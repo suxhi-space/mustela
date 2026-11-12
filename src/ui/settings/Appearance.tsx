@@ -15,6 +15,7 @@ import { openColorPicker } from "../ColorPicker";
 import { ColorInput, Group, Row, Seg, Select, Slider, Switch } from "../controls";
 import { backdropImage, device, ext, look, pictureSeed, lookSync, setLookSync, type LookSync, updateLook, materials, platform, setBackdropImage, settings, systemSeed, updateDevice, updateExt, updateSettings } from "../store";
 import { MOBILE_UI } from "../target";
+import { SavedThemes } from "./themes";
 
 const PACKS: { id: EmojiPack; label: string }[] = [
   { id: "fluent-3d", label: "Fluent 3D" }, { id: "fluent-color", label: "Fluent Color" }, { id: "fluent-flat", label: "Fluent Flat" },
@@ -45,7 +46,7 @@ const GRADIENTS = [
 
 export function Appearance() {
   const [bdErr, setBdErr] = createSignal("");
-  function pickBackdrop() {
+  function pickBackdrop(then?: () => void) {
     const input = document.createElement("input");
     input.type = "file"; input.accept = "image/*";
     input.onchange = async () => {
@@ -53,7 +54,7 @@ export function Appearance() {
       if (!f) return;
       setBdErr("");
       try {
-        if (await setBackdropImage(f)) updateDevice({ backdrop: "image" });
+        if (await setBackdropImage(f)) { updateDevice({ backdrop: "image" }); then?.(); }
         else setBdErr("That picture is too large to keep. Try a smaller one.");
       } catch { setBdErr("Couldn't read that picture."); }
     };
@@ -74,6 +75,7 @@ export function Appearance() {
 
   return (
     <div class="page">
+      <SavedThemes pickPicture={(then) => pickBackdrop(then)} />
       <Group title="Colors" hint={lookSync() === "all" ? "Colors follow your account to every device. Style, layout and window settings stay on this one." : lookSync() === "kind" ? `Colors are shared with your other ${MOBILE_UI ? "phones and tablets" : "computers"} only. Your profile, favorites and everything else still sync everywhere.` : "This device keeps its own colors. Your profile, favorites and everything else still sync."}>
         <Row label="Sync colors with">
           <Select label="Sync colors with" value={lookSync()} onChange={(v) => setLookSync(v as LookSync)}
@@ -162,7 +164,7 @@ export function Appearance() {
         <Show when={device().backdrop === "image" && backdropImage()}>
           <Row label="Picture">
             <span class="bd-thumb" style={{ "background-image": `url("${backdropImage()}")` }} />
-            <button class="btn small" onClick={pickBackdrop}>Change</button>
+            <button class="btn small" onClick={() => pickBackdrop()}>Change</button>
             <button class="btn small danger" onClick={() => { void setBackdropImage(null); updateDevice({ backdrop: "plain" }); }}>Remove</button>
           </Row>
           <Row label="Blur the picture" hint="Soft and out of focus, so text stays easy to read."><Switch label="Blur the picture" on={device().backdropBlur} onChange={(backdropBlur) => updateDevice({ backdropBlur })} /></Row>

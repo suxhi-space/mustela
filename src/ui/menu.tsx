@@ -8,23 +8,30 @@ import { Icon } from "./icons";
 
 export type MenuItem =
   | { label: string; icon?: string; danger?: boolean; disabled?: boolean; checked?: boolean; hint?: string; onSelect(): unknown; sub?: undefined }
-  | { label: string; icon?: string; sub: MenuItem[] }
+  | { label: string; icon?: string; hint?: string; sub: MenuItem[] }
   | { sep: true }
   | { header: string }
   | { custom: () => JSX.Element };
 
 /** `doc`: the window it was opened in (the call pop-out draws its own menus). */
-type Open = { x: number; y: number; items: MenuItem[]; doc: Document; width?: number; sheet?: boolean; head?: () => JSX.Element };
+type Open = { x: number; y: number; items: MenuItem[]; doc: Document; width?: number; sheet?: boolean; head?: () => JSX.Element; held?: HTMLElement; grouped?: boolean; bottom?: number };
 const [menu, setMenu] = createSignal<Open | null>(null);
 
 /** Opens a menu at the pointer (or under an element). Returns false so it can end an event handler. */
 /** `width`: at least this wide (a dropdown's menu matches its button). */
 /** `sheet`: phones, a card that comes up from the bottom (with `head` drawn at its top) instead of a small menu. */
-export function openMenu(at: MouseEvent | Element, items: MenuItem[], opts: { width?: number; sheet?: boolean; head?: () => JSX.Element } = {}) {
+/**
+ * `held` (a card on touch screens): the message it's about. The card pushes the chat up instead of covering it, so
+ * that message stays in view, highlighted, and its text can still be selected with the phone's own handles.
+ * `grouped`: in a card, the rows between separators sit together in rounded blocks.
+ */
+/** `above`: open fully above this element (the mic and speaker menus stay clear of the nameplate). */
+export function openMenu(at: MouseEvent | Element, items: MenuItem[], opts: { width?: number; sheet?: boolean; head?: () => JSX.Element; held?: HTMLElement; grouped?: boolean; above?: Element | null } = {}) {
   const clean = items.filter((it, i, a) => !("sep" in it) || (i > 0 && i < a.length - 1 && !("sep" in a[i - 1]!)));
   // Touch screens: every menu (hold menus, dropdowns) is a card from the bottom with big rows.
   const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-  const extra = { sheet: opts.sheet ?? touch, head: opts.head };
+  const sheet = opts.sheet ?? touch;
+  const extra = { sheet, head: opts.head, held: sheet ? opts.held : undefined, grouped: sheet && (opts.grouped ?? true), bottom: opts.above && !sheet ? opts.above.getBoundingClientRect().top - 6 : undefined };
   // Only a menu opened by touching and holding needs the lifted finger ignored; a mouse click right away is fine.
   const touched = justHeld() || (!("getBoundingClientRect" in at) && (at as PointerEvent).pointerType === "touch");
   openedAt = touched ? Date.now() : 0;
@@ -33,6 +40,8 @@ export function openMenu(at: MouseEvent | Element, items: MenuItem[], opts: { wi
   return false;
 }
 export const closeMenu = () => setMenu(null);
+/** The message a hold menu is open for (holding it again then selects text instead of reopening the menu). */
+export const heldElement = () => menu()?.held ?? null;
 /**
  * A menu opened by touching and holding: lifting the finger sends a tap to whatever is under it, which closed the
  * menu straight away (or picked a row). Taps in the first moment after a menu opens are ignored.
@@ -40,7 +49,7 @@ export const closeMenu = () => setMenu(null);
 let openedAt = 0;
 const tooSoon = () => Date.now() - openedAt < 450;
 
-function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolean; width?: number; sheet?: boolean; head?: () => JSX.Element }) {
+function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolean; width?: number; sheet?: boolean; head?: () => JSX.Element; held?: boolean; grouped?: boolean; bottom?: number }) {
   let el!: HTMLDivElement;
   const [pos, setPos] = createSignal({ left: props.x, top: props.y });
   const [openSub, setOpenSub] = createSignal<{ i: number; x: number; y: number } | null>(null);
@@ -50,49 +59,64 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
     const { innerWidth, innerHeight } = el.ownerDocument.defaultView ?? window;
     let left = props.x, top = props.y;
     if (left + r.width > innerWidth - 8) left = props.sub ? props.x - r.width - 220 : innerWidth - r.width - 8;
-    if (top + r.height > innerHeight - 8) top = Math.max(8, innerHeight - r.height - 8);
+    if (props.bottom !== undefined) top = Math.max(8, props.bottom - r.height);
+    else if (top + r.height > innerHeight - 8) top = Math.max(8, innerHeight - r.height - 8);
     setPos({ left: Math.max(8, left), top });
-    if (!props.sub) (el.querySelector(".ctx-item:not([disabled])") as HTMLElement | null)?.focus({ focusVisible: false } as FocusOptions);
-    if (props.sheet) dragToClose(el, closeMenu);
+    // Keyboard users start on the first row. Cards (touch) don't: focusing a row lit it up as if picked and
+    // scrolled the card back to its top.
+    if (!props.sub && !props.sheet) (el.querySelector(".ctx-item:not([disabled])") as HTMLElement | null)?.focus({ focusVisible: false } as FocusOptions);
+    // Every card opens halfway at most, like the message one; pulling up opens the rest.
+    if (props.sheet) dragToClose(el, closeMenu, { half: true });
   });
   const keys = (e: KeyboardEvent) => {
-    const btns = [...el.querySelectorAll<HTMLButtonElement>(":scope > button:not([disabled])")];
+    const btns = [...el.querySelectorAll<HTMLButtonElement>("button.ctx-item:not([disabled])")];
     const i = btns.indexOf(el.ownerDocument.activeElement as HTMLButtonElement);
     if (e.key === "ArrowDown") { e.preventDefault(); btns[(i + 1) % btns.length]?.focus(); }
     if (e.key === "ArrowUp") { e.preventDefault(); btns[(i - 1 + btns.length) % btns.length]?.focus(); }
   };
+  const row = (it: MenuItem, i: () => number): JSX.Element => {
+      if ("sep" in it) return <div class="ctx-sep" role="separator" />;
+      if ("header" in it) return <div class="ctx-head">{it.header}</div>;
+      if ("custom" in it) return it.custom();
+      if (it.sub) return (
+        <button role="menuitem" aria-haspopup="menu" class="ctx-item" onMouseEnter={(e) => { if (props.sheet) return; const r = e.currentTarget.getBoundingClientRect(); setOpenSub({ i: i(), x: r.right + 2, y: r.top - 6 }); }}
+          onClick={(e) => {
+            // In a card, a submenu replaces the card's rows (with its name on top) instead of opening beside it.
+            if (props.sheet) { const sub = it.sub!; setMenu((m) => (m ? { ...m, head: undefined, items: [{ header: it.label }, ...sub] } : m)); return; }
+            const r = e.currentTarget.getBoundingClientRect(); setOpenSub({ i: i(), x: r.right + 2, y: r.top - 6 });
+          }}>
+          <Show when={it.icon}><Icon name={it.icon!} size={16} /></Show>
+          {/* With a hint (the device in use, say), it sits under the name, like Discord's "Input Device / Microphone". */}
+          <Show when={it.hint} fallback={<span class="ctx-label">{it.label}</span>}><span class="ctx-label ctx-stack">{it.label}<small>{it.hint}</small></span></Show>
+          <Icon name="right" size={14} class="muted" />
+        </button>
+      );
+      return (
+        <button role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"} aria-checked={it.checked} class="ctx-item" classList={{ danger: !!it.danger }} disabled={it.disabled}
+          onMouseEnter={() => setOpenSub(null)}
+          onClick={() => { if (tooSoon()) return; closeMenu(); void it.onSelect(); }}>
+          <Show when={it.icon} fallback={<Show when={it.checked !== undefined}><span class="ctx-check">{it.checked ? "✓" : ""}</span></Show>}><Icon name={it.icon!} size={16} /></Show>
+          <span class="ctx-label">{it.label}</span>
+          <Show when={it.hint}><span class="ctx-hint">{it.hint}</span></Show>
+          {/* In a card, choices show as radio buttons on the right */}
+          <Show when={props.sheet && it.checked !== undefined && it.icon}><span class="ctx-radio" classList={{ on: !!it.checked }} aria-hidden="true" /></Show>
+        </button>
+      );
+  };
   return (
     <>
-    <div ref={el} class="ctx panel" classList={{ "ctx-sheet": !!props.sheet }} role="menu" style={props.sheet ? {} : { left: `${pos().left}px`, top: `${pos().top}px`, ...(props.width ? { "min-width": `${props.width}px`, "max-width": `${Math.max(280, props.width)}px` } : {}) }} onKeyDown={keys} onClick={(e) => e.stopPropagation()}
+    <div ref={el} class="ctx panel" classList={{ "ctx-sheet": !!props.sheet, "ctx-held": !!props.held, "ctx-grouped": !!props.grouped }} role="menu" style={props.sheet ? {} : { left: `${pos().left}px`, top: `${pos().top}px`, ...(props.width ? { "min-width": `${props.width}px`, "max-width": `${Math.max(280, props.width)}px` } : {}) }} onKeyDown={keys} onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}>
       <Show when={props.sheet}><span class="ctx-grab" aria-hidden="true" /></Show>
       <Show when={props.head}>{(h) => h()()}</Show>
-      <For each={props.items}>{(it, i) => {
-        if ("sep" in it) return <div class="ctx-sep" role="separator" />;
-        if ("header" in it) return <div class="ctx-head">{it.header}</div>;
-        if ("custom" in it) return it.custom();
-        if (it.sub) return (
-          <button role="menuitem" aria-haspopup="menu" class="ctx-item" onMouseEnter={(e) => { if (props.sheet) return; const r = e.currentTarget.getBoundingClientRect(); setOpenSub({ i: i(), x: r.right + 2, y: r.top - 6 }); }}
-            onClick={(e) => {
-              // In a card, a submenu replaces the card's rows (with its name on top) instead of opening beside it.
-              if (props.sheet) { const sub = it.sub!; setMenu((m) => (m ? { ...m, head: undefined, items: [{ header: it.label }, ...sub] } : m)); return; }
-              const r = e.currentTarget.getBoundingClientRect(); setOpenSub({ i: i(), x: r.right + 2, y: r.top - 6 });
-            }}>
-            <Show when={it.icon}><Icon name={it.icon!} size={16} /></Show><span class="ctx-label">{it.label}</span><Icon name="right" size={14} class="muted" />
-          </button>
-        );
-        return (
-          <button role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"} aria-checked={it.checked} class="ctx-item" classList={{ danger: !!it.danger }} disabled={it.disabled}
-            onMouseEnter={() => setOpenSub(null)}
-            onClick={() => { if (tooSoon()) return; closeMenu(); void it.onSelect(); }}>
-            <Show when={it.icon} fallback={<Show when={it.checked !== undefined}><span class="ctx-check">{it.checked ? "✓" : ""}</span></Show>}><Icon name={it.icon!} size={16} /></Show>
-            <span class="ctx-label">{it.label}</span>
-            <Show when={it.hint}><span class="ctx-hint">{it.hint}</span></Show>
-            {/* In a card, choices show as radio buttons on the right */}
-            <Show when={props.sheet && it.checked !== undefined && it.icon}><span class="ctx-radio" classList={{ on: !!it.checked }} aria-hidden="true" /></Show>
-          </button>
-        );
-      }}</For>
+      <Show when={props.grouped} fallback={<For each={props.items}>{(it, i) => row(it, i)}</For>}>
+        {/* Rounded blocks, one per run of rows between separators (a custom row, like the reactions, stays on its own). */}
+        <For each={groupsOf(props.items)}>{(g) => (
+          <div class="ctx-group" classList={{ plain: g.every(({ it }) => "custom" in it || "header" in it) }}>
+            <For each={g}>{({ it, i }) => row(it, () => i)}</For>
+          </div>
+        )}</For>
+      </Show>
     </div>
     {/* A sibling, not a child: the menu's blur would otherwise clip it */}
     <Show when={openSub()} keyed>{(s) => {
@@ -101,6 +125,54 @@ function MenuList(props: { items: MenuItem[]; x: number; y: number; sub?: boolea
     }}</Show>
     </>
   );
+}
+
+/** Rows split at separators, each with its place in the full list. */
+function groupsOf(items: MenuItem[]) {
+  const out: { it: MenuItem; i: number }[][] = [[]];
+  items.forEach((it, i) => { if ("sep" in it) { if (out[out.length - 1]!.length) out.push([]); } else out[out.length - 1]!.push({ it, i }); });
+  return out.filter((g) => g.length);
+}
+
+/**
+ * A hold menu about a message: highlights it, makes room under the chat for the card (so the chat moves up instead
+ * of being covered) and scrolls the message into view just above it. Taps elsewhere close the card; the message
+ * itself stays live, so holding its text selects it with the phone's own handles and copy menu.
+ */
+function useHeld(held: HTMLElement, doc: Document) {
+  const root = doc.documentElement;
+  held.classList.add("held");
+  let card: HTMLElement | null = null, pad = 0;
+  // Lift the message just above the card (or to the top of the chat if it's taller than the room left), adding
+  // only as much room under the chat as that needs: none when it's already in view.
+  const fit = () => {
+    card ??= doc.querySelector<HTMLElement>(".ctx.ctx-held");
+    const list = held.closest<HTMLElement>(".messages");
+    if (!card || !list) return;
+    // Where the card's top ends up (measured without its slide-in, which moves it while it opens).
+    const view = doc.defaultView ?? window;
+    const room = view.innerHeight - card.getBoundingClientRect().height - 12;
+    const top = list.getBoundingClientRect().top, r = held.getBoundingClientRect();
+    const shift = r.height > room - top ? r.top - top - 8 : r.bottom - room;
+    if (shift <= 0) return;
+    const below = list.scrollHeight - list.scrollTop - list.clientHeight;
+    if (shift > below) { pad += Math.ceil(shift - below); root.style.setProperty("--hold-h", `${pad}px`); }
+    list.scrollBy({ top: shift, behavior: "smooth" });
+  };
+  root.classList.add("hold-open");
+  const ro = new ResizeObserver(() => fit());
+  requestAnimationFrame(() => { fit(); if (card) ro.observe(card); });
+  const away = (e: Event) => {
+    const t = e.target as Node;
+    if (card?.contains(t) || held.contains(t)) return;
+    e.preventDefault(); e.stopPropagation();
+    if (!tooSoon()) closeMenu();
+  };
+  doc.addEventListener("click", away, true);
+  onCleanup(() => {
+    ro.disconnect(); doc.removeEventListener("click", away, true);
+    held.classList.remove("held"); root.classList.remove("hold-open"); root.style.removeProperty("--hold-h");
+  });
 }
 
 /** Draws menus opened in this window: the main one, or (with `win`) the call pop-out. */
@@ -112,9 +184,16 @@ export function ContextMenu(props: { win?: Window }) {
   onCleanup(() => { const v = w(); v.removeEventListener("keydown", esc); v.removeEventListener("resize", away); v.removeEventListener("blur", away); });
   return (
     <Show when={menu()?.doc === w().document ? menu() : null}>{(m) => { useBack(closeMenu); return (
-      <div class="ctx-scrim" onClick={() => { if (!tooSoon()) closeMenu(); }} onContextMenu={(e) => { e.preventDefault(); if (!tooSoon()) closeMenu(); }} onWheel={closeMenu}>
-        <MenuList items={m().items} x={m().x} y={m().y} width={m().width} sheet={m().sheet} head={m().head} />
-      </div>
+      <Show when={m().held} keyed fallback={
+        <div class="ctx-scrim" onClick={() => { if (!tooSoon()) closeMenu(); }} onContextMenu={(e) => { e.preventDefault(); if (!tooSoon()) closeMenu(); }} onWheel={closeMenu}>
+          <MenuList items={m().items} x={m().x} y={m().y} width={m().width} sheet={m().sheet} head={m().head} grouped={m().grouped} bottom={m().bottom} />
+        </div>
+      }>{(held) => { useHeld(held, m().doc); return (
+        // No dark cover: the chat stays live above the card (see useHeld).
+        <div class="ctx-scrim held-scrim">
+          <MenuList items={m().items} x={m().x} y={m().y} sheet head={m().head} held grouped={m().grouped} />
+        </div>
+      ); }}</Show>
     ); }}</Show>
   );
 }
@@ -271,6 +350,9 @@ export function installGlobalContextMenu(w: Window = window) {
     const t = e.target as HTMLElement | null;
     if (!t) return;
     if (t.closest("input, textarea, [contenteditable=true]")) return;
+    // Holding the message a hold card is open for: the phone selects its text with its own handles and Copy/Share
+    // bar. Cancelling here (as for everything else) stopped that from ever starting.
+    if (heldElement()?.contains(t)) return;
     e.preventDefault();
     const sel = getSelection()?.toString() ?? "";
     const a = t.closest("a[href]") as HTMLAnchorElement | null;

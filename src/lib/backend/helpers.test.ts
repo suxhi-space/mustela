@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attachmentOf, embedOf, inviteCode, personOf, systemText } from "./stoat";
+import { attachmentOf, embedOf, inviteCode, isGifUrl, personOf, systemText } from "./stoat";
 import { DemoBackend } from "./mock";
 
 describe("stoat helpers", () => {
@@ -76,5 +76,18 @@ describe("demo backend", () => {
     expect(titles[titles.length - 1]).toBe("Offline");
     expect(titles.indexOf("Online")).toBe(titles.length - 2);
     expect(titles).toContain("Gardeners");
+  });
+});
+
+describe("GIF links", () => {
+  it("knows every Tenor and Giphy address, and direct .gif picture links", () => {
+    expect(isGifUrl("https://media1.tenor.com/m/VRquFwdI1l8AAAAd/weasel-trampoline.gif")).toBe(true);
+    expect(isGifUrl("https://c.tenor.com/abc/x.gif")).toBe(true);
+    expect(isGifUrl("https://i.giphy.com/abc.webp")).toBe(true);
+    expect(isGifUrl("https://example.com/cat.gif")).toBe(false);
+    expect(isGifUrl("https://example.com/cat.gif", true)).toBe(true);
+    expect(isGifUrl("https://example.com/cat.png", true)).toBe(false);
+    expect(isGifUrl("https://nottenor.com/x.gif")).toBe(false);
+    expect(embedOf({ type: "Image", url: "https://media1.tenor.com/m/a/b.gif", width: 220, height: 200 })?.gif).toBe(true);
   });
 });

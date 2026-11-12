@@ -25,6 +25,8 @@ import { AccessibilityPage } from "./settings/AccessibilityPage";
 import { isDesktopApp } from "./desktop";
 import { openProfileEditor } from "./ProfileEditor";
 import { book, meNow, removeAccountById, settings } from "./store";
+import { SETTING_LABELS } from "./settings/searchIndex";
+import { searchHit } from "./settings/search";
 
 export type Tab = "account" | "profile" | "sessions" | "bots" | "voice" | "soundboard" | "appearance" | "accessibility" | "notifications" | "language" | "desktop" | "accounts" | "sync" | "activity" | "performance" | "advanced";
 /** Same sections and order as Stoat's settings, with Mustela's extras in their own group before Advanced. */
@@ -76,7 +78,25 @@ export function Settings(props: { onClose(): void; initial?: string }) {
   const me = () => meNow()!;
   // Find a page by name or by what's on it, like Discord's settings search.
   const [q, setQ] = createSignal("");
-  const matches = (t: { id: Tab; label: string }) => { const x = q().trim().toLowerCase(); return !x || `${t.label} ${KEYWORDS[t.id] ?? ""}`.toLowerCase().includes(x); };
+  // Every word you type has to start a word somewhere: in the page's name, its keywords or one of its settings.
+  const labelsFor = (id: Tab) => [...new Set([...(SETTING_LABELS[id] ?? []), ...(id === "voice" ? SETTING_LABELS.soundboard ?? [] : [])])];
+  const found = (t: { id: Tab; label: string }) => labelsFor(t.id).filter((l) => searchHit(q(), l)).slice(0, 4);
+  const matches = (t: { id: Tab; label: string }) => !q().trim() || searchHit(q(), `${t.label} ${KEYWORDS[t.id] ?? ""}`) || found(t).length > 0;
+  /** Opens a setting's page and points at it: scrolled into view with a short flash. */
+  const reveal = (id: Tab, label: string) => {
+    go(id);
+    let tries = 0;
+    const look = () => {
+      const page = document.querySelector(".settings .spage");
+      const el = page && [...page.querySelectorAll<HTMLElement>(".row-label, .group-title")].find((e) => (e.firstChild?.textContent ?? e.textContent ?? "").trim() === label);
+      if (!el) { if (tries++ < 10) setTimeout(look, 60); return; }
+      const row = el.closest<HTMLElement>(".row, .group") ?? el;
+      row.scrollIntoView({ block: "center", behavior: "smooth" });
+      row.classList.remove("found-flash"); void row.offsetWidth; row.classList.add("found-flash");
+      setTimeout(() => row.classList.remove("found-flash"), 1600);
+    };
+    requestAnimationFrame(look);
+  };
   async function logOut() {
     const a = activeAccount(book());
     if (a && await confirmDialog(`Log out of ${a.name}?`, "You'll need your password to sign back in. Other accounts stay signed in.", "Log out", true)) { props.onClose(); await removeAccountById(a.id); }
@@ -96,14 +116,23 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <Avatar person={me()} size={36} profile={settings().profile} presence={false} />
             <span><small>{me().name}</small><strong>My account</strong></span>
           </button>
+          <Show when={q().trim()}>
+            <For each={found({ id: "account", label: "My account" })}>{(l) => <button class="snav-hit" onClick={() => reveal("account", l)}>{l}</button>}</For>
+          </Show>
           <label class="search-box snav-search"><Icon name="search" size={15} /><input placeholder="Search" aria-label="Search settings" value={q()} onInput={(e) => setQ(e.currentTarget.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { const t = GROUPS().flatMap((g) => g.tabs).find(matches); if (t) (t.id === "profile" ? openProfileEditor() : go(t.id)); } if (e.key === "Escape" && q()) { e.stopPropagation(); setQ(""); } }} /></label>
+            onKeyDown={(e) => { if (e.key === "Enter") { const t = GROUPS().flatMap((g) => g.tabs).find(matches); if (t) { const f = found(t)[0]; t.id === "profile" ? openProfileEditor() : f ? reveal(t.id, f) : go(t.id); } } if (e.key === "Escape" && q()) { e.stopPropagation(); setQ(""); } }} /></label>
           <For each={GROUPS().map((g) => ({ ...g, tabs: g.tabs.filter(matches) })).filter((g) => g.tabs.length)}>{(g) => (
             <>
               <h3 class="snav-head">{g.title}</h3>
-              <For each={g.tabs}>{(t) => (
+              <For each={g.tabs}>{(t) => (<>
                 <button role="tab" aria-selected={tab() === t.id || (t.id === "voice" && tab() === "soundboard")} classList={{ on: tab() === t.id || (t.id === "voice" && tab() === "soundboard") }} onClick={() => (t.id === "profile" ? openProfileEditor() : go(t.id))}><Icon name={t.icon} size={18} />{t.label}</button>
-              )}</For>
+                {/* While searching: the settings on this page that match, each going straight to its setting */}
+                <Show when={q().trim()}>
+                  <For each={found(t)}>{(l) => (
+                    <button class="snav-hit" onClick={() => reveal(t.id === "voice" && !(SETTING_LABELS.voice ?? []).includes(l) ? "soundboard" : t.id, l)}>{l}</button>
+                  )}</For>
+                </Show>
+              </>)}</For>
             </>
           )}</For>
           <div class="snav-sep" />
@@ -117,6 +146,8 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <span class="grow" />
             <button class="esc" onClick={props.onClose} aria-label="Close settings"><span class="esc-x"><Icon name="close" size={18} /></span><small class="desk-only">Esc</small></button>
           </header>
+          {/* Desktop: only this part scrolls, so the header above stays put with nothing behind it (styles.css) */}
+          <div class="spage-scroll">
           <Show when={demo() && (tab() === "account" || tab() === "sessions" || tab() === "bots")}>
             <p class="demo-note">This is the demo account. Changes here are pretend and reset when you leave.</p>
           </Show>
@@ -138,6 +169,7 @@ export function Settings(props: { onClose(): void; initial?: string }) {
             <Match when={tab() === "accessibility"}><AccessibilityPage /></Match>
             <Match when={tab() === "advanced"}><AdvancedPage /></Match>
           </Switch>
+          </div>
         </div>
       </div>
       </div>

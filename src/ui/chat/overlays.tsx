@@ -1,9 +1,10 @@
 import { MOBILE_UI } from "../target";
+import { gifsMove, StillImg } from "../StillImg";
 import { useAutoplay } from "../autoplay";
 import { phoneLayout } from "../hooks";
 import { useBack } from "../back";
 import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
-import type { CustomEmoji } from "../../lib/backend/types";
+import type { CustomEmoji, GifCategory, GifResult } from "../../lib/backend/types";
 import type { FavGif } from "../../lib/sync/settings";
 import { backend, ext, settings, updateExt, updateSettings } from "../store";
 import { EMOJI_GROUPS, emojiName, searchEmoji, warmEmoji } from "../../lib/emoji";
@@ -20,12 +21,12 @@ const PUA_OF: Record<string, string> = { "fluent-flat": "\uE0E2", mutant: "\uE0E
 /** `text` goes into a message (":id:" for custom emoji); `key` is what a reaction uses. */
 export type EmojiPick = { text: string; key: string };
 /** `gif`: also offer the GIFs tab (phones), picking with this. */
-type PickerReq = { x: number; y: number; onPick(p: EmojiPick): void; gif?: (url: string) => void; /** phones: stay open to pick several */ stay?: boolean };
+type PickerReq = { x: number; y: number; onPick(p: EmojiPick): void; gif?: (url: string) => void; /** phones: stay open to pick several */ stay?: boolean; /** the card's delete key (phones) */ back?: () => void };
 const [picker, setPicker] = createSignal<PickerReq | null>(null);
 
-export function openEmojiPicker(anchor: Element, onPick: (p: EmojiPick) => void, more: { gif?: (url: string) => void; stay?: boolean } = {}) {
+export function openEmojiPicker(anchor: Element, onPick: (p: EmojiPick) => void, more: { gif?: (url: string) => void; stay?: boolean; back?: () => void } = {}) {
   const r = anchor.getBoundingClientRect();
-  setPicker({ x: r.right, y: r.top, onPick, gif: more.gif, stay: more.stay });
+  setPicker({ x: r.right, y: r.top, onPick, gif: more.gif, stay: more.stay, back: more.back });
 }
 
 /** Whether the emoji or GIF picker is open (phones swap the message box's emoji button for a keyboard then). */
@@ -45,6 +46,33 @@ export function warmFavGifs() {
   syncFavGifs([...new Set(favs.flatMap((g) => [g.preview, ...(g.still ? [g.still] : [])]))]);
 }
 
+/*
+ * GIF lists are kept for a while and the categories are fetched ahead once you're connected, so the GIF card shows
+ * straight away instead of waiting on Gifbox (and on a dozen category pictures) every time it opens.
+ */
+const GIF_FRESH = 10 * 60_000;
+const gifLists = new Map<string, { at: number; list: GifResult[] }>();
+let gifCats: { at: number; list: GifCategory[] } | null = null;
+function loadGifs(q: string): GifResult[] | Promise<GifResult[] | null> {
+  const k = q.trim().toLowerCase(), c = gifLists.get(k);
+  if (c && Date.now() - c.at < GIF_FRESH) return c.list;
+  return backend()!.gifs(q).then((list) => { if (list.length) gifLists.set(k, { at: Date.now(), list }); return list; }, () => null);
+}
+const freshCats = () => (gifCats && Date.now() - gifCats.at < GIF_FRESH ? gifCats.list : undefined);
+function loadGifCats(): GifCategory[] | Promise<GifCategory[]> {
+  const c = freshCats();
+  if (c) return c;
+  return (backend()?.gifCategories() ?? Promise.resolve([])).then((list) => {
+    if (list.length) {
+      gifCats = { at: Date.now(), list };
+      // The first rows' pictures, so the grid doesn't fill in tile by tile.
+      for (const x of list.slice(0, 12)) { const im = new Image(); im.decoding = "async"; im.src = x.image; }
+    }
+    return list;
+  }, () => []);
+}
+export function warmGifs() { if (!freshCats()) void loadGifCats(); }
+
 export function warmLikelyEmoji() {
   const isUni = (k: string) => !isCustomKey(k);
   const frequent = Object.entries(recentCounts()).sort((x, y) => y[1] - x[1]).map(([k]) => k).filter(isUni).slice(0, 40);
@@ -52,15 +80,27 @@ export function warmLikelyEmoji() {
   warmEmoji(settings().emojiPack, [...new Set([...favs, ...frequent, "👍", "❤️", "😂", "😮", "😢", "🔥", ...EMOJI_GROUPS[0]!.items.slice(0, 96).map((e) => e.char)])]);
 }
 
+/**
+ * The reactions offered first (the hold menu's row): your favorite emoji, then the ones you use most, then the
+ * usual six to fill up. Custom emoji only while they still exist.
+ */
+export function topReactions(n: number): string[] {
+  const exists = (k: string) => !isCustomKey(k) || !!backend()?.emojis().some((e) => e.id === k);
+  const frequent = Object.entries(recentCounts()).sort((x, y) => y[1] - x[1]).map(([k]) => k);
+  return [...new Set([...ext().favEmoji, ...frequent, "👍", "❤️", "😂", "😮", "😢", "🔥"])].filter(exists).slice(0, n);
+}
+/** The reaction a double tap on a message adds (phones and tablets). */
+export const doubleTapEmoji = () => ext().doubleTap ?? "❤️";
+
 function recentCounts(): Record<string, number> { try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "{}") ?? {}; } catch { return {}; } }
-function noteUse(key: string) {
+export function noteUse(key: string) {
   try {
     const c = recentCounts(); c[key] = (c[key] ?? 0) + 1;
     const top = Object.entries(c).sort((x, y) => y[1] - x[1]).slice(0, 60);
     localStorage.setItem(RECENT_KEY, JSON.stringify(Object.fromEntries(top)));
   } catch { /* storage off: just don't remember */ }
 }
-const isCustomKey = (k: string) => /^[0-9A-HJKMNP-TV-Z]{26}$/.test(k);
+export const isCustomKey = (k: string) => /^[0-9A-HJKMNP-TV-Z]{26}$/.test(k);
 const toggleFavEmoji = (key: string) => updateExt((x) => ({ ...x, favEmoji: x.favEmoji.includes(key) ? x.favEmoji.filter((k) => k !== key) : [...x.favEmoji, key] }));
 
 /**
@@ -101,7 +141,8 @@ export function EmojiPicker() {
       const left = () => Math.max(8, Math.min(req.x - W, innerWidth - W - 8));
       const top = () => (req.y - H - 8 > 8 ? req.y - H - 8 : Math.min(req.y + 36, innerHeight - H - 8));
       let input!: HTMLInputElement, list!: HTMLDivElement;
-      onMount(() => { if (!phone) input.focus(); warmLikelyEmoji(); });
+      // Phones and tablets: the search box waits for a tap, so the keyboard doesn't pop up over the card.
+      onMount(() => { if (!MOBILE_UI && !phone) input.focus(); warmLikelyEmoji(); });
       // Phones, picking into the message box: the card stays for more (like Discord), back at half height if it was pulled up.
       const pick = (p: EmojiPick) => { noteUse(p.key); req.onPick(p); if (sheet && req.stay) sheet.collapse(); else setPicker(null); };
       const pickKey = (k: string) => { const e = byKey(k); if (e) pick({ text: `:${e.id}:`, key: e.id }); else pickUnicode(k); };
@@ -114,22 +155,26 @@ export function EmojiPicker() {
       // One button for any emoji: pick on click, favorite on right-click or a long press, name on hover.
       const Btn = (p: { k: string; title: string; render: () => JSX.Element }) => {
         // A hold (still) favorites it; moving the finger means scrolling or dragging the card, so the hold is off.
-        let t: ReturnType<typeof setTimeout> | undefined, held = false, sx: number | null = null, sy = 0;
+        // Android also turns a long press into a right-click: whichever comes first counts, the other is ignored.
+        let t: ReturnType<typeof setTimeout> | undefined, held = false, sx: number | null = null, sy = 0, touch = false;
+        const hold = () => {
+          clearTimeout(t); t = undefined;
+          if (held) return;
+          held = true; const was = ext().favEmoji.includes(p.k); toggleFavEmoji(p.k); setHover({ key: p.k, name: p.title, render: p.render });
+          if (MOBILE_UI || phone) { navigator.vibrate?.(15); toast(was ? `${p.title} removed from favorites` : `${p.title} added to favorites`); }
+        };
         return (
           <button title={p.title} classList={{ fav: ext().favEmoji.includes(p.k) }}
             onMouseEnter={() => setHover({ key: p.k, name: p.title, render: p.render })} onFocus={() => setHover({ key: p.k, name: p.title, render: p.render })}
             onClick={() => { if (held) { held = false; return; } pickKey(p.k); }}
-            onContextMenu={(e) => { e.preventDefault(); toggleFavEmoji(p.k); }}
-            onPointerMove={(e) => { if (e.pointerType === "touch" && sx !== null && Math.hypot(e.clientX - sx, e.clientY - sy) > 8) { clearTimeout(t); sx = null; } }}
-            onPointerDown={(e) => { if (e.pointerType !== "touch") return; held = false; sx = e.clientX; sy = e.clientY; t = setTimeout(() => {
-              held = true; const was = ext().favEmoji.includes(p.k); toggleFavEmoji(p.k); setHover({ key: p.k, name: p.title, render: p.render });
-              if (phone) { navigator.vibrate?.(15); toast(was ? `${p.title} removed from favorites` : `${p.title} added to favorites`); }
-            }, 500); }}
-            onPointerUp={() => clearTimeout(t)} onPointerLeave={() => clearTimeout(t)} onPointerCancel={() => clearTimeout(t)}>{p.render()}</button>
+            onContextMenu={(e) => { e.preventDefault(); if (touch) { if (sx !== null || t) hold(); return; } toggleFavEmoji(p.k); }}
+            onPointerMove={(e) => { if (e.pointerType === "touch" && sx !== null && Math.hypot(e.clientX - sx, e.clientY - sy) > 8) { clearTimeout(t); t = undefined; sx = null; } }}
+            onPointerDown={(e) => { touch = e.pointerType === "touch"; if (!touch) return; held = false; sx = e.clientX; sy = e.clientY; t = setTimeout(hold, 500); }}
+            onPointerUp={() => { clearTimeout(t); t = undefined; }} onPointerLeave={() => { clearTimeout(t); t = undefined; }} onPointerCancel={() => { clearTimeout(t); t = undefined; sx = null; }}>{p.render()}</button>
         );
       };
       const uni = (c: string) => () => <UEmoji e={c} />;
-      const img = (e: CustomEmoji) => () => <img src={e.url} alt={e.name} loading="lazy" />;
+      const img = (e: CustomEmoji) => () => <StillImg src={e.url} still={!!e.animated && !gifsMove()} alt={e.name} loading="lazy" />;
       const titleOf = (k: string) => { const e = byKey(k); return e ? `:${e.name}:` : `:${emojiName(k) ?? "emoji"}:`; };
       const renderOf = (k: string) => { const e = byKey(k); return e ? img(e) : uni(k); };
 
@@ -149,8 +194,10 @@ export function EmojiPicker() {
         if (idx > upTo()) setUpTo(idx);
         jumpUntil = performance.now() + 450;
         const align = () => {
-          const h = list.querySelector<HTMLElement>(`[data-sec="${id}"]`);
-          if (h) list.scrollTop += h.getBoundingClientRect().top - list.getBoundingClientRect().top;
+          // Measured from the section's grid, not its title: titles are sticky, and every one scrolled past stays
+          // pinned at the top, so a section above always looked "already there" and the jump went nowhere.
+          const h = list.querySelector<HTMLElement>(`[data-sec="${id}"]`), g = h?.nextElementSibling as HTMLElement | null;
+          if (h && g) list.scrollTop += g.getBoundingClientRect().top - list.getBoundingClientRect().top - h.offsetHeight;
           if (performance.now() < jumpUntil) requestAnimationFrame(align);
         };
         align();
@@ -170,7 +217,7 @@ export function EmojiPicker() {
 
       return (
         <div class="pop-scrim emoji-scrim" classList={{ sheet: phone, "xs-scrim": phone }} onClick={() => setPicker(null)}>
-          <div class="emoji-pop panel" ref={(el) => sheet?.bind(el)} classList={{ "emoji-sheet": phone, "xs-dragging": !!sheet?.dragging() }} style={sheet ? { height: `${sheet.height()}px` } : { left: `${left()}px`, top: `${Math.max(8, top())}px`, width: `${W}px`, height: `${H}px` }}
+          <div class="emoji-pop panel" ref={(el) => sheet?.bind(el)} classList={{ "emoji-sheet": phone, "xs-dragging": !!sheet?.dragging(), "xs-in-l": !!sheet?.switched }} style={sheet ? { height: `${sheet.height()}px` } : { left: `${left()}px`, top: `${Math.max(8, top())}px`, width: `${W}px`, height: `${H}px` }}
             onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Emoji picker">
             <SheetTop tab="emoji" toGif={toGif} toEmoji={toGif && (() => {})} grip={sheet?.grip} />
             <div class="emoji-top">
@@ -179,11 +226,14 @@ export function EmojiPicker() {
             </div>
             <div class="emoji-main">
               <Show when={!q()}>
-                <nav class="emoji-rail" aria-label="Emoji groups">
-                  <For each={sections()}>{(s) => (
-                    <button classList={{ on: active() === s.id }} title={s.title} aria-label={s.title} onClick={() => jump(s.id)}>{s.icon()}</button>
-                  )}</For>
-                </nav>
+                <div class="emoji-railbar" classList={{ "has-del": !!req.back }}>
+                  <nav class="emoji-rail" aria-label="Emoji groups">
+                    <For each={sections()}>{(s) => (
+                      <button classList={{ on: active() === s.id }} title={s.title} aria-label={s.title} onClick={() => jump(s.id)}>{s.icon()}</button>
+                    )}</For>
+                  </nav>
+                  <Show when={req.back}>{(back) => <DeleteKey run={back()} />}</Show>
+                </div>
               </Show>
               <div class="emoji-list" ref={list} onScroll={onScroll}>
                 <Show when={results()} fallback={
@@ -215,6 +265,19 @@ export function EmojiPicker() {
         </div>
       );
     }}</Show>
+  );
+}
+
+/** The emoji card's delete key (phones, like the keyboard's): a tap deletes one, holding keeps deleting. */
+function DeleteKey(props: { run: () => void }) {
+  let wait: ReturnType<typeof setTimeout> | undefined, rep: ReturnType<typeof setInterval> | undefined;
+  const stop = () => { clearTimeout(wait); clearInterval(rep); };
+  onCleanup(stop);
+  return (
+    <button type="button" class="emoji-del" aria-label="Delete" title="Delete"
+      onPointerDown={(e) => { e.preventDefault(); stop(); props.run(); wait = setTimeout(() => { rep = setInterval(props.run, 70); }, 420); }}
+      onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop} onContextMenu={(e) => e.preventDefault()}
+      onClick={(e) => { if (e.detail === 0) props.run(); }}><Icon name="backspace" size={24} /></button>
   );
 }
 
@@ -265,8 +328,8 @@ export function GifPicker() {
       const [deb, setDeb] = createSignal("");
       const [tab, setTab] = createSignal<"fav" | "browse">(settings().favGifs.length ? "fav" : "browse");
       let t: ReturnType<typeof setTimeout> | undefined;
-      const [cats, { refetch: refetchCats }] = createResource(() => backend()?.gifCategories().catch(() => []));
-      const [found, { refetch: refetchFound }] = createResource(deb, (x) => backend()!.gifs(x).catch(() => null));
+      const [cats, { refetch: refetchCats }] = createResource(loadGifCats, { initialValue: freshCats() });
+      const [found, { refetch: refetchFound }] = createResource(deb, loadGifs);
       const phone = phoneLayout();
       const sheet = phone ? useExprSheet(() => setGifReq(null)) : null;
       const toEmoji = req().emoji ? () => { const r = req(); setGifReq(null); setPicker({ x: r.x, y: r.y, onPick: r.emoji!, gif: r.onPick, stay: true }); } : undefined;
@@ -281,11 +344,11 @@ export function GifPicker() {
       const search = (v: string) => { setQ(v); setTab("browse"); clearTimeout(t); t = setTimeout(() => setDeb(v.trim()), 300); };
       return (
         <div class="pop-scrim" classList={{ "xs-scrim": phone }} onClick={() => setGifReq(null)}>
-          <div class="gif-pop panel" ref={(el) => sheet?.bind(el)} classList={{ "gif-sheet": phone, "xs-dragging": !!sheet?.dragging() }} style={sheet ? { height: `${sheet.height()}px` } : { left: `${left()}px`, top: `${top()}px`, width: `${W}px`, height: `${H}px` }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="GIFs">
+          <div class="gif-pop panel" ref={(el) => sheet?.bind(el)} classList={{ "gif-sheet": phone, "xs-dragging": !!sheet?.dragging(), "xs-in-r": !!sheet?.switched }} style={sheet ? { height: `${sheet.height()}px` } : { left: `${left()}px`, top: `${top()}px`, width: `${W}px`, height: `${H}px` }} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="GIFs">
             <SheetTop tab="gif" toEmoji={toEmoji} toGif={toEmoji && (() => {})} grip={sheet?.grip} />
             <div class="gif-head">
               <Show when={deb()}><button class="icon-btn" aria-label="Back" onClick={() => { setQ(""); setDeb(""); }}><Icon name="back" size={18} /></button></Show>
-              <input class="emoji-search" placeholder="Search Gifbox" value={q()} onInput={(e) => search(e.currentTarget.value)} aria-label="Search GIFs" autofocus={!phone} />
+              <input class="emoji-search" placeholder="Search Gifbox" value={q()} onInput={(e) => search(e.currentTarget.value)} aria-label="Search GIFs" autofocus={!MOBILE_UI && !phone} />
             </div>
             <Show when={!deb()}>
               <div class="seg gif-tabs" role="tablist">

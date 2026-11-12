@@ -12,5 +12,8 @@ import { MOBILE_UI } from "./ui/target";
  * dropped); the web build loads whichever fits the device.
  */
 const root = document.getElementById("root")!;
+// Signed in to a real account: start fetching the connection code now, alongside the app's own code, instead of
+// only once the app is up (the import in store.ts then finds it already loaded).
+try { if (/"kind":"stoat"/.test(localStorage.getItem("mustela:accounts") ?? "")) void import("./lib/backend/stoat"); } catch { /* storage off */ }
 if (MOBILE_UI) void import("./mobile/main").then((m) => m.start(root));
 else void import("./desktop/main").then((m) => m.start(root));

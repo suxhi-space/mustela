@@ -43,9 +43,10 @@ async function save(it: GalleryItem) {
   if (platform === "android") {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("plugin:mustela-native|media_file", { payload: { url: it.url, name: it.name, share: false } });
-      toast("Saving to Downloads…");
-    } catch { toast("Couldn't save it.", true); }
+      toast("Saving…");
+      const r = await invoke<{ message?: string } | null>("plugin:mustela-native|media_file", { payload: { url: it.url, name: it.name, share: false, mode: "save" } });
+      toast(r?.message ?? "Saved");
+    } catch (e) { toast(`Couldn't save it. ${typeof e === "string" ? e : (e as Error)?.message ?? ""}`.trim(), true); }
     return;
   }
   try {
@@ -61,7 +62,8 @@ async function share(it: GalleryItem) {
   if (platform === "android") {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("plugin:mustela-native|media_file", { payload: { url: it.url, name: it.name, share: true } });
+      toast("Getting it ready to share…");
+      await invoke("plugin:mustela-native|media_file", { payload: { url: it.url, name: it.name, share: true, mode: "share" } });
       return;
     } catch { /* fall through to copying the link */ }
   }
@@ -70,6 +72,10 @@ async function share(it: GalleryItem) {
 }
 
 async function openOutside(url: string) {
+  // Android: straight to the browser through Android itself.
+  if (platform === "android" && "__TAURI_INTERNALS__" in globalThis) {
+    try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("plugin:mustela-native|media_file", { payload: { url, name: "link", share: false, mode: "open" } }); return; } catch { /* the opener below */ }
+  }
   try {
     if ("__TAURI_INTERNALS__" in globalThis) { const { openUrl } = await import("@tauri-apps/plugin-opener"); await openUrl(url); }
     else window.open(url, "_blank", "noopener");
@@ -251,10 +257,12 @@ function GalleryView() {
       <>
         <div class="gv-menu-scrim" onClick={() => setMenu(false)} />
         <div class="gv-menu" role="menu">
-            <Show when={!it().frame}><button role="menuitem" onClick={() => { setMenu(false); void save(it()); }}><Icon name="download" size={20} />Save</button></Show>
-            <button role="menuitem" onClick={() => { setMenu(false); void share(it()); }}><Icon name="popout" size={20} />Share</button>
-            <button role="menuitem" onClick={() => { setMenu(false); void openOutside(it().url); }}><Icon name="globe" size={20} />Open in browser</button>
-            <Show when={it().locate}>{(loc) => <button role="menuitem" onClick={() => { close(); loc()(); }}><Icon name="chat" size={20} />Show in chat</button>}</Show>
+            {/* Each reads its picture before closing the menu: closing it first made the read fail (a stale <Show>),
+                so on phones none of these ever ran. */}
+            <Show when={!it().frame}><button role="menuitem" onClick={() => { const x = it(); setMenu(false); void save(x); }}><Icon name="download" size={20} />Save</button></Show>
+            <button role="menuitem" onClick={() => { const x = it(); setMenu(false); void share(x); }}><Icon name="popout" size={20} />Share</button>
+            <button role="menuitem" onClick={() => { const u = it().url; setMenu(false); void openOutside(u); }}><Icon name="globe" size={20} />Open in browser</button>
+            <Show when={it().locate}>{(loc) => <button role="menuitem" onClick={() => { const go = loc(); close(); go(); }}><Icon name="chat" size={20} />Show in chat</button>}</Show>
         </div>
       </>
     )}</Show>
@@ -319,7 +327,7 @@ function GalleryView() {
                 </span>
               </>
             )}</Show>
-            <Show when={cur()?.locate}>{(loc) => <button class="gv-locate" onClick={() => { close(); loc()(); }}><Icon name="chat" size={16} />Show in chat</button>}</Show>
+            <Show when={cur()?.locate}>{(loc) => <button class="gv-locate" onClick={() => { const go = loc(); close(); go(); }}><Icon name="chat" size={16} />Show in chat</button>}</Show>
             <Show when={!MOBILE_UI && cur()}>{(it) => <button class="gv-locate" onClick={() => void openOutside(it().url)}><Icon name="globe" size={16} />View original</button>}</Show>
             <Show when={!MOBILE_UI}>{moreBtn()}{menuView()}</Show>
           </div>

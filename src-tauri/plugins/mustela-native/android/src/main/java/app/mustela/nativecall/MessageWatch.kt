@@ -48,7 +48,6 @@ import java.net.URLEncoder
  */
 object MessageWatch {
     private const val PREFS = "mustela_watch"
-    private const val MSG_CHANNEL = "mustela_messages"
     private const val ALIVE_MS = 45_000L
     private const val TAG = "msg"
 
@@ -57,11 +56,8 @@ object MessageWatch {
     private val pictures = object : LinkedHashMap<String, Bitmap?>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap?>?) = size > 60
     }
-    /** What each channel's notification shows: the last few messages, newest last. */
-    private val shown = HashMap<String, ArrayList<Shown>>()
     private val seen = LinkedHashSet<String>()
 
-    private class Shown(val id: String, val author: String, val text: String, val at: Long, val picture: Bitmap?, val authorId: String)
 
     private fun prefs(ctx: Context): SharedPreferences = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -73,11 +69,12 @@ object MessageWatch {
         if (on && !profile.isNullOrEmpty()) {
             val first = p.getString("profile", null) == null
             p.edit().putString("profile", profile).apply()
+            runCatching { JSONObject(profile) }.getOrNull()?.let { Notifier.setSession(ctx, it.optString("api"), it.optString("token")) }
             if (first) p.edit().putLong("since", System.currentTimeMillis()).apply()
             MessageWatchService.start(ctx)
         } else {
             p.edit().clear().apply()
-            synchronized(this) { people.clear(); shown.clear(); seen.clear() }
+            synchronized(this) { people.clear(); seen.clear() }
             MessageWatchService.stop(ctx)
             cancelAlarm(ctx)
         }
@@ -95,10 +92,7 @@ object MessageWatch {
     }
 
     /** You looked at this channel in the app: its notification goes. */
-    fun clear(ctx: Context, channel: String) {
-        synchronized(this) { shown.remove(channel) }
-        manager(ctx).cancel(TAG, channel.hashCode())
-    }
+    fun clear(ctx: Context, channel: String) { Notifier.clear(ctx, channel) }
 
     /* ---------- checking ---------- */
 
@@ -182,7 +176,7 @@ object MessageWatch {
                 show(m, ch, null, mentioned = true)
             }
             // Read somewhere else (the app on your computer, say): that channel's notification goes.
-            val gone = synchronized(MessageWatch) { shown.filter { (ch, list) -> list.isNotEmpty() && (read[ch] ?: "") >= list.last().id }.keys.toList() }
+            val gone = Notifier.lastIds().filter { (ch, last) -> last.isNotEmpty() && (read[ch] ?: "") >= last }.keys.toList()
             for (ch in gone) clear(ctx, ch)
         }
 
@@ -218,7 +212,7 @@ object MessageWatch {
                 ?: user?.optJSONObject("avatar")?.optString("_id")?.takeIf { it.isNotEmpty() }?.let { "$autumn/avatars/$it?max_side=128" }
                 ?: "$api/users/$author/default_avatar"
             val text = if (!preview) (if (direct) "Sent you a message" else "Mentioned you") else body(m)
-            post(ctx, ch, Shown(id, name, text, ulidTime(id), picture(pic), author), conversation(ch, kind))
+            Notifier.show(ctx, ch, if (kind == "dm" || kind == "group") kind else "server", conversation(ch, kind), Notifier.Line(id, name, author, text, ulidTime(id), picture(pic)))
         }
 
         fun conversation(ch: String, kind: String): String? = when (kind) {
@@ -292,62 +286,15 @@ object MessageWatch {
 
     private fun manager(ctx: Context) = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    private fun ensureChannel(ctx: Context) {
-        if (Build.VERSION.SDK_INT < 26) return
-        val m = manager(ctx)
-        if (m.getNotificationChannel(MSG_CHANNEL) != null) return
-        m.createNotificationChannel(NotificationChannel(MSG_CHANNEL, "Messages", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Direct messages and mentions while Mustela is closed"
-        })
-    }
-
-    /** One notification per conversation, like other chat apps: the last few messages, who sent them, with pictures. */
-    private fun post(ctx: Context, ch: String, s: Shown, conversation: String?) {
-        if (Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
-        ensureChannel(ctx)
-        val list = synchronized(this) {
-            val l = shown.getOrPut(ch) { ArrayList() }
-            l.add(s); while (l.size > 6) l.removeAt(0)
-            ArrayList(l)
-        }
-        val open = Intent(Intent.ACTION_VIEW, Uri.parse("mustela://channel/$ch")).setPackage(ctx.packageName)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
-        val tap = PendingIntent.getActivity(ctx, ch.hashCode(), open, flags)
-        val dismiss = PendingIntent.getBroadcast(ctx, ch.hashCode(),
-            Intent(ctx, MessageWatchReceiver::class.java).setAction(MessageWatchReceiver.DISMISS).putExtra("channel", ch), flags)
-        val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(ctx, MSG_CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(ctx).setPriority(Notification.PRIORITY_HIGH)
-        b.setSmallIcon(smallIcon(ctx)).setContentIntent(tap).setDeleteIntent(dismiss).setAutoCancel(true)
-            .setCategory(Notification.CATEGORY_MESSAGE).setWhen(s.at).setShowWhen(true)
-        if (Build.VERSION.SDK_INT >= 28) {
-            val style = Notification.MessagingStyle(Person.Builder().setName("You").build())
-            if (conversation != null) { style.conversationTitle = conversation; style.isGroupConversation = true }
-            for (x in list) {
-                val who = Person.Builder().setName(x.author).setKey(x.authorId).apply { x.picture?.let { setIcon(Icon.createWithBitmap(it)) } }.build()
-                style.addMessage(Notification.MessagingStyle.Message(x.text, x.at, who))
-            }
-            b.setStyle(style)
-        } else {
-            @Suppress("DEPRECATION")
-            val style = Notification.MessagingStyle("You")
-            if (conversation != null) style.conversationTitle = conversation
-            @Suppress("DEPRECATION")
-            for (x in list) style.addMessage(x.text, x.at, x.author)
-            b.setStyle(style).setContentTitle(conversation ?: s.author).setContentText(s.text)
-            s.picture?.let { b.setLargeIcon(it) }
-        }
-        manager(ctx).notify(TAG, ch.hashCode(), b.build())
-    }
-
     /** The dismissed notification starts fresh next time. */
-    fun dismissed(channel: String) { synchronized(this) { shown.remove(channel) } }
+    fun dismissed(ctx: Context, channel: String) { Notifier.dismissed(ctx, channel) }
 
     fun smallIcon(ctx: Context): Int {
         val id = ctx.resources.getIdentifier("ic_notification", "drawable", ctx.packageName)
         return if (id != 0) id else ctx.applicationInfo.icon
     }
 
-    private fun round(src: Bitmap): Bitmap {
+    fun round(src: Bitmap): Bitmap {
         val size = minOf(src.width, src.height, 192)
         val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
@@ -495,7 +442,7 @@ class MessageWatchService : Service() {
 class MessageWatchReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         when (intent.action) {
-            DISMISS -> intent.getStringExtra("channel")?.let { MessageWatch.dismissed(it) }
+            DISMISS -> intent.getStringExtra("channel")?.let { MessageWatch.dismissed(ctx, it) }
             CHECK, Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 if (!MessageWatch.enabled(ctx)) return
                 MessageWatch.scheduleAlarm(ctx)

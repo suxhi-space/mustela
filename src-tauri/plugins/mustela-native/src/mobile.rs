@@ -33,7 +33,7 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn call_audio(&self, p: SetMic) -> Result<()> { self.0.run_mobile_plugin("callAudio", p).map_err(Into::into) }
   pub fn landscape(&self, p: SetMic) -> Result<()> { self.0.run_mobile_plugin("landscape", p).map_err(Into::into) }
   pub fn system_bars(&self, p: SetMic) -> Result<()> { self.0.run_mobile_plugin("systemBars", p).map_err(Into::into) }
-  pub fn media_file(&self, p: MediaFile) -> Result<()> { self.0.run_mobile_plugin("mediaFile", p).map_err(Into::into) }
+  pub fn media_file(&self, p: MediaFile) -> Result<serde_json::Value> { self.0.run_mobile_plugin("mediaFile", p).map_err(Into::into) }
   pub fn install_apk(&self, p: InstallApk) -> Result<()> { self.0.run_mobile_plugin("installApk", p).map_err(Into::into) }
   pub fn audio_outputs(&self) -> Result<AudioOutputs> { self.0.run_mobile_plugin("audioOutputs", ()).map_err(Into::into) }
   pub fn set_audio_output(&self, p: SetOutput) -> Result<()> { self.0.run_mobile_plugin("setAudioOutput", p).map_err(Into::into) }
@@ -46,4 +46,10 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn watch(&self, p: Watch) -> Result<()> { self.0.run_mobile_plugin("watch", p).map_err(Into::into) }
   pub fn watch_alive(&self, p: WatchAlive) -> Result<()> { self.0.run_mobile_plugin("watchAlive", p).map_err(Into::into) }
   pub fn watch_clear(&self, p: WatchClear) -> Result<()> { self.0.run_mobile_plugin("watchClear", p).map_err(Into::into) }
+  pub fn notify_message(&self, p: NotifyMessage) -> Result<()> { self.0.run_mobile_plugin("notifyMessage", p).map_err(Into::into) }
+  pub fn recent_photos(&self, p: RecentPhotos) -> Result<serde_json::Value> { self.0.run_mobile_plugin("recentPhotos", p).map_err(Into::into) }
+  pub fn request_photos(&self) -> Result<()> { self.0.run_mobile_plugin("requestPhotos", ()).map_err(Into::into) }
+  pub fn photo_file(&self, p: PhotoFile) -> Result<serde_json::Value> { self.0.run_mobile_plugin("photoFile", p).map_err(Into::into) }
+  pub fn take_media(&self, p: TakeMedia) -> Result<serde_json::Value> { self.0.run_mobile_plugin("takeMedia", p).map_err(Into::into) }
+  pub fn pending_media(&self) -> Result<serde_json::Value> { self.0.run_mobile_plugin("pendingMedia", ()).map_err(Into::into) }
 }

@@ -134,16 +134,20 @@ export function ChannelSettings(props: { id: string; tab?: Tab }) {
   // The channel object updates over the socket; read it again shortly after a change.
   const d = createMemo(() => { tick(); return b().channelDetails(props.id); });
   const later = () => { bump(); setTimeout(bump, 600); };
-  const [tab, setTab] = createSignal<Tab>(props.tab ?? "overview");
+  const [tab, setTabRaw] = createSignal<Tab>(props.tab ?? "overview");
   const close = () => setChannelSettings(null);
-  useBack(close);
+  // Phones: the channel's menu (Overview, Permissions…) fills the screen, each opens full screen with a back arrow.
+  const [narrow, setNarrow] = createSignal(!props.tab);
+  const setTab = (t: Tab) => { setTabRaw(t); setNarrow(false); };
+  const small = () => matchMedia("(max-width: 900px)").matches;
+  useBack(() => (narrow() || !small() ? close() : setNarrow(true)));
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "overview", label: "Overview", icon: "info" },
     { id: "permissions", label: "Permissions", icon: "shield" },
     { id: "webhooks", label: "Webhooks", icon: "bot" },
   ];
   return (
-    <div class="settings" role="dialog" aria-label="Channel settings" onKeyDown={(e) => e.key === "Escape" && close()} onClick={(e) => e.target === e.currentTarget && close()}>
+    <div class="settings stepped" role="dialog" aria-label="Channel settings" data-narrow={narrow() ? "nav" : "page"} onKeyDown={(e) => e.key === "Escape" && close()} onClick={(e) => e.target === e.currentTarget && close()}>
       <div class="settings-card">
         <header class="bar settings-bar panel">
           <h2>{d() ? `${d()!.kind === "voice" ? "" : "#"}${d()!.name}` : "Channel"} settings</h2>
@@ -153,6 +157,10 @@ export function ChannelSettings(props: { id: string; tab?: Tab }) {
         <Show when={d()} fallback={<p class="empty center">This channel isn't available.</p>}>{(c) => (
           <div class="settings-body">
             <nav class="snav panel" role="tablist" aria-label="Channel settings sections">
+              <div class="snav-top">
+                <button class="icon-btn" onClick={close} aria-label="Close channel settings"><Icon name="back" size={22} /></button>
+                <h2>{c().kind === "voice" ? c().name : `#${c().name}`}</h2>
+              </div>
               <h3 class="snav-head">{c().kind === "voice" ? c().name : `#${c().name}`}</h3>
               <For each={tabs}>{(t) => (
                 <button role="tab" aria-selected={tab() === t.id} classList={{ on: tab() === t.id }} onClick={() => setTab(t.id)}><Icon name={t.icon} size={18} />{t.label}</button>
@@ -165,6 +173,10 @@ export function ChannelSettings(props: { id: string; tab?: Tab }) {
               </Show>
             </nav>
             <div class="spage panel" role="tabpanel">
+              <header class="spage-head stepped-head">
+                <button class="icon-btn snav-back" onClick={() => setNarrow(true)} aria-label="All channel settings"><Icon name="back" size={22} /></button>
+                <h2>{tabs.find((t) => t.id === tab())?.label}</h2>
+              </header>
               <Pick>
                 <Match when={tab() === "overview"}><Overview d={c()} bump={later} /></Match>
                 <Match when={tab() === "permissions"}><Permissions d={c()} bump={later} /></Match>

@@ -299,6 +299,33 @@ fn discover_link(url: &tauri::Url) -> bool {
     }
 }
 
+/// Mustela's own pages, and the frames it shows inside them (YouTube's player, the sign-in captcha).
+fn stays_in_app(u: &tauri::Url) -> bool {
+    match u.scheme() {
+        "tauri" | "asset" | "ipc" | "about" | "data" | "blob" | "javascript" => return true,
+        "http" | "https" => {}
+        _ => return false,
+    }
+    let host = u.host_str().unwrap_or("").to_ascii_lowercase();
+    if matches!(host.as_str(), "tauri.localhost" | "ipc.localhost" | "asset.localhost" | "localhost" | "127.0.0.1") { return true; }
+    let under = |d: &str| host == d || host.ends_with(&format!(".{d}"));
+    // Players and captchas load inside the page as frames (macOS and Linux ask about those too).
+    (under("youtube-nocookie.com") || under("youtube.com")) && u.path().starts_with("/embed/") || under("hcaptcha.com")
+}
+
+/// A link that would take Mustela's own window to another website (a link inside a video player or a link preview,
+/// which Android otherwise opens right over Mustela with no way back) opens in your browser instead.
+fn link_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("link-guard")
+        .on_navigation(|webview, url| {
+            if webview.label() != "main" || stays_in_app(url) { return true; }
+            use tauri_plugin_opener::OpenerExt;
+            let _ = webview.app_handle().opener().open_url(url.as_str(), None::<&str>);
+            false
+        })
+        .build()
+}
+
 /// Discover (stt.gg) in its own window. Stoat's site only lets stoat.chat show it in a frame, so it can't
 /// sit inside Mustela's window; a window of its own works. Invite and bot links come back to Mustela.
 #[cfg(desktop)]
@@ -522,6 +549,7 @@ pub fn run() {
         .plugin(tauri_plugin_mustela_native::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(link_guard())
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| {
             // Closing the main window hides it to the tray, so reopening is instant and calls keep going.
@@ -554,3 +582,23 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Mustela");
 }
+
+#[cfg(test)]
+mod link_tests {
+    use super::stays_in_app;
+    fn u(s: &str) -> tauri::Url { s.parse().unwrap() }
+    #[test]
+    fn links_open_outside_the_app() {
+        assert!(stays_in_app(&u("tauri://localhost/index.html")));
+        assert!(stays_in_app(&u("http://tauri.localhost/")));
+        assert!(stays_in_app(&u("http://localhost:1420/")));
+        assert!(stays_in_app(&u("https://www.youtube-nocookie.com/embed/abc123?autoplay=1")));
+        assert!(stays_in_app(&u("https://newassets.hcaptcha.com/captcha/v1/x/static/hcaptcha.html")));
+        assert!(stays_in_app(&u("about:blank")));
+        assert!(!stays_in_app(&u("https://www.youtube.com/watch?v=abc123")));
+        assert!(!stays_in_app(&u("https://youtu.be/abc123")));
+        assert!(!stays_in_app(&u("https://example.com/")));
+        assert!(!stays_in_app(&u("https://www.youtube-nocookie.com.evil.example/embed/x")));
+    }
+}
+

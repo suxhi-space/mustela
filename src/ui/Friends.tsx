@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { badgeNum } from "./badge";
 import { TextWithEmoji } from "./chat/EmojiText";
 import { useBack } from "./back";
 import { userMenu } from "./menus";
@@ -68,7 +69,7 @@ export function Friends(props: { onMessage(channelId: string): void; onProfile(p
         <nav class="seg friends-tabs" role="tablist" aria-label="Friends">
           <For each={TABS}>{(t) => (
             <button role="tab" aria-selected={tab() === t.id} classList={{ on: tab() === t.id }} onClick={() => setTab(t.id)}>
-              {t.label}<Show when={t.id === "pending" && pending()}><span class="badge">{pending()}</span></Show>
+              {t.label}<Show when={t.id === "pending" && pending()}><span class="badge">{badgeNum(pending())}</span></Show>
             </button>
           )}</For>
         </nav>

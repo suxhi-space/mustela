@@ -1,7 +1,7 @@
 import { createEffect, on, onCleanup } from "solid-js";
 import { inTauri } from "../lib/platform";
 import { call } from "./call/state";
-import { openChannel } from "./nav";
+import { openChannel, requestJump } from "./nav";
 import { backend, device, platform } from "./store";
 
 /**
@@ -96,7 +96,9 @@ export function startClosedNotify(current: () => string | undefined) {
     const id = typeof url === "string" ? /^mustela:\/\/channel\/([0-9A-Za-z]{1,40})/.exec(url)?.[1] : undefined;
     if (!id || url === w.__mustelaChat) return;
     w.__mustelaChat = url as string; // the phone sends a link a few times in case the page wasn't ready
-    openChannel(id);
+    // At the message the notification was about, when it says which.
+    const msg = /[?&]message=([0-9A-Za-z]{1,40})/.exec(url as string)?.[1];
+    if (msg) requestJump(id, msg); else openChannel(id);
   };
   if (w.__mustelaLink) take(w.__mustelaLink);
   const onLink = (e: Event) => take((e as CustomEvent<string>).detail);

@@ -3,6 +3,7 @@ import { setGates, setWindowFocused } from "../lib/render/loop";
 import { inTauri } from "../lib/platform";
 import { call } from "./call/state";
 import { device } from "./store";
+import { setAppFocused, startBgStill } from "./bgStill";
 
 /**
  * Settings > Mustela > Performance, applied: the animation loop's speed and pauses,
@@ -13,6 +14,7 @@ let started = false;
 export function startPerf() {
   if (started) return;
   started = true;
+  startBgStill();
   createRoot(() => {
     // The system's own "reduce motion" (Windows' animation effects, macOS and Android's settings), live.
     const mq = matchMedia("(prefers-reduced-motion: reduce)");
@@ -37,8 +39,9 @@ export function startPerf() {
   if (inTauri()) {
     void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
       const w = getCurrentWindow();
-      setWindowFocused(await w.isFocused().catch(() => true));
-      await w.onFocusChanged(({ payload }) => setWindowFocused(payload));
+      const f = await w.isFocused().catch(() => true);
+      setWindowFocused(f); setAppFocused(f);
+      await w.onFocusChanged(({ payload }) => { setWindowFocused(payload); setAppFocused(payload); });
     }).catch(() => {});
   }
 }

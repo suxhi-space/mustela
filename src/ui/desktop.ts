@@ -3,7 +3,6 @@ import { inTauri } from "../lib/platform";
 import { call, leaveCall, toggleCall } from "./call/state";
 import { setSettingsOpen } from "./nav";
 import { device, meNow, platform } from "./store";
-import traySvg from "../../icons/tray/tray.svg?raw";
 
 /** The dot on the tray icon: your status colour (the same as everywhere else in the app). */
 const DOT: Record<string, string> = { online: "#23a559", idle: "#e3a008", focus: "#4a86e8", busy: "#e5484d", invisible: "#80848e" };
@@ -17,6 +16,7 @@ async function drawTray(status: string, inCall: boolean): Promise<Uint8Array | n
   // 24px is the normal panel icon on Linux. The face is drawn a little bigger than the svg's margin.
   const size = platform === "linux" ? 24 : platform === "mac" ? 22 : 32;
   const ring = inCall ? '<circle cx="419.365" cy="443.942" r="24" style="fill:#fff"/>' : "";
+  const traySvg = (await import("../../icons/tray/tray.svg?raw")).default; // computers only: not in the phone app
   const svg = traySvg
     .replace('width="100%" height="100%"', `width="${size}" height="${size}"`)
     .replace(/<circle ([^>]*?)\/>/, `<circle $1 style="fill:${DOT[status] ?? DOT.online};stroke:#353535;stroke-width:16px"/>${ring}`);

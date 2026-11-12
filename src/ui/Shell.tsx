@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, lazy, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
+import { badgeNum } from "./badge";
 import { TextWithEmoji } from "./chat/EmojiText";
 import { createStore, reconcile } from "solid-js/store";
 import type { CategoryInfo, ChannelInfo, Person, Space } from "../lib/backend/types";
@@ -16,7 +17,9 @@ import { AppImagePrompt } from "./AppImagePrompt";
 import { startUpdates, UpdatePrompt, UpdateSplash } from "./updates";
 import { startPerf } from "./perf";
 import { setScreenBack, startBackButton } from "./back";
-import { Avatar, createPerson } from "./Avatar";
+import { Avatar, createPerson, NameText } from "./Avatar";
+import { setStillLists } from "./anim";
+import { pendingCapture } from "./chat/Composer";
 import { createAnim } from "./anim";
 import { PlateCanvas } from "./Paint";
 import { CallPanel } from "./call/CallPanel";
@@ -25,27 +28,29 @@ import { MiniCall, PipView } from "./call/MiniCall";
 import { startSoundSync } from "./call/Soundboard";
 import { createPhone, createProfileInfo, createSize, narrowLayout, phoneLayout } from "./hooks";
 import { MOBILE_UI } from "./target";
+import { Portal } from "solid-js/web";
+import { HomeSearch, noteVisit, QuickSwitcher } from "./HomeSearch";
 import { dragToClose } from "./sheetDrag";
 import { phoneVoiceChat, setPhoneVoiceChat, VOICE_MIME } from "./Voice";
 import { ScreenPickerHost } from "./call/ScreenPicker";
 import { call, callBanner, checkLastCall, joinCall, setCallBanner, toggleCall } from "./call/state";
 import { Chat } from "./Chat";
-import { EmojiPicker, GifPicker, Lightbox, warmFavGifs, warmLikelyEmoji } from "./chat/overlays";
-import { perfEvent, setPerfWhere } from "./perfLog";
+import { EmojiPicker, GifPicker, Lightbox, warmFavGifs, warmGifs, warmLikelyEmoji } from "./chat/overlays";
+import { perfEvent, setPerfWhere, startupMark } from "./perfLog";
 import { refreshScheduled, startScheduler } from "./schedule";
 import { ActiveStrip, Friends, JoinServer } from "./Friends";
 import { Icon } from "./icons";
 import { Members } from "./Members";
 import { DmProfile, ProfileView } from "./Profile";
-import { Discover } from "./Discover";
+const Discover = lazy(() => import("./Discover").then((m) => ({ default: m.Discover })));
 import { GroupInvite } from "./GroupInvite";
 import { Inbox } from "./Inbox";
 import { CallStage } from "./call/CallStage";
-import { favGroupItems, groupItems, movePin, newFavGroup, newPinGroup, reorderPinned, setChannelPinned, setFavGroup, setPin } from "./pins";
+import { favGroupItems, groupItems, moveFavGroup, movePin, movePinGroup, newFavGroup, newPinGroup, reorderPinned, setChannelPinned, setFavGroup, setPin } from "./pins";
 import { moveCategory, moveChannel } from "../lib/channelOrder";
 import { hasTitleBar } from "./TitleBar";
 import { attempt, openMenu, toast } from "./menu";
-import { Settings } from "./Settings";
+const Settings = lazy(() => import("./Settings").then((m) => ({ default: m.Settings })));
 import { backend, book, bumpMe, device, ext, meNow, platform, settings, updateDevice, updateExt } from "./store";
 import { activeAccount } from "../lib/session/book";
 import { Voice, VoiceMembers } from "./Voice";
@@ -53,15 +58,16 @@ import { Soundboard } from "./call/Soundboard";
 import { categoryMenu, channelListMenu, channelMenu, favoriteMenu, inviteTo, serverMenu } from "./menus";
 import { startActivity } from "./activity";
 import { startDesktop } from "./desktop";
-import { ProfileEditorHost } from "./ProfileEditor";
+const ProfileEditorHost = lazy(() => import("./ProfileEditor").then((m) => ({ default: m.ProfileEditorHost })));
 import { EmojiInfo } from "./chat/EmojiInfo";
+import { clearRead, nativeNotifications, nativeNotify } from "./nativeNotify";
 import { MessagePanel, type Panel } from "./chat/MessagePanel";
 import { HeaderSearch } from "./chat/HeaderSearch";
 import { shownName } from "./nicks";
 import { sessionName } from "../lib/deviceName";
 import { channelSettings, setChannelSettings, setCurrentServer, setProfileView, inboxBadge, inboxOpen, setInboxOpen, setInboxBadge, setLocation, profileOpen, registerNav, serverSettings, setProfileOpen, setServerSettings, setSettingsOpen, settingsOpen } from "./nav";
-import { ServerSettings } from "./ServerSettings";
-import { ChannelSettings } from "./ChannelSettings";
+const ServerSettings = lazy(() => import("./ServerSettings").then((m) => ({ default: m.ServerSettings })));
+const ChannelSettings = lazy(() => import("./ChannelSettings").then((m) => ({ default: m.ChannelSettings })));
 
 
 /** The last DM you had open, for this session only (like the user asked: Home doesn't remember across restarts). */
@@ -81,12 +87,24 @@ function rememberChannel(serverId: string, channelId: string) {
 }
 
 /** Groups a server's ordered channels into their categories, keeping order. */
-function byCategory(chs: ChannelInfo[]) {
+function byCategory(chs: ChannelInfo[], cats: { id: string; title: string }[] = []) {
   const out: { title?: string; id?: string; channels: ChannelInfo[] }[] = [];
   for (const c of chs) {
     const last = out[out.length - 1];
     if (last && last.title === c.category) last.channels.push(c);
     else out.push({ title: c.category, id: c.categoryId, channels: [c] });
+  }
+  // Categories with nothing in them (yet) still show, in the server's order, so you can see them and drop into them.
+  if (cats.length) {
+    const have = new Set(out.map((g) => g.id).filter(Boolean));
+    cats.forEach((k, i) => {
+      if (have.has(k.id)) return;
+      // After the category that comes before it in the server's order (or first, if none of those are shown).
+      const before = cats.slice(0, i).reverse().find((x) => have.has(x.id));
+      const at = before ? out.findIndex((g) => g.id === before.id) + 1 : out.findIndex((g) => g.id);
+      out.splice(at < 0 ? out.length : at, 0, { title: k.title, id: k.id, channels: [] });
+      have.add(k.id);
+    });
   }
   return out;
 }
@@ -97,6 +115,8 @@ export function Shell() {
   const [spacesRes, { refetch: refetchNow }] = createResource(() => backend(), (b) => b.spaces());
   const [spaceStore, setSpaceStore] = createStore<{ list: Space[]; ready: boolean }>({ list: [], ready: false });
   createEffect(() => { const v = spacesRes(); if (v) { setSpaceStore("list", reconcile(v, { key: "id", merge: true })); setSpaceStore("ready", true); orderChanged(); } });
+  // Android: chats read since (here or on another device) lose their notification.
+  createEffect(() => { const v = spacesRes(); if (v && nativeNotifications()) clearRead(v); });
   const spaces = () => (spaceStore.ready ? spaceStore.list : undefined);
   let refetchTimer: ReturnType<typeof setTimeout> | undefined;
   // At most one refresh per window: a busy server sends messages faster than any debounce, which either kept
@@ -124,7 +144,9 @@ export function Shell() {
   const [discover, setDiscover] = createSignal(false);
   const [groupInvite, setGroupInvite] = createSignal<ChannelInfo | null>(null);
   /** Phones: the "find a conversation" box in Home (null: closed) */
-  const [dmSearch, setDmSearch] = createSignal<string | null>(null);
+  // Home search: the search screen (phones; a window on desktop) and the desktop quick switcher (Ctrl+K).
+  const [homeSearch, setHomeSearch] = createSignal<{ query?: string; tab?: "messages" } | null>(null);
+  const [switcher, setSwitcher] = createSignal(false);
 
   /** Favorite channels from every server (for Home, or the Favorites button under it). */
   const favourites = createMemo(() => {
@@ -262,6 +284,35 @@ export function Shell() {
   createEffect(on(() => settings().emojiPack, () => { const t = setTimeout(warmLikelyEmoji, 3000); onCleanup(() => clearTimeout(t)); }));
   // Favorite GIFs saved on this device, kept in step with your favorites (they sync from other devices too).
   createEffect(on(() => settings().favGifs, () => { const t = setTimeout(warmFavGifs, 4000); onCleanup(() => clearTimeout(t)); }));
+  // The GIF card's categories, fetched ahead once things have settled so the first open is instant.
+  onMount(() => { const t = setTimeout(warmGifs, 6000); onCleanup(() => clearTimeout(t)); });
+  // What you open is remembered for search's "Recently opened" and the switcher's "Previous channels".
+  createEffect(on(() => channel()?.id, (id) => { if (id) noteVisit(id); }));
+  // Android closed Mustela while the camera was open (it needed the memory): back to the chat the photo was for. The chat
+  // then picks the photo up itself (Composer).
+  {
+    let reopened = false;
+    createEffect(on(spaces, (list) => {
+      if (reopened || !list?.length) return;
+      const c = pendingCapture();
+      if (!c) { reopened = true; return; }
+      if (list.some((x) => x.channels.some((ch) => ch.id === c.channel))) { reopened = true; openChannelById(c.channel); }
+    }));
+  }
+  // Big servers (over 1,000 members): profile effects in their chat and member list hold still, if that's on.
+  createEffect(() => {
+    const big = !!device().perf.bigStill && (space()?.memberCount ?? 0) > 1000 && !space()?.home;
+    setStillLists(big);
+    document.documentElement.toggleAttribute("data-big-still", big);
+  });
+  // Tablets: Home search sits over the chat area, so opening something from the side lists closes it.
+  createEffect(on([() => channel()?.id, () => space()?.id, view] as const, () => { if (MOBILE_UI && !phone()) setHomeSearch(null); }, { defer: true }));
+  // Ctrl+K (Cmd+K on a Mac): the quick switcher, from anywhere (desktop).
+  onMount(() => {
+    const k = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k" && !MOBILE_UI) { e.preventDefault(); setSwitcher((v) => !v); } };
+    addEventListener("keydown", k);
+    onCleanup(() => removeEventListener("keydown", k));
+  });
   // For Settings > Advanced > Copy performance report: what was on screen when something froze.
   setPerfWhere(() => {
     const sp = space(), c = channel();
@@ -295,11 +346,19 @@ export function Shell() {
     if (MOBILE_UI && !document.hidden && document.hasFocus()) {
       const place = where?.c.kind === "dm" ? undefined : where?.c.kind === "group" ? where.c.name : `#${where?.c.name ?? "channel"}${where && !where.s.home ? ` · ${where.s.name}` : ""}`;
       showBanner({ channel: e.m.channelId, name: e.m.author.name, where: place, text, icon: e.m.author.avatarUrl, color: e.m.author.colour });
+    } else if (nativeNotifications()) {
+      // Android: Mustela's own chat notifications, like while it's closed (one per chat, Reply, Mark as read).
+      const kind = where?.c.kind === "dm" ? "dm" : where?.c.kind === "group" ? "group" : "server";
+      nativeNotify({ channel: e.m.channelId, kind, title: kind === "dm" ? undefined : kind === "group" ? where!.c.name : `#${where?.c.name ?? "channel"}${where && !where.s.home ? `, ${where.s.name}` : ""}`,
+        id: e.m.id, author: e.m.author.name, authorId: e.m.author.id, avatar: e.m.author.avatarUrl, text, at: e.m.at.getTime() });
     } else void notify(title, text, { icon: e.m.author.avatarUrl, channel: e.m.channelId });
-    if (device().sounds.message) playSfx("message");
+    // Phones and tablets: the phone's notification sound is the only one (no Mustela sound on top).
+    if (device().sounds.message && !MOBILE_UI) playSfx("message");
   });
   onCleanup(off);
   startActivity();
+  // First screen drawn: the last step of starting up in the performance report.
+  requestAnimationFrame(() => startupMark("first screen"));
   startClosedNotify(() => channel()?.id);
   startDesktop();
   startUpdates();
@@ -342,7 +401,7 @@ export function Shell() {
   const serverPerms = createMemo(() => { const s = space(); return s && !s.home ? backend()!.serverInfo(s.id)?.perms : undefined; });
 
   /* ---- drag to rearrange: channels and categories (if you can manage them), pinned channels, favorites, pinned DMs ---- */
-  type Drag = { kind: "chan" | "cat" | "spin" | "fav" | "dm"; id: string };
+  type Drag = { kind: "chan" | "cat" | "spin" | "fav" | "dm" | "pgrp" | "fgrp"; id: string };
   const [drag, setDrag] = createSignal<Drag | null>(null);
   const [dropAt, setDropAt] = createSignal<string | null>(null);
   // Phones and tablets: only with "Rearrange by dragging" on (Settings > Appearance), so a long press is the menu.
@@ -416,9 +475,11 @@ export function Shell() {
             <img class="chan-icon" src={c.iconUrl} alt="" />
           </Show>
         }>
-          <Avatar person={c.peer!} size={phone() ? 38 : 28} still />
+          <Avatar person={c.peer!} size={phone() ? 34 : 28} still />
         </Show>
-        <span class="chan-name"><TextWithEmoji v={c.kind === "dm" && c.peer ? shownName(c.peer) : c.name} /><Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
+        {/* The open DM shows their name style too (font and effect), like your nameplate shows yours */}
+        <span class="chan-name"><span class="chan-title"><Show when={c.kind === "dm" && c.peer && channel()?.id === c.id} fallback={<TextWithEmoji v={c.kind === "dm" && c.peer ? shownName(c.peer) : c.name} />}>
+          <NameText person={c.peer!} class="chan-nm" /></Show></span><Show when={o.sub ?? dmSub(c)}>{(sub) => <small class="chan-sub" classList={{ "in-voice": !o.sub && !!dmVoice(c) }}>{sub()}</small>}</Show></span>
         <Show when={call.active() && call.channel()?.id === c.id}><Icon name="speaker" size={14} class="live-ic" /></Show>
         {/* DMs count every unread message (like the orbs above the server list); channels count mentions. */}
         <Show when={(c.kind === "dm" || c.kind === "group") && c.unread && !c.muted ? Math.max(c.mentions ?? 0, backend()!.unreadCount(c.id)) : c.mentions}>{(n) => <span class="badge">{n() > 99 ? "99+" : n()}</span>}</Show>
@@ -460,7 +521,7 @@ export function Shell() {
           <div class="chan-wrap fav-home" classList={{ "drop-line": dropAt() === "fgrp:" }} {...dropTo("fgrp:", (d) => d.kind === "fav", (d) => setFavGroup(d.id, null))}>
             <button class="chan big" classList={{ on: favOpen() }} aria-expanded={favOpen()} onClick={() => toggleCat("\u2605favs-open")} onContextMenu={favMenu}>
               <Icon name="star" size={20} class="chan-ic" /><span class="chan-name">Favorites</span>
-              <Show when={favourites().reduce((n, f) => n + (f.c.mentions ?? 0), 0)}>{(n) => <span class="badge">{n()}</span>}</Show>
+              <Show when={favourites().reduce((n, f) => n + (f.c.mentions ?? 0), 0)}>{(n) => <span class="badge">{badgeNum(n())}</span>}</Show>
               <Icon name="down" size={16} class={`fav-chev${favOpen() ? "" : " rot"}`} />
             </button>
             <span class="chan-acts">
@@ -481,7 +542,8 @@ export function Shell() {
           return (
             <>
               <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `fgrp:${g.id}`, plain: g.color === "none" }} style={{ "--pin": g.color === "none" ? "currentColor" : g.color }} aria-expanded={!collapsed(key)} onClick={() => toggleCat(key)} onContextMenu={(e) => openMenu(e, favGroupItems(g))}
-                {...dropTo(`fgrp:${g.id}`, (d) => d.kind === "fav", (d) => setFavGroup(d.id, g.id))}>
+                {...dragFrom({ kind: "fgrp", id: g.id })}
+                {...dropTo(`fgrp:${g.id}`, (d) => d.kind === "fav" || (d.kind === "fgrp" && d.id !== g.id), (d) => (d.kind === "fgrp" ? moveFavGroup(d.id, g.id) : setFavGroup(d.id, g.id)))}>
                 <Icon name="down" size={12} class={collapsed(key) ? "rot" : ""} /><i class="pin-dot" />{g.name}
               </button>
               <Show when={!list().length && !collapsed(key)}><p class="empty small fav-empty">Drag favorites here.</p></Show>
@@ -497,9 +559,8 @@ export function Shell() {
     const all = space()?.home ? space()!.channels : [];
     const isSaved = (c: ChannelInfo) => c.id === "saved" || (c.kind === "text" && c.name === "Saved Notes");
     const pins = settings().pins;
-    // In the order you put them (drag to rearrange); empty groups show while dragging, as drop targets.
-    const groups = pins.groups.map((group) => ({ group, list: pins.items.filter((i) => i.group === group.id).map((i) => all.find((c) => c.id === i.channel && !isSaved(c))).filter((c): c is ChannelInfo => !!c) }))
-      .filter((g) => g.list.length || drag()?.kind === "dm");
+    // In the order you put them (drag to rearrange). Empty groups always show, so you can see them and drop into them.
+    const groups = pins.groups.map((group) => ({ group, list: pins.items.filter((i) => i.group === group.id).map((i) => all.find((c) => c.id === i.channel && !isSaved(c))).filter((c): c is ChannelInfo => !!c) }));
     const pinned = new Set(pins.items.map((i) => i.channel));
     return { saved: all.filter(isSaved), groups, rest: all.filter((c) => !isSaved(c) && !pinned.has(c.id)) };
   });
@@ -521,14 +582,14 @@ export function Shell() {
           <button class="orb home" classList={{ on: space()?.id === s.id }} title="Home" aria-label="Home" aria-current={space()?.id === s.id ? "true" : undefined} onContextMenu={favMenu}
             onClick={() => open("home")}>
             <Icon name="home" size={24} />
-            <Show when={mentions(s)}><span class="badge orb-badge">{mentions(s)}</span></Show>
+            <Show when={mentions(s)}><span class="badge orb-badge">{badgeNum(mentions(s))}</span></Show>
           </button>
         )}</For>
         <Show when={ext().favRail}>
           <button class="orb home fav-orb" classList={{ on: isFavs() }} title="Favorites" aria-label="Favorites" aria-current={isFavs() ? "true" : undefined}
             onClick={() => { setDiscover(false); open("favs"); }} onContextMenu={favMenu}>
             <Icon name="star" size={24} />
-            <Show when={favourites().reduce((n, f) => n + (f.c.mentions ?? 0), 0)}>{(n) => <span class="badge orb-badge">{n()}</span>}</Show>
+            <Show when={favourites().reduce((n, f) => n + (f.c.mentions ?? 0), 0)}>{(n) => <span class="badge orb-badge">{badgeNum(n())}</span>}</Show>
           </button>
         </Show>
         <For each={unreadDms()}>{(c) => (
@@ -555,7 +616,7 @@ export function Shell() {
           {/* Phones: find a conversation, your friends, a new message (like Discord's app); stays put while the list scrolls */}
           <Show when={phone() && !isFavs()}>
             <div class="home-actions">
-              <button class="icon-btn" classList={{ on: dmSearch() !== null }} aria-label="Find a conversation" title="Find a conversation" onClick={() => setDmSearch(dmSearch() === null ? "" : null)}><Icon name="search" size={20} /></button>
+              <button class="icon-btn" aria-label="Search" title="Search" onClick={() => setHomeSearch({})}><Icon name="search" size={20} /></button>
               <button class="btn home-friends" onClick={() => { setDiscover(false); setChannelId(undefined); setView("chat"); }}><Icon name="user-plus" size={18} />Friends</button>
               <button class="icon-btn primary-ic" aria-label="New message" title="New message" onClick={() => setGroupInvite({ id: "", name: "", kind: "dm" })}><Icon name="plus" size={22} /></button>
             </div>
@@ -575,8 +636,9 @@ export function Shell() {
           <Show when={space()?.home} fallback={
             <>
               <Show when={space()?.channels.length === 0}><p class="empty small">No channels yet.</p></Show>
-              {/* Pinned to the top: yours only, synced. Drag a channel here to pin it. */}
-              <Show when={pinnedHere().length || drag()?.kind === "chan"}>
+              {/* Pinned to the top: yours only, synced. Pinned from a channel's menu; the section only shows once something is
+                  in it (dragging a channel used to conjure an empty "Pinned" section, which looked like a new category). */}
+              <Show when={pinnedHere().length}>
                 <button class="cat pin-cat" classList={{ "drop-into": dropAt() === "pinned-head" }} style={{ "--pin": "var(--pri)" }} aria-expanded={!collapsed("\u2605pinned")} onClick={() => toggleCat("\u2605pinned")}
                   {...dropTo("pinned-head", (d) => d.kind === "chan" || d.kind === "spin", (d) => reorderPinned("channelPins", d.id, null))}>
                   <Icon name="down" size={12} class={collapsed("\u2605pinned") ? "rot" : ""} /><Icon name="pin" size={12} />Pinned
@@ -586,7 +648,11 @@ export function Shell() {
                   drop: dropTo(`spin:${c.id}`, (d) => (d.kind === "chan" || d.kind === "spin") && d.id !== c.id, (d) => reorderPinned("channelPins", d.id, c.id)),
                 })}</For>
               </Show>
-              <For each={byCategory((space()?.channels ?? []).filter((c) => !ext().channelPins.includes(c.id)))}>{(g) => (
+              {/* Dragging a channel that's in a category: this line at the top takes it back out (Uncategorised). */}
+              <Show when={drag()?.kind === "chan" && canManage() && (space()?.channels.find((c) => c.id === drag()!.id)?.categoryId)}>
+                <div class="uncat-drop" classList={{ "drop-into": dropAt() === "uncat" }} {...dropTo("uncat", listAccepts, toList({ into: null }))}>Move out of category</div>
+              </Show>
+              <For each={byCategory((space()?.channels ?? []).filter((c) => !ext().channelPins.includes(c.id)), space() && !space()!.home ? backend()!.categories(space()!.id) : [])}>{(g) => (
                 <>
                   <Show when={g.title}>
                     <button class="cat" classList={{ "drop-into": dropAt() === `cat:${g.id}`, dragging: drag()?.id === g.id }} aria-expanded={!collapsed(g.title)} onClick={() => toggleCat(g.title!)} onContextMenu={(e) => { e.stopPropagation(); categoryMenu(e, space()!.id, g.id, g.title!, g.channels); }}
@@ -607,12 +673,14 @@ export function Shell() {
             </>
           }>
             <Show when={!phone()} fallback={<>
-              {/* who's around, scrolling sideways; or the box to find a conversation */}
-              <Show when={dmSearch() !== null}>
-                <label class="search-box wide dm-find"><Icon name="search" size={16} /><input placeholder="Find a conversation" value={dmSearch() ?? ""} onInput={(e) => setDmSearch(e.currentTarget.value)} autofocus /></label>
-              </Show>
-              <Show when={dmSearch() === null}><ActiveStrip onProfile={setProfile} onOpenChannel={openChannelById} /></Show>
+              {/* who's around, scrolling sideways */}
+              <ActiveStrip onProfile={setProfile} onOpenChannel={openChannelById} />
             </>}>
+              {/* Like Discord's: find a person, chat, channel or server (Ctrl+K) */}
+              {/* Tablets: the same search screen as phones (people, messages, media…), from a proper search field. */}
+              <Show when={!MOBILE_UI} fallback={
+                <button class="find-conv find-tab" onClick={() => setHomeSearch({})}><Icon name="search" size={18} />Search</button>
+              }><button class="find-conv" onClick={() => setSwitcher(true)}>Find or start a conversation</button></Show>
               <button class="chan big" classList={{ on: !channel() && !discover() }} onClick={() => { setDiscover(false); setChannelId(undefined); setView("chat"); }}>
                 <Icon name="friends" size={20} class="chan-ic" /><span class="chan-name">Friends</span>
               </button>
@@ -628,19 +696,23 @@ export function Shell() {
             <Show when={!ext().favRail}>{favSection()}</Show>
             <For each={home().groups}>{(g) => (
               <>
-                <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `grp:${g.group.id}` }} style={{ "--pin": g.group.color }} aria-expanded={!collapsed(`pin:${g.group.id}`)} onClick={() => toggleCat(`pin:${g.group.id}`)} onContextMenu={(e) => openMenu(e, groupItems(g.group))}
-                  {...dropTo(`grp:${g.group.id}`, (d) => d.kind === "dm", (d) => movePin(d.id, g.group.id, null))}>
+                <button class="cat pin-cat" classList={{ "drop-into": dropAt() === `grp:${g.group.id}`, plain: g.group.color === "none" }} style={{ "--pin": g.group.color === "none" ? "currentColor" : g.group.color }} aria-expanded={!collapsed(`pin:${g.group.id}`)} onClick={() => toggleCat(`pin:${g.group.id}`)} onContextMenu={(e) => openMenu(e, groupItems(g.group))}
+                  {...dragFrom({ kind: "pgrp", id: g.group.id })}
+                  {...dropTo(`grp:${g.group.id}`, (d) => d.kind === "dm" || (d.kind === "pgrp" && d.id !== g.group.id), (d) => (d.kind === "pgrp" ? movePinGroup(d.id, g.group.id) : movePin(d.id, g.group.id, null)))}>
                   <Icon name="down" size={12} class={collapsed(`pin:${g.group.id}`) ? "rot" : ""} /><i class="pin-dot" />{g.group.name}
                 </button>
                 <For each={g.list.filter((c) => !collapsed(`pin:${g.group.id}`) || c.id === channel()?.id || c.unread)}>{(c) => row(c, {
                   drag: { kind: "dm", id: c.id }, key: `dm:${c.id}`,
                   drop: dropTo(`dm:${c.id}`, (d) => d.kind === "dm", (d) => movePin(d.id, g.group.id, c.id)),
                 })}</For>
+                <Show when={!g.list.length && !collapsed(`pin:${g.group.id}`)}><p class="empty small fav-empty">Drag conversations here.</p></Show>
               </>
             )}</For>
-            <h3 class="cat static" classList={{ "drop-into": dropAt() === "dms" }} {...dropTo("dms", (d) => d.kind === "dm" && settings().pins.items.some((i) => i.channel === d.id), (d) => setPin(d.id, null))}>Direct messages<span class="grow" /><button class="cat-add" title="New pin group" aria-label="New pin group" onClick={() => newPinGroup()}><Icon name="plus" size={14} /></button></h3>
+            <h3 class="cat static" classList={{ "drop-into": dropAt() === "dms" }} {...dropTo("dms", (d) => d.kind === "dm" && settings().pins.items.some((i) => i.channel === d.id), (d) => setPin(d.id, null))}>Direct messages<span class="grow" />
+              {/* Like Discord's: start a conversation (one person: a DM, more: a group). Phones have this as the + at the top. */}
+              <Show when={!MOBILE_UI}><button class="cat-add" title="New message" aria-label="New message" onClick={() => setGroupInvite({ id: "", name: "", kind: "dm" })}><Icon name="plus" size={14} /></button></Show></h3>
             <Show when={home().rest.length === 0 && home().groups.length === 0}><p class="empty small">No conversations yet.</p></Show>
-            <For each={home().rest.filter((c) => !dmSearch() || c.name.toLowerCase().includes(dmSearch()!.trim().toLowerCase()))}>{(c) => row(c, { drag: { kind: "dm", id: c.id } })}</For>
+            <For each={home().rest}>{(c) => row(c, { drag: { kind: "dm", id: c.id } })}</For>
           </Show>
           </Show>
         </div>
@@ -652,6 +724,10 @@ export function Shell() {
       <UserPanel />
 
       <main class="main panel">
+        {/* Tablets: Home search sits where the chat is, like a chat's search, with your servers and DMs beside it. */}
+        <Show when={MOBILE_UI && !phone() && homeSearch()}>{(h) => (
+          <div class="hs-main"><HomeSearch window spaces={spaces} openChannel={openChannelById} onClose={() => setHomeSearch(null)} query={h().query} tab={h().tab} /></div>
+        )}</Show>
         <Show when={channel()} fallback={
           <Show when={space()?.home} fallback={<p class="empty center">Pick a channel.</p>}>
             <Show when={discover()} fallback={<Friends onMessage={openChannelById} onProfile={setProfile} onBack={() => setView("nav")} />}>
@@ -677,14 +753,11 @@ export function Shell() {
                 </Show>
                   <button class="icon-btn" classList={{ on: panel()?.kind === "pins" }} aria-pressed={panel()?.kind === "pins"} aria-label="Pinned messages" title="Pinned messages"
                     onClick={() => setPanel(panel()?.kind === "pins" ? null : { kind: "pins" })}><Icon name="pin" size={20} /></button>
-                  <button class="icon-btn phone-only" classList={{ on: panel()?.kind === "search" }} aria-label="Search" title="Search"
+                  {/* Phones and tablets: a search button that opens the search screen (its own box, tabs and filters).
+                      Computers: the search box in the header, like Discord's. */}
+                  <button class="icon-btn" classList={{ "phone-only": !MOBILE_UI, on: panel()?.kind === "search" }} aria-label="Search" title="Search"
                     onClick={() => setPanel(panel()?.kind === "search" ? null : { kind: "search", q: "" })}><Icon name="search" size={20} /></button>
-                  <Show when={!MOBILE_UI} fallback={
-                    <form class="search-box desk-only" role="search" onSubmit={(e) => { e.preventDefault(); const q = (e.currentTarget.elements.namedItem("q") as HTMLInputElement).value.trim(); if (q) setPanel({ kind: "search", q }); }}>
-                      <Icon name="search" size={16} />
-                      <input name="q" placeholder="Search messages…" aria-label={`Search in ${c().name}`} autocomplete="off" onKeyDown={(e) => e.key === "Escape" && (e.currentTarget.value = "", setPanel(null))} />
-                    </form>
-                  }><HeaderSearch channel={c()} spaceId={space()?.id} panel={panel()} setPanel={setPanel} /></Show>
+                  <Show when={!MOBILE_UI}><HeaderSearch channel={c()} spaceId={space()?.id} panel={panel()} setPanel={setPanel} /></Show>
                 <Show when={direct(c())}>
                   <button class="icon-btn not-phone" aria-label={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} title={c().kind === "group" ? "Add friends to group" : "Add friends to DM"} onClick={() => setGroupInvite(c())}><Icon name="user-plus" size={20} /></button>
                 </Show>
@@ -739,6 +812,19 @@ export function Shell() {
         </Show>
       </main>
 
+      <Show when={homeSearch() && (phone() || !MOBILE_UI) ? homeSearch() : null}>{(h) => (
+        <Show when={phone()} fallback={
+          <Portal><div class="scrim" onClick={(e) => e.target === e.currentTarget && setHomeSearch(null)}>
+            <div class="modal panel hs-modal"><HomeSearch window spaces={spaces} openChannel={openChannelById} onClose={() => setHomeSearch(null)} query={h().query} tab={h().tab} /></div>
+          </div></Portal>
+        }>
+          <HomeSearch spaces={spaces} openChannel={openChannelById} onClose={() => setHomeSearch(null)} query={h().query} tab={h().tab} />
+        </Show>
+      )}</Show>
+      <Show when={switcher()}>
+        <QuickSwitcher spaces={spaces} openChannel={openChannelById} openSpace={(id) => { setDiscover(false); open(id); }} onClose={() => setSwitcher(false)}
+          onSearchMessages={(query) => setHomeSearch({ query, tab: "messages" })} />
+      </Show>
       <Show when={sheetMembers() && chanSpace()}>
         <div class="scrim" onClick={() => setSheetMembers(false)}>
           <div class="modal sheet panel members-sheet" onClick={(e) => e.stopPropagation()} ref={(el) => { if (MOBILE_UI) queueMicrotask(() => dragToClose(el, () => setSheetMembers(false))); }}>

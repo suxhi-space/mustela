@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { useBack } from "./back";
 import { cropImage } from "./Cropper";
 import { hex, parseHex } from "../lib/color";
@@ -15,7 +15,7 @@ import { ProfileCard } from "./Profile";
 import { MemberRow } from "./Members";
 import { KINDS, SlotPicker, Thumb } from "./settings/ProfileSettings";
 import { backend, book, bumpMe, ext, meNow, settings, updateExt, updateSettings } from "./store";
-import { openProfileEditor, profileEditorOpen, setProfileEditorOpen } from "./nav";
+import { openProfileEditor, openSettings, profileEditorOpen, setProfileEditorOpen } from "./nav";
 
 const MAX_IMG = 8 * 1024 * 1024;
 export { openProfileEditor };
@@ -55,6 +55,8 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
   /* ---- which profile: "main", or a server id ---- */
   const [scope, setScopeRaw] = createSignal(props.server ?? "main");
   const [servers] = createResource(async () => (await backend()!.spaces()).filter((x) => !x.home).map((x) => ({ id: x.id, name: x.name })));
+  /** A sync server is linked (where a server's own look is kept). */
+  const synced = () => settings().cloud.servers.length > 0;
   const serverName = () => servers()?.find((x) => x.id === scope())?.name ?? "this server";
   const inServer = () => scope() !== "main";
   const [ident, { refetch: refetchIdent }] = createResource(() => (inServer() ? scope() : null), (sid) => backend()!.identity(sid).catch(() => ({} as { nickname?: string; avatarUrl?: string })));
@@ -74,7 +76,14 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
   const baseCfg = () => look()?.config ?? settings().profile;
   const [lookBanner] = createResource(() => (look()?.banner ? ([scope(), look()!.banner!] as const) : null), ([sid, at]) => backend()!.serverBanner(me().id, sid, at));
   const baseBio = () => look()?.bio ?? info()?.bio ?? "";
-  const baseBanner = () => (look()?.banner ? lookBanner() ?? undefined : undefined) ?? info()?.bannerUrl;
+  /**
+   * The banner you just saved (main profile): shown until your profile is read again, so the editor doesn't fall back
+   * to the old one in the meantime. `null`: you removed it.
+   */
+  const [saved, setSaved] = createSignal<{ url: string | null; was?: string } | null>(null);
+  createEffect(() => { const sv = saved(); if (sv && info()?.bannerUrl !== sv.was) { if (sv.url) setTimeout(() => URL.revokeObjectURL(sv.url!), 5000); setSaved(null); } });
+  onCleanup(() => { const sv = saved(); if (sv?.url) URL.revokeObjectURL(sv.url); });
+  const baseBanner = () => (look()?.banner ? lookBanner() ?? undefined : undefined) ?? (!inServer() && saved() ? saved()!.url ?? undefined : info()?.bannerUrl);
   const [cfg, setCfg] = createSignal<ProfileConfig>(structuredClone(baseCfg()));
 
   const url = (f: File | null | undefined) => (f ? URL.createObjectURL(f) : undefined);
@@ -168,6 +177,9 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
         updateSettings((s) => ({ ...s, profile: cfg() }));
         if (!isDemo()) await b.publishProfile(cfg(), banner() ?? undefined, { banner: useBannerCopy, privacy: ext().privacy, servers: ext().serverLooks });
       }
+      // Keep showing what you saved (a fresh copy of the picture: the editor's own one goes with reset) until the new
+      // profile has been read.
+      if (banner() !== undefined) { const f = banner(); setSaved({ url: f ? URL.createObjectURL(f) : null, was: info()?.bannerUrl }); }
       bumpMe(); reset();
       toast("Profile saved");
     } catch (e) {
@@ -205,6 +217,8 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
   return (
     <div class="scrim pe-scrim" onClick={(e) => e.target === e.currentTarget && void close()}>
       <div class="pe modal" role="dialog" aria-label="Edit profile">
+        {/* A direct child of the card, so on phones it can stay at the top while the page scrolls */}
+        <button class="icon-btn pe-close" onClick={() => void close()} aria-label="Close"><Icon name="close" size={20} /></button>
         <aside class="pe-side">
           <header class="pe-head">
             <Show when={slot()} fallback={
@@ -240,7 +254,7 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
                             <Show when={sAvatar() !== null && (sAvatar() || ident()?.avatarUrl)}><button class="link small danger" onClick={() => setSAvatar(null)}>Use main</button></Show></span>
                         </div>
                       </div>
-                      {bannerPicker()}
+                      <Show when={synced()}>{bannerPicker()}</Show>
                     </section>
                   </>
                 }>
@@ -264,6 +278,12 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
                     {bannerPicker()}
                   </section>
                 </Show>
+                {/* A server's own banner, about me and look are kept on your sync servers (Stoat has one of each per
+                    person). Without one linked, only what Stoat keeps per server shows: nickname and picture. */}
+                <Show when={!inServer() || synced()} fallback={
+                  <p class="muted small pe-note pe-sync-note">Link a sync server to give {serverName()} its own banner, about me and look.{" "}
+                    <button class="link small" onClick={() => { props.onClose(); openSettings("sync"); }}>Open Sync & servers</button></p>
+                }>
                 <section class="pe-sec">
                   <label class="pe-label" for="pe-bio">About me</label>
                   <textarea id="pe-bio" class="text-input area" rows={4} maxLength={2000} value={bioNow()} placeholder="Tell people a bit about yourself. Markdown works." onInput={(e) => setBio(e.currentTarget.value)} />
@@ -299,13 +319,13 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
                     </div>
                   </Show>
                 </section>
+                </Show>
               </>
             }>{(k) => <div class="pe-picker"><SlotPicker kind={k} slot={cfg()[k]} profile={cfg()} size={58} onChange={(s) => setCfg({ ...cfg(), [k]: s })} /></div>}</Show>
           </div>
         </aside>
 
         <section class="pe-preview" aria-label="Preview">
-          <button class="icon-btn pe-close" onClick={() => void close()} aria-label="Close"><Icon name="close" size={20} /></button>
           <span class="pe-label">Preview</span>
           <div class="pe-card"><ProfileCard person={person()} profile={cfg()} bio={bioNow()} banner={bannerNow()} marked={false} /></div>
           <span class="pe-label">In chat</span>

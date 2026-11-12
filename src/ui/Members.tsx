@@ -1,4 +1,3 @@
-import { call } from "./call/state";
 import { TextWithEmoji } from "./chat/Markdown";
 import { createEffect, createMemo, createResource, createSignal, For, Index, on, onCleanup, Show } from "solid-js";
 import type { Person } from "../lib/backend/types";
@@ -18,9 +17,9 @@ export function MemberRow(props: { person: Person; onOpen(p: Person): void; serv
   const { ref, profile, info } = createPerson(() => props.person, () => props.profile);
   const act = () => (props.person.id === backend()?.me.id ? activity.current() : info()?.activity) ?? null;
   const [size, sizeRef] = createSize();
-  const anim = createAnim(profile, "plate");
+  const anim = createAnim(profile, "plate", () => true); // a member list row
   return (
-    <button class="member" classList={{ off: !props.person.online, talking: call.active() && call.speaking().includes(props.person.id) }} onClick={() => props.onOpen(props.person)}
+    <button class="member" classList={{ off: !props.person.online }} onClick={() => props.onOpen(props.person)}
       onContextMenu={(e) => userMenu(e, props.person, props.serverId)}
       ref={(el) => { ref(el); sizeRef(el); }}>
       <Show when={profile()?.plate.preset && size().w > 0}>

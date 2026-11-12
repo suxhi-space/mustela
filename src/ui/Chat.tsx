@@ -1,5 +1,6 @@
 import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { phoneLayout } from "./hooks";
+import { MOBILE_UI } from "./target";
 import type { ChannelInfo, Msg, Person } from "../lib/backend/types";
 import { Composer, composer } from "./chat/Composer";
 import { MessageRow } from "./chat/Message";
@@ -15,6 +16,40 @@ const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "lon
 const dayFmtYear = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 const day = (d: Date) => (d.getFullYear() === new Date().getFullYear() ? dayFmt : dayFmtYear).format(d);
 const sameDay = (a: Date, b: Date) => a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+
+/** The index of the last message at or before this id (ids sort by time), or -1. */
+function lastUpTo(list: Msg[], id: string): number {
+  let at = -1;
+  for (let i = 0; i < list.length && list[i]!.id <= id; i++) at = i;
+  return at;
+}
+
+/** The fresh messages, reusing the ones already shown where nothing changed (same object = same row on screen). */
+function keepSame(shown: Msg[], fresh: Msg[]): Msg[] {
+  if (!shown.length) return fresh;
+  const byId = new Map(shown.map((m) => [m.id, m]));
+  const key = (m: Msg) => { try { return JSON.stringify({ ...m, pending: undefined }); } catch { return ""; } };
+  return fresh.map((m) => { const o = byId.get(m.id); return o && !o.pending && key(o) === key(m) && key(m) ? o : m; });
+}
+
+/*
+ * "Mark as unread" picks a message; Stoat only keeps "read up to just before it". The message itself is remembered
+ * here (on this device), so opening the chat again puts the New line on it, your own messages included.
+ */
+const MARKED_KEY = "mustela:marked-unread";
+const markedAll = (): Record<string, string> => { try { return JSON.parse(localStorage.getItem(MARKED_KEY) ?? "{}") ?? {}; } catch { return {}; } };
+const saveMarked = (m: Record<string, string>) => { try { localStorage.setItem(MARKED_KEY, JSON.stringify(Object.fromEntries(Object.entries(m).slice(-50)))); } catch { /* storage off */ } };
+addEventListener("mustela:mark-unread", (e) => {
+  const d = (e as CustomEvent<{ channelId: string; messageId: string }>).detail;
+  if (d?.channelId && d.messageId) saveMarked({ ...markedAll(), [d.channelId]: d.messageId });
+});
+/** The message you marked unread in this chat, if it's still unread (read elsewhere since = forgotten). Taken once. */
+function takeMarked(channelId: string, lastRead: string | undefined): string | null {
+  const all = markedAll(), mid = all[channelId];
+  if (!mid) return null;
+  delete all[channelId]; saveMarked(all);
+  return lastRead !== undefined && lastRead < mid ? mid : null;
+}
 
 /* ---------- mature channels: confirm your age first, like Stoat (remembered per channel on this device) ---------- */
 const AGE_KEY = "mustela:mature-ok";
@@ -81,6 +116,18 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     if (account && state() === "ready" && !stale() && !detached() && list.length) saveChat(account, id(), list);
   });
   let jumping = 0; // while a jump settles: no paging, no snapping to the bottom
+  /** The chat has opened and done its own first scroll (to the bottom, or to the New line): jumps go after that. */
+  const [settled, setSettled] = createSignal(false);
+  /**
+   * After a jump, the message stays in the middle while pictures and link cards around it finish loading (they used
+   * to push it to the bottom of the screen, or out of view). Until you touch or scroll yourself, or 2 seconds pass.
+   */
+  let centerOn: string | null = null, centerUntil = 0;
+  const recenter = () => {
+    if (!centerOn || Date.now() > centerUntil) { centerOn = null; return false; }
+    document.getElementById(`msg-${centerOn}`)?.scrollIntoView({ block: "center" });
+    return true;
+  };
   let list!: HTMLDivElement, inner!: HTMLDivElement, top!: HTMLDivElement, bottom!: HTMLDivElement;
 
   const b = () => backend()!;
@@ -88,8 +135,32 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   // A memo, so a refreshed channel object with the same id doesn't reload the conversation.
   const id = createMemo(() => props.channel.id);
   const toBottom = () => { if (list) list.scrollTop = list.scrollHeight; };
+  /**
+   * Only scrolling up yourself leaves the bottom. Pictures and link cards finishing loading, the saved copy being
+   * swapped for the fresh messages, or the message box growing can all move the list without you touching it, and
+   * those used to leave a chat you were up to date in on "You're viewing older messages".
+   */
+  let lastTop = 0;
+  /**
+   * You're scrolling it yourself: a finger on it, or it's still gliding after you let go (or a mouse wheel just
+   * turned). Mustela never pulls the chat back to the bottom meanwhile: near the bottom, a picture loading while you
+   * dragged up used to snap you back down, again and again.
+   */
+  let touching = false, userUntil = 0;
+  const userScrolling = () => touching || Date.now() < userUntil;
+  const onScroll = () => {
+    const top = list.scrollTop, gap = list.scrollHeight - top - list.clientHeight, up = top < lastTop - 1;
+    lastTop = top;
+    // Still gliding after your finger left: that's still you.
+    if (userScrolling()) userUntil = Math.max(userUntil, Date.now() + 250);
+    if (gap < 80) { setPinned(true); return; }
+    if (pinned() && !up && Date.now() > jumping && !userScrolling()) { toBottom(); return; }
+    setPinned(false);
+  };
   /** "Mark as unread" picked this message: it and everything after stay unread until you leave the chat. */
   const [unreadFrom, setUnreadFrom] = createSignal<string | null>(null);
+  /** Opening a chat where you'd marked this message unread: the New line goes on it (it's read now, like Discord). */
+  const [newAt, setNewAt] = createSignal<string | null>(null);
   // Android's web view doesn't always report focus, so there "on screen" is enough to count as read.
   const looking = () => document.hasFocus() || (platform === "android" && document.visibilityState === "visible");
   const ack = () => { if (looking() && pinned() && !unreadFrom()) b().ack(id()); };
@@ -107,16 +178,18 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   // (Re)load when the channel changes.
   createEffect(on(id, (cid) => {
     // Read where you were up to before anything marks the channel read.
-    const marker = props.channel.unread ? b().lastRead(cid) ?? null : null;
-    batch(() => { setMsgs([]); setState("loading"); setReplyTo(null); setEditing(null); setTypers([]); setPinned(true); setMore(false); setDetached(false); setSince(marker); setSinceBar(!!marker); setUnreadFrom(null); });
+    const manual = takeMarked(cid, b().lastRead(cid));
+    const marker = manual || props.channel.unread ? b().lastRead(cid) ?? null : null;
+    batch(() => { setMsgs([]); setState("loading"); setReplyTo(null); setEditing(null); setTypers([]); setPinned(true); setMore(false); setDetached(false); setSince(marker); setSinceBar(!!marker); setUnreadFrom(null); setNewAt(manual); setSettled(false); });
     let alive = true;
     const direct = props.channel.kind === "dm" || props.channel.kind === "group";
-    // DMs open at the first unread message; channels open at the newest, with a bar to jump back.
-    const load = direct && marker ? b().messagesAround(cid, marker).then((page) => ({ page, around: true })) : b().messages(cid).then((page) => ({ page, around: false }));
+    // DMs open at the first unread message; channels open at the newest, with a bar to jump back. A message you
+    // marked unread yourself opens there in both.
+    const load = manual ? b().messagesAround(cid, manual).then((page) => ({ page, around: true })) : direct && marker ? b().messagesAround(cid, marker).then((page) => ({ page, around: true })) : b().messages(cid).then((page) => ({ page, around: false }));
     // Opening at the newest messages: show the saved copy of this chat (lib/chatCache.ts) straight away while the
     // fresh page loads. (Not for a DM opening at its first unread: that starts somewhere else.)
     const account = cacheAccount();
-    if (account && !(direct && marker)) void cachedChat(account, cid).then((saved) => {
+    if (account && !manual && !(direct && marker)) void cachedChat(account, cid).then((saved) => {
       if (!alive || !saved || state() !== "loading") return;
       batch(() => { setMsgs(saved); setMore(false); setState("ready"); setStale(true); });
       queueMicrotask(toBottom);
@@ -124,10 +197,17 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     load.then(async ({ page, around }) => {
       if (!alive) return;
       setStale(false);
-      let at = around ? page.findIndex((m) => m.id === marker) : -1;
+      // Swapping the saved copy for the fresh page: keep the messages that didn't change as they are, so their
+      // pictures and link cards don't load again and push the list around.
+      page = keepSame(msgs(), page);
+      // Where you'd read up to: the last message at or before the marker. (Compared by time, not looked up: "mark as
+      // unread" leaves a marker just before a message, which no message has as its id.)
+      let at = !around ? -1 : manual ? page.findIndex((m) => m.id === manual) - 1 : lastUpTo(page, marker!);
+      if (manual && at < -1) { setNewAt(null); at = -1; } // the message is gone (deleted): no New line to show
       // Only other people's messages are new. Messages you sent yourself (from another device, or before the read
       // marker caught up) leave nothing to jump to: open at the newest, marked read, instead of the old spot.
-      if (around && (at < 0 || !page.slice(at + 1).some((m) => m.author.id !== b().me.id && !m.system))) {
+      // (Not when you marked one of your own messages unread on purpose.)
+      if (around && !newAt() && (at < 0 || !page.slice(at + 1).some((m) => m.author.id !== b().me.id && !m.system))) {
         setSince(null); setSinceBar(false);
         if (at < 0 || page.length - at - 1 >= 24) page = await b().messages(cid).catch(() => page);
         if (!alive) return;
@@ -137,12 +217,13 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
       const tail = around ? page.length - at - 1 : 0;
       batch(() => { setMsgs(page); setMore(page.length >= 25); setState("ready"); if (around && tail >= 24) { setDetached(true); setPinned(false); } });
       queueMicrotask(() => {
-        if (around && at >= 0) {
+        if (around && (at >= 0 || newAt())) {
           jumping = Date.now() + 800;
           document.getElementById("new-line")?.scrollIntoView({ block: "center" });
           // Seen once, like Discord: it's read now, so next time it opens at the newest (the New line stays for now).
           if (looking()) b().ack(cid);
         } else { toBottom(); ack(); }
+        setSettled(true);
       });
       // The reply you were writing comes back with the draft.
       const rid = getDraft(cid).reply?.id;
@@ -167,22 +248,23 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
 
   /** The first message after where you'd read, if it's loaded. */
   const firstNew = createMemo(() => {
-    if (unreadFrom()) return unreadFrom();
+    const from = unreadFrom() ?? newAt();
+    if (from) return msgs().some((m) => m.id === from) ? from : null;
     const mk = since();
     if (!mk) return null;
     const list = msgs();
-    const i = list.findIndex((m) => m.id === mk);
-    if (i < 0) return null;
-    return list.slice(i + 1).find((m) => m.author.id !== b().me.id && !m.pending)?.id ?? null;
+    if (lastUpTo(list, mk) < 0) return null; // where you'd read up to isn't loaded
+    return list.find((m) => m.id > mk && m.author.id !== b().me.id && !m.pending)?.id ?? null;
   });
   /** "12 new messages since 3:42 PM" (or "50+" when the marker isn't loaded). */
   const sinceText = createMemo(() => {
-    const from = unreadFrom();
+    const from = unreadFrom() ?? newAt();
     if (from) {
       const list = msgs(), i = list.findIndex((m) => m.id === from);
       if (i >= 0) {
-        const n = list.length - i, at = fmtTime(list[i]!.at);
-        return `${n} new message${n === 1 ? "" : "s"} since ${at}`;
+        // Like the badge in the list: only other people's messages count (yours aren't new to you).
+        const n = list.slice(i).filter((m) => m.author.id !== b().me.id && !m.system).length, at = fmtTime(list[i]!.at);
+        return n ? `${n} new message${n === 1 ? "" : "s"} since ${at}` : `Unread since ${at}`;
       }
     }
     const mk = since();
@@ -198,21 +280,29 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     const n = `${fresh.length}${more ? "+" : ""} new message${fresh.length === 1 && !more ? "" : "s"}`;
     return time && !more ? `${n} since ${time}` : n;
   });
+  /**
+   * Leaving the bottom on purpose (a jump): said straight away, before the scroll starts. Otherwise anything that
+   * resized the chat first (the keyboard closing as you tap the bar, a picture loading) snapped it back to the bottom
+   * and the jump did nothing.
+   */
+  const leaveBottom = (ms = 1200) => { jumping = Date.now() + ms; setPinned(false); };
+  /** A jump that found nothing to go to: still at the bottom if that's where you are. */
+  const noJump = () => { jumping = 0; setPinned(list.scrollHeight - list.scrollTop - list.clientHeight < 80); };
   async function jumpToNew() {
-    const from = unreadFrom();
-    if (from) { document.getElementById(`msg-${from}`)?.scrollIntoView({ block: "center" }); return; }
+    leaveBottom();
+    const from = unreadFrom() ?? newAt();
+    if (from && msgs().some((m) => m.id === from)) { document.getElementById(`msg-${from}`)?.scrollIntoView({ block: "center" }); return; }
     const mk = since();
-    if (!mk) return;
-    if (!msgs().some((m) => m.id === mk)) {
-      jumping = Date.now() + 1200;
+    if (!mk) return noJump();
+    if (lastUpTo(msgs(), mk) < 0) {
       const page = await b().messagesAround(id(), mk).catch(() => []);
-      if (!page.length) return;
+      if (!page.length) return noJump();
       batch(() => { setMsgs(page); setMore(true); setDetached(true); setPinned(false); });
       await new Promise((r) => requestAnimationFrame(r));
     }
     document.getElementById("new-line")?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
-  const markRead = () => { setUnreadFrom(null); b().markRead({ channel: id() }); setSinceBar(false); };
+  const markRead = () => { batch(() => { setUnreadFrom(null); setNewAt(null); setSinceBar(false); }); b().markRead({ channel: id() }); };
 
   // Live events for this channel.
   createEffect(on(id, (cid) => {
@@ -252,8 +342,17 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
 
   // Keep the bottom in view while images load, if you were at the bottom.
   onMount(() => {
-    const ro = new ResizeObserver(() => { if (pinned() && Date.now() > jumping) toBottom(); });
+    const ro = new ResizeObserver(() => { if (recenter()) return; if (pinned() && Date.now() > jumping && !userScrolling()) toBottom(); });
+    list.addEventListener("touchstart", () => { touching = true; }, { passive: true });
+    const lift = () => { touching = false; userUntil = Date.now() + 400; };
+    list.addEventListener("touchend", lift, { passive: true });
+    list.addEventListener("touchcancel", lift, { passive: true });
+    list.addEventListener("wheel", () => { userUntil = Date.now() + 400; }, { passive: true });
+    // Touching or scrolling the chat yourself ends the "keep it in the middle" after a jump.
+    const mine = () => { centerOn = null; };
+    for (const ev of ["pointerdown", "wheel", "touchstart", "keydown"]) list.addEventListener(ev, mine, { passive: true });
     ro.observe(inner);
+    ro.observe(list); // the list itself getting shorter (a reply bar, a taller message box) shouldn't leave the bottom either
     const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) void older(); }, { root: list, rootMargin: "400px 0px 0px 0px" });
     io.observe(top);
     const io2 = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) void newer(); }, { root: list, rootMargin: "0px 0px 400px 0px" });
@@ -306,18 +405,19 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   async function jump(mid: string) {
     let el = document.getElementById(`msg-${mid}`);
     let instant = false;
+    leaveBottom();
     if (!el) {
       instant = true;
-      jumping = Date.now() + 1200;
       // Not loaded: fetch the stretch of history around it.
       const page = await b().messagesAround(id(), mid).catch(() => []);
-      if (!page.some((m) => m.id === mid)) return;
+      if (!page.some((m) => m.id === mid)) return noJump();
       batch(() => { setMsgs(page); setMore(true); setDetached(true); setPinned(false); });
       await new Promise((r) => requestAnimationFrame(r));
       el = document.getElementById(`msg-${mid}`);
       if (!el) return;
     }
     el.scrollIntoView({ block: "center", behavior: instant || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    centerOn = mid; centerUntil = Date.now() + 2000; leaveBottom(2000);
     setHl(mid);
     setTimeout(() => hl() === mid && setHl(null), 1800);
   }
@@ -325,12 +425,14 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   async function send(text: string, files: File[], spoilers: boolean[], mention: boolean, onProgress: (f: number) => void) {
     const r = replyTo();
     await b().send(id(), { text, files, spoilers, replies: r ? [{ id: r.id, mention }] : undefined, onProgress });
-    setReplyTo(null);
+    // Sending reads the chat (like Discord), even one you'd marked unread: the New line and bar go too.
+    batch(() => { setReplyTo(null); if (unreadFrom()) { setUnreadFrom(null); setSinceBar(false); } });
   }
 
   // Jumps asked for from elsewhere (search results, pinned messages, links).
-  createEffect(on([jumpRequest, state] as const, ([r, st]) => {
-    if (!r || r.channelId !== id() || st !== "ready") return;
+  // They wait until the chat has opened, so its own first scroll to the bottom can't undo them.
+  createEffect(on([jumpRequest, settled] as const, ([r, ok]) => {
+    if (!r || r.channelId !== id() || !ok) return;
     setJumpRequest(null);
     void jump(r.id);
   }));
@@ -340,6 +442,8 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
     if (mine) setEditing(mine.id);
   };
 
+  /** Scrolled up, or jumped back to an older message. */
+  const viewingOlder = () => detached() || !pinned();
   // While the "older messages" bar covers the typing line, the bar says who's typing instead.
   const OlderText = () => (
     <Show when={typingText()} fallback={<span>You're viewing older messages</span>}>
@@ -371,21 +475,7 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes("Files");
 
   return (
-    <div class="chat" classList={{ "older-on": detached() || !pinned() }} ref={(el) => {
-      // The message box's height, so the "viewing older messages" card floats just above it whatever its size.
-      onMount(() => {
-        const box = el.querySelector<HTMLElement>(".composer-wrap");
-        if (!box) return;
-        // From the bottom of the chat to the top of the message box itself (a reply or upload bar above it counts).
-        const measure = () => {
-          const top = (box.querySelector(".reply-bar, .pending-files, .upload-bar, .composer") as HTMLElement | null ?? box).getBoundingClientRect().top;
-          el.style.setProperty("--composer-h", `${Math.round(el.getBoundingClientRect().bottom - top)}px`);
-        };
-        const ro = new ResizeObserver(measure);
-        ro.observe(box); ro.observe(el); onCleanup(() => ro.disconnect());
-        measure();
-      });
-    }}
+    <div class="chat" classList={{ "older-on": viewingOlder() }}
       onDragEnter={(e) => { if (hasFiles(e)) { e.preventDefault(); setDropping(dropping() + 1); } }}
       onDragOver={(e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer!.dropEffect = "copy"; } }}
       onDragLeave={(e) => { if (hasFiles(e)) setDropping(Math.max(0, dropping() - 1)); }}
@@ -398,7 +488,7 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
         </div>
       </Show>
       <div class="messages" ref={list} role="log" aria-live="polite" aria-relevant="additions"
-        onScroll={() => setPinned(list.scrollHeight - list.scrollTop - list.clientHeight < 80)}>
+        onScroll={onScroll}>
         <div ref={inner} class="messages-inner">
           <div ref={top} class="older-sentinel" />
           <Show when={state() === "ready" && !more()}>
@@ -425,18 +515,19 @@ function ChannelChat(props: { channel: ChannelInfo; spaceId?: string; onProfile(
           <div ref={bottom} class="newer-sentinel" />
         </div>
       </div>
-      {/* Scrolled up or jumped back: on desktop a bar tucked behind the top of the message box; phones keep their own. */}
-      <Show when={detached()} fallback={<Show when={!pinned()}>
-        <div class="older-bar desk-only" role="status"><OlderText /><button class="ob-jump" onClick={() => void present()}>Jump to present<Icon name="down" size={14} /></button></div>
-        <button class="jump-present panel phone-only" onClick={() => void present()}><Icon name="down" size={16} />Jump to present</button>
-      </Show>}>
-        <div class="older-bar" role="status"><OlderText /><button class="ob-jump" onClick={() => void present()}>Jump to present<Icon name="down" size={14} /></button></div>
-      </Show>
       <div class="typing" aria-live="polite">
         <Show when={typingText()}><span class="dots" aria-hidden="true"><i /><i /><i /></span>{typingText()}</Show>
       </div>
       <Composer channel={props.channel} spaceId={props.spaceId && props.spaceId !== "home" ? props.spaceId : undefined} people={people} replyTo={replyTo()} onCancelReply={() => setReplyTo(null)}
         onEditLast={editLast} onSent={() => void present()} send={send}
+        above={<Show when={viewingOlder()}>{/* Scrolled up or jumped back. It sits inside the message box's own area, so it always stays stuck to its top. */}
+          <Show when={MOBILE_UI} fallback={
+            <div class="older-bar" role="status"><OlderText /><button class="ob-jump" onClick={() => void present()}>Jump to present<Icon name="down" size={14} /></button></div>
+          }>
+            {/* Phones and tablets: a round arrow above the message box, on the right, like a jump-to-bottom button. */}
+            <button class="jump-arrow" aria-label="Jump to present" title="Jump to present" onClick={() => void present()}><Icon name="down" size={22} /></button>
+          </Show>
+        </Show>}
         incoming={dropped} onIncomingTaken={() => setDropped(null)}
         sendGif={(url) => b().send(id(), { text: url }).then(() => { setPinned(true); queueMicrotask(toBottom); })} />
       <Show when={dropping() > 0}>

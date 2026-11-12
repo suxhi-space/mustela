@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pictures and videos shared from the viewer: copied into Mustela's own cache first (Media.kt), then offered from here. -->
+<paths>
+    <cache-path name="shared" path="shared/" />
+    <!-- Photos and videos taken from the + card: the camera app writes here (Camera.kt), never to the gallery. -->
+    <cache-path name="camera" path="camera/" />
+</paths>

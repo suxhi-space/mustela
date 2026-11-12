@@ -2,8 +2,8 @@ import type { ProfileInfo } from "./backend/types";
 
 /**
  * Computers keep the last profile seen for each person (their look, decorations, bio, banner address) on this device,
- * so cards and profiles open complete straight away after a restart, then refresh as usual. Not on phones and tablets,
- * to keep storage small there. At most 300 people per account; what they're playing is never kept.
+ * so cards and profiles open complete straight away after a restart, then refresh as usual. Phones and tablets keep friends only,
+ * to keep storage small. At most 300 people per account; what they're playing is never kept.
  */
 const DB = "mustela-profiles", STORE = "profiles", KEEP = 300;
 type Entry = { key: string; account: string; at: number; info: ProfileInfo };

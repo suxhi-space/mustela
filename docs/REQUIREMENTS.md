@@ -241,7 +241,7 @@ Leave button, invite links opened from other apps, macOS in-place updates, Windo
   appearance sync off per device, view reactions, mark as unread fix, unread counts, Discover window
 
 ## Nov: 0.1.5-build5
-Reviewed Cursor's build3/build4 changes and kept what worked. See docs/releases/0.1.5-build5.md. Checked in the demo at
+Reviewed the build3/build4 changes and kept what worked. See docs/releases/0.1.5-build5.md. Checked in the demo at
 computer, phone, tablet-upright and tablet-sideways sizes; needs a real device for the Android camera and file picker,
 the Android launcher icon shape, the tablet status/navigation bars, and the macOS 26 glass icon (Xcode 26).
 - 🧪 Big servers: members fetched once (online only over 1,000), list refreshes throttled, old messages dropped from

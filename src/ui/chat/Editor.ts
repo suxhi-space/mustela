@@ -7,7 +7,7 @@
  */
 import { Compartment, EditorSelection, EditorState, RangeSetBuilder, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, deleteCharBackward, history, historyKeymap } from "@codemirror/commands";
 import { CHIP_RE, codeSpans } from "./complete";
 import { emojiReady, emojiUrl, loadEmoji, PACK_PUA, PACKED_EMOJI_RE } from "../../lib/emoji";
 import { settings } from "../store";
@@ -124,6 +124,8 @@ export interface EditorApi {
   /** Replaces [from, to) and puts the caret after the new text. */
   replace(from: number, to: number, insert: string): void;
   insertAtCaret(insert: string): void;
+  /** Like the Backspace key (an emoji or a chip goes as one), without the keyboard: the emoji card's delete key. */
+  deleteBack(): void;
   /** Wraps the selection in markers (or removes them if already wrapped). */
   wrap(before: string, after?: string): void;
   /** Turns each selected line into a quote, or the selection into a code block. */
@@ -197,6 +199,12 @@ export function createEditor(parent: HTMLElement, opts: { text: string; placehol
     insertAtCaret(insert) {
       const s = view.state.selection.main;
       api.replace(s.from, s.to, insert);
+    },
+    deleteBack() {
+      deleteCharBackward(view);
+      // An emoji picked with a style carries an invisible style mark in front of it: it goes with the emoji.
+      const at = view.state.selection.main.head;
+      if (at > 0 && PACK_PUA[view.state.sliceDoc(at - 1, at)]) view.dispatch({ changes: { from: at - 1, to: at } });
     },
     wrap(before, after = before) {
       const { state } = view;

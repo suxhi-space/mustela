@@ -24,6 +24,11 @@
          and starts again after the phone restarts -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Recent photos in the + card (Photos.kt): only after you allow it, and on Android 14+ just the ones you select -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <application>
         <!-- Merged into the app's own activity: calls can continue in a floating
@@ -85,5 +90,18 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!-- Pictures shared from the viewer go out as files from Mustela's cache (Media.kt). Its own subclass, so it sits
+             beside the app's own FileProvider instead of being merged into it (same class name = one entry, a conflict). -->
+        <provider
+            android:name="app.mustela.nativecall.SharedFilesProvider"
+            android:authorities="${applicationId}.mustela.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/mustela_shared_files" />
+        </provider>
+        <!-- Reply and Mark as read on chat notifications, and swiping one away (Notifier.kt) -->
+        <receiver
+            android:name="app.mustela.nativecall.NotifyReceiver"
+            android:exported="false" />
     </application>
 </manifest>

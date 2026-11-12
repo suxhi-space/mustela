@@ -46,6 +46,16 @@ export function startPerfLog() {
   document.addEventListener("visibilitychange", () => { last = 0; });
 }
 
+/**
+ * How long starting up took, step by step (milliseconds since the page began loading), for the report:
+ * e.g. "app code ready", "server info", "connected", "settings", "first screen".
+ */
+const startup: [string, number][] = [];
+export function startupMark(step: string) {
+  if (startup.some(([s]) => s === step)) return;
+  startup.push([step, Math.round(performance.now())]);
+}
+
 /** The report: a summary, then each freeze, newest first. */
 export function perfReport(header: string) {
   const total = freezes.reduce((a, f) => a + f.ms, 0);
@@ -57,6 +67,7 @@ export function perfReport(header: string) {
     `Chat events in the last 5s: ${eventsLast5s()}`,
     mem ? `Memory in use: ${Math.round(mem.usedJSHeapSize / 1048576)} MB` : "",
     `Page elements now: ${document.getElementsByTagName("*").length}`,
+    startup.length ? `Start-up (ms since launch): ${startup.map(([s, t]) => `${s} ${t}`).join(" · ")}` : "",
     "",
     ...[...freezes].reverse().map((f) => `${new Date(f.at).toLocaleTimeString()}  ${String(f.ms).padStart(5)}ms  events/5s ${String(f.events).padStart(3)}  elements ${f.nodes}  ${f.where}`),
   ];

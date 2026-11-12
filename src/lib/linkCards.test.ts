@@ -48,4 +48,12 @@ describe("one card per link", () => {
   it("cards of a spoilered message that match no link stay covered", () => {
     expect(linkCards("||https://a.com/x||", [{ kind: "image", url: "https://a.com/x", image: {} }, { kind: "image", image: {} }]).map((c) => c.spoiler)).toEqual([true, true]);
   });
+
+  it("asks for Mustela's own preview of a Tumblr post even when Stoat's has a picture (it may have more)", () => {
+    const u = "https://www.txtumblr.com/babelnimrod/832541645844119552";
+    const cards = linkCards(u, [site(u)]);
+    expect(cards).toEqual([expect.objectContaining({ kind: "social", url: u, fallback: expect.objectContaining({ url: u }) })]);
+    // Stoat's card with a video already is the whole thing: no second preview.
+    expect(linkCards(u, [site(u, { video: { url: "https://cdn/v.mp4" } })])[0]).toMatchObject({ kind: "embed" });
+  });
 });

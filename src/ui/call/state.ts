@@ -321,6 +321,7 @@ async function playEntrySound(h: VoiceHandle) {
 export function applyVoicePrefs() {
   const h = handle(), v = device().voice;
   h?.setOutputVolume?.(v.outputVolume);
+  h?.setInputVolume?.(v.inputVolume);
   h?.setSensitivity?.(v.autoSensitivity, v.threshold);
 }
 

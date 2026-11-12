@@ -3,15 +3,20 @@ import { sanitize } from "./settings";
 import { PACKED_EMOJI_RE, PACK_PUA, toCodepoint, emojiUrl } from "../emoji";
 
 describe("synced DM pins", () => {
-  it("always keeps the default group and drops pins to unknown groups", () => {
+  it("keeps the groups you have (a deleted Pinned stays deleted) and drops pins to unknown groups", () => {
     const s = sanitize({ v: 3, pins: { groups: [{ id: "g1", name: "Close friends", color: "#3fbf72" }], items: [{ channel: "a", group: "g1" }, { channel: "b", group: "nope" }] } });
-    expect(s.pins.groups.map((g) => g.id)).toEqual(["pinned", "g1"]);
+    expect(s.pins.groups.map((g) => g.id)).toEqual(["g1"]);
     expect(s.pins.items).toEqual([{ channel: "a", group: "g1" }]);
+    expect(sanitize({ v: 3 }).pins.groups.map((g) => g.id)).toEqual(["pinned"]);
+  });
+  it("keeps No color", () => {
+    const s = sanitize({ v: 3, pins: { groups: [{ id: "g1", name: "x", color: "none" }], items: [] } });
+    expect(s.pins.groups[0]!.color).toBe("none");
   });
   it("keeps one pin per conversation and rejects bad colors", () => {
-    const s = sanitize({ v: 3, pins: { groups: [{ id: "g1", name: "x", color: "javascript:alert(1)" }], items: [{ channel: "a", group: "g1" }, { channel: "a", group: "pinned" }] } });
+    const s = sanitize({ v: 3, pins: { groups: [{ id: "g1", name: "x", color: "javascript:alert(1)" }], items: [{ channel: "a", group: "g1" }, { channel: "a", group: "g1" }] } });
     expect(s.pins.items).toHaveLength(1);
-    expect(s.pins.groups[1]!.color).toMatch(/^#[0-9a-f]{6}$/);
+    expect(s.pins.groups[0]!.color).toBe("none"); // a bad colour becomes no colour (the default)
   });
   it("falls back to Stoat's default emoji pack", () => {
     expect(sanitize({ v: 3, emojiPack: "comic-sans" }).emojiPack).toBe("fluent-3d");

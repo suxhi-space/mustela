@@ -21,7 +21,8 @@ export interface LinkedSound { id: string; name: string; emoji: string; url: str
 export const EMOJI_PACKS = ["fluent-3d", "fluent-color", "fluent-flat", "mutant", "noto", "twemoji", "system"] as const;
 export type EmojiPack = (typeof EMOJI_PACKS)[number];
 export interface PinGroup { id: string; name: string; color: string }
-export const DEFAULT_PIN_GROUP: PinGroup = { id: "pinned", name: "Pinned", color: "#f0b232" };
+/** No colour until you pick one (Color in the group's menu). */
+export const DEFAULT_PIN_GROUP: PinGroup = { id: "pinned", name: "Pinned", color: "none" };
 
 export interface MustelaSettings {
   v: 3;
@@ -139,9 +140,12 @@ export function sanitize(raw: unknown): MustelaSettings {
 
 function sanitizePins(raw: any): MustelaSettings["pins"] {
   const ok = (x: unknown, n: number) => typeof x === "string" && x.length > 0 && x.length <= n;
+  // No saved groups at all (new, or an older Mustela): start with "Pinned". A saved list is kept as it is, even empty.
+  if (!Array.isArray(raw?.groups)) return { groups: [{ ...DEFAULT_PIN_GROUP }], items: [] };
   const groups: PinGroup[] = Array.isArray(raw?.groups) ? (raw.groups as any[]).filter((g) => g && ok(g.id, 40) && ok(g.name, 40))
-    .slice(0, 20).map((g) => ({ id: g.id, name: g.name, color: typeof g.color === "string" && parseHex(g.color) !== null ? g.color.toLowerCase() : DEFAULT_PIN_GROUP.color })) : [];
-  if (!groups.some((g) => g.id === DEFAULT_PIN_GROUP.id)) groups.unshift({ ...DEFAULT_PIN_GROUP });
+    // "none" is a choice too (no colour dot); it used to be turned back into Amber on every save.
+    .slice(0, 20).map((g) => ({ id: g.id, name: g.name, color: g.color === "none" ? "none" : typeof g.color === "string" && parseHex(g.color) !== null ? g.color.toLowerCase() : DEFAULT_PIN_GROUP.color })) : [];
+  // Any group can be deleted, "Pinned" included (pinning again brings it back), so it isn't forced back in here.
   const ids = new Set(groups.map((g) => g.id)), seen = new Set<string>();
   const items = Array.isArray(raw?.items) ? (raw.items as any[]).filter((i) => i && ok(i.channel, 40) && ids.has(i.group) && !seen.has(i.channel) && seen.add(i.channel))
     .slice(0, 200).map((i) => ({ channel: i.channel as string, group: i.group as string })) : [];

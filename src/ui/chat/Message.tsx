@@ -1,10 +1,13 @@
+import { gifsMove, StillImg } from "../StillImg";
+import { useBack } from "../back";
+import { Portal } from "solid-js/web";
 import { toast } from "../menu";
 import { MOBILE_UI } from "../target";
 import { useAutoplay } from "../autoplay";
-import { createMemo, createResource, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { createEditor, type ChipLookup } from "./Editor";
 import { openReactions } from "./Reactions";
-import { linkCards } from "../../lib/social";
+import { linkCards, videoSite } from "../../lib/social";
 import { FormatBar, formatKey } from "./FormatBar";
 import type { ChannelRules, Attachment, Embed, Msg, Person, Reaction } from "../../lib/backend/types";
 import { plain } from "../../lib/markdown";
@@ -14,7 +17,8 @@ import { Icon } from "../icons";
 import { backend, device } from "../store";
 import { inTauri } from "../../lib/platform";
 import { Markdown, type MdCtx } from "./Markdown";
-import { isFav, openEmojiPicker, openGallery, openLightbox, toggleFav } from "./overlays";
+import { justReacted, markReacted, reactBurst } from "./reactFx";
+import { doubleTapEmoji, isFav, openEmojiPicker, openGallery, openLightbox, toggleFav } from "./overlays";
 import { messageMenu } from "../menus";
 import { copy } from "../menu";
 import { UEmoji } from "./UEmoji";
@@ -33,14 +37,23 @@ export const continues = (prev: Msg | undefined, m: Msg) =>
   !!prev && !prev.system && !m.system && !m.replyIds?.length && prev.author.id === m.author.id && prev.author.name === m.author.name &&
   m.at.getTime() - prev.at.getTime() < 5 * 60_000 && prev.at.toDateString() === m.at.toDateString();
 
-function ReactionChip(props: { r: Reaction; onToggle(on: boolean): void; onView?(): void }) {
+function ReactionChip(props: { r: Reaction; mid: string; onToggle(on: boolean): void; onView?(): void }) {
   const me = () => props.r.users.includes(backend()!.me.id);
+  // A little bump when the count goes up (yours with a pop), so reacting feels like it landed.
+  const [bump, setBump] = createSignal<"" | "mine" | "more">(justReacted(props.mid, props.r.emoji) ? "mine" : "");
+  if (bump()) setTimeout(() => setBump(""), 450);
+  let last = props.r.users.length, wasMe = me(), t: ReturnType<typeof setTimeout> | undefined;
+  createEffect(() => {
+    const n = props.r.users.length, mine = me();
+    if (n > last) { setBump(mine && !wasMe ? "mine" : "more"); clearTimeout(t); t = setTimeout(() => setBump(""), 450); }
+    last = n; wasMe = mine;
+  });
   const who = () => props.r.users.slice(0, 6).map((u) => backend()!.person(u).name).join(", ") + (props.r.users.length > 6 ? ` and ${props.r.users.length - 6} more` : "");
   return (
-    <button class="reaction" classList={{ on: me() }} aria-pressed={me()} title={who()} onClick={() => props.onToggle(!me())}
+    <button class="reaction" classList={{ on: me(), "bump-mine": bump() === "mine", "bump-more": bump() === "more" }} aria-pressed={me()} title={who()} onClick={() => props.onToggle(!me())}
       onContextMenu={(e) => { if (props.onView) { e.preventDefault(); e.stopPropagation(); props.onView(); } }}>
       <Show when={isCustom(props.r.emoji)} fallback={<span class="re" data-emoji={props.r.emoji}><UEmoji e={props.r.emoji} /></span>}>
-        <img class="cemoji" data-emoji-id={props.r.emoji} src={backend()!.emojiUrl(props.r.emoji)} alt="" />
+        <StillImg class="cemoji" data-emoji-id={props.r.emoji} src={backend()!.emojiUrl(props.r.emoji)} alt="" still={!!backend()!.emojis().find((x) => x.id === props.r.emoji)?.animated && !gifsMove()} />
       </Show>
       <span class="rc">{props.r.users.length}</span>
     </button>
@@ -70,8 +83,19 @@ function MediaGrid(props: { m: Msg }) {
   );
 }
 
+/**
+ * Spoilered pictures you've uncovered in the chat, so the viewer shows them uncovered too when you swipe to them.
+ * Each one leaves the list when its message leaves the screen (the chat covers them again next time, as before).
+ */
+const uncovered = new Set<string>();
+function useSpoiler(a: Attachment) {
+  const [revealed, set] = createSignal(!a.spoiler);
+  onCleanup(() => uncovered.delete(a.url));
+  return [revealed, (v: boolean) => { if (v) uncovered.add(a.url); set(v); }] as const;
+}
+
 function GridTile(props: { a: Attachment; m: Msg; style: JSX.CSSProperties }) {
-  const [revealed, setRevealed] = createSignal(!props.a.spoiler);
+  const [revealed, setRevealed] = useSpoiler(props.a);
   return (
     <div class="mg-tile" classList={{ spoiled: !revealed() }} style={props.style}>
       <Show when={props.a.type === "image"} fallback={<VideoBox src={props.a.url} poster={props.a.previewUrl} class="media-vid" preload="metadata" open={(t) => showAll(props.a, props.m, t)} />}>
@@ -82,14 +106,37 @@ function GridTile(props: { a: Attachment; m: Msg; style: JSX.CSSProperties }) {
   );
 }
 
+/** A link preview's pictures (a post with several): the same grid as attachments, up to four tiles, then "+N". */
+function PicGrid(props: { urls: string[]; name: string }) {
+  const shown = () => props.urls.slice(0, 4);
+  const n = () => shown().length;
+  const more = () => props.urls.length - n();
+  const tile = (i: number): JSX.CSSProperties => {
+    if (n() === 3) return {};
+    if (n() === 2 || n() === 4) return { "grid-column": "span 3", "aspect-ratio": n() === 2 ? "1 / 1" : "4 / 3" };
+    return i === 0 ? { "grid-column": "span 6", "aspect-ratio": "3 / 1" } : { "grid-column": "span 2", "aspect-ratio": "1 / 1" };
+  };
+  const open = (i: number) => openGallery(props.urls.map((url, k) => ({ url, name: `${props.name} (${k + 1} of ${props.urls.length})` })), i);
+  return (
+    <div class="media-grid em-grid" classList={{ three: n() === 3 }}>
+      <For each={shown()}>{(u, i) => (
+        <div class="mg-tile" style={tile(i())}>
+          <img src={u} alt="" loading="lazy" onClick={() => open(i())} />
+          <Show when={i() === n() - 1 && more() > 0}><button class="mg-more" onClick={() => open(i())}>+{more()}</button></Show>
+        </div>
+      )}</For>
+    </div>
+  );
+}
+
 /** A picture from a message, big, with the message's other pictures and videos to swipe through. */
 function showAll(a: Attachment, m?: Msg, start?: number) {
   const media = (m?.attachments ?? [a]).filter((x) => x.type === "image" || x.type === "video");
-  openGallery(media.map((x) => ({ url: x.url, name: x.name, spoiler: x.spoiler, video: x.type === "video", preview: x.previewUrl, from: m?.author, at: m?.at, start: x === a ? start : undefined })), Math.max(0, media.indexOf(a)));
+  openGallery(media.map((x) => ({ url: x.url, name: x.name, spoiler: x.spoiler && !uncovered.has(x.url), video: x.type === "video", preview: x.previewUrl, from: m?.author, at: m?.at, start: x === a ? start : undefined })), Math.max(0, media.indexOf(a)));
 }
 
 function AttachmentView(props: { a: Attachment; m?: Msg }) {
-  const [revealed, setRevealed] = createSignal(!props.a.spoiler);
+  const [revealed, setRevealed] = useSpoiler(props.a);
   const [gone, setGone] = createSignal(false);
   const dims = () => {
     const w = props.a.width ?? 400, h = props.a.height ?? 300;
@@ -128,10 +175,11 @@ function GifEmbed(props: { e: Embed }) {
   const fav = () => ({ url: props.e.url ?? src(), preview: src(), w: w(), h: h() });
   const scale = () => Math.min(1, 320 / w(), 280 / h());
   const play = useAutoplay();
+  const [hoverGif, setHoverGif] = createSignal(false);
   return (
     <Show when={!gone()}>
     <div class="media gif" style={{ width: `${Math.round(w() * scale())}px`, "aspect-ratio": `${w()} / ${h()}` }}>
-      <Show when={props.e.video} fallback={<img src={src()} alt="GIF" loading="lazy" onError={() => setGone(true)} />}>
+      <Show when={props.e.video} fallback={<StillImg src={src()} still={!gifsMove() && !hoverGif()} alt="GIF" loading="lazy" onError={() => setGone(true)} onPointerEnter={() => setHoverGif(true)} onPointerLeave={() => setHoverGif(false)} />}>
         <video ref={play} src={src()} muted playsinline preload="metadata" aria-label="GIF" onError={() => setGone(true)} />
       </Show>
       <button class="gif-star" classList={{ on: isFav(fav().url) }} aria-pressed={isFav(fav().url)} aria-label={isFav(fav().url) ? "Remove from favorite GIFs" : "Add to favorite GIFs"}
@@ -177,22 +225,32 @@ function SocialPreview(props: { url: string; fallback?: Embed }) {
   const [p] = createResource(() => props.url, async (url) => {
     if (!inTauri()) return null;
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<{ url: string; site?: string; title?: string; description?: string; image?: string; video?: string; colour?: string } | null>("link_preview", { url }).catch(() => null);
+    return invoke<{ url: string; site?: string; title?: string; description?: string; image?: string; images?: string[]; video?: string; colour?: string } | null>("link_preview", { url }).catch(() => null);
   });
+  // Stoat's own card stays unless Mustela's adds something: a video, several pictures, or a picture Stoat's lacks
+  // (on a video site, Stoat's still picture of a clip is replaced by Mustela's playable one as before).
+  const better = (x: NonNullable<ReturnType<typeof p>>) => {
+    const f = props.fallback;
+    if (!f || (!f.image && !f.video) || videoSite(props.url)) return true;
+    return !!x.video || (x.images?.length ?? 0) > 1;
+  };
   return (
-    <Show when={p()} fallback={<Show when={props.fallback}>{(e) => <EmbedView e={e()} />}</Show>}>{(x) => (
+    <Show when={p() && better(p()!) ? p() : null} fallback={<Show when={props.fallback}>{(e) => <EmbedView e={e()} />}</Show>}>{(x) => (
       <div class="embed panel-inset social-embed" style={x().colour && /^#[0-9a-f]{3,8}$/i.test(x().colour!) ? { "--embed": x().colour } : {}}>
         <Show when={x().site}><div class="em-site">{x().site}</div></Show>
         <Show when={x().title}><a class="em-title" href={props.url} target="_blank" rel="noopener noreferrer nofollow">{x().title}</a></Show>
         <Show when={x().description}><div class="em-desc">{x().description!.slice(0, 400)}</div></Show>
-        <Show when={x().video && !broken()} fallback={          <Show when={x().image && !broken()}>
+        <Show when={x().video && !broken()} fallback={
+          // A post with several pictures: all of them, in a grid like attachments (the viewer swipes through them).
+          <Show when={!x().video && (x().images?.length ?? 0) > 1 && !broken()} fallback={
+          <Show when={x().image && !broken()}>
           <Show when={x().video} fallback={<img class="em-img" src={x().image} alt="" loading="lazy" onError={() => setBroken(true)} onClick={() => openLightbox(x().image!, x().title ?? "image")} />}>
             {/* The video wouldn't play here: open the post instead. */}
             <a class="em-player" href={props.url} target="_blank" rel="noopener noreferrer nofollow" aria-label="Open the video">
               <img class="em-img" src={x().image} alt="" loading="lazy" /><span class="em-play"><Icon name="play" size={22} /></span>
             </a>
           </Show>
-        </Show>}>
+        </Show>}><PicGrid urls={x().images!} name={x().title ?? "image"} /></Show>}>
           <VideoBox src={x().video!} poster={x().image} onError={() => setBroken(true)} item={{ name: x().title ?? "Video" }} clickOpens />
         </Show>
       </div>
@@ -360,7 +418,7 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
   const cards = createMemo(() => linkCards(m().text, m().embeds ?? [], (u) => inviteCodes(u).length > 0));
   const menu = (e: MouseEvent) => messageMenu(e, m(), { reply: props.act.onReply, edit: (x) => props.act.onEdit(x), askDelete: () => setConfirmDel(true) }, props.act.serverId);
   const fail = (e: unknown) => toast((e as Error)?.message || "That didn't work.", true);
-  const react = (emoji: string, on: boolean) => void b().react(m().channelId, m().id, emoji, on).catch(fail);
+  const react = (emoji: string, on: boolean) => { if (on) markReacted(m().id, emoji); void b().react(m().channelId, m().id, emoji, on).catch(fail); };
 
   let editApi: ReturnType<typeof createEditor> | undefined;
   let editBox: HTMLDivElement | undefined;
@@ -372,12 +430,68 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
     props.act.onEdit(null);
   }
 
+  /**
+   * Phones and tablets: a second tap on the message within a moment reacts with your double-tap emoji (again
+   * removes it). Single taps aren't delayed; taps on links, pictures, names and buttons don't count.
+   */
+  let lastTap = 0;
+  const canDouble = () => !props.editing && !m().pending && rules().canReact;
+  // Your own reactions show straight away (the server's answer replaces this): reacting felt laggy while the chip
+  // waited for the round trip.
+  const [mineNow, setMineNow] = createSignal<Record<string, boolean>>({});
+  const reactions = createMemo(() => {
+    const me = b().me.id, want = mineNow();
+    const list = (m().reactions ?? []).map((r) => (r.emoji in want && want[r.emoji] !== r.users.includes(me) ? { ...r, users: want[r.emoji] ? [...r.users, me] : r.users.filter((u) => u !== me) } : r)).filter((r) => r.users.length);
+    for (const [k, on] of Object.entries(want)) if (on && !list.some((r) => r.emoji === k)) list.push({ emoji: k, users: [me] });
+    return list;
+  });
+  // Once the server's copy agrees, the local one goes.
+  createEffect(on(() => m().reactions, () => setMineNow((w) => {
+    const me = b().me.id, left = Object.fromEntries(Object.entries(w).filter(([k, on]) => !!m().reactions?.find((r) => r.emoji === k)?.users.includes(me) !== on));
+    return Object.keys(left).length === Object.keys(w).length ? w : left;
+  }), { defer: true }));
+  const quickReact = (x: number, y: number) => {
+    getSelection()?.removeAllRanges(); // a double tap also selects a word on phones
+    const key = doubleTapEmoji(), had = !!reactions().find((r) => r.emoji === key)?.users.includes(b().me.id);
+    navigator.vibrate?.(10);
+    if (!had) reactBurst(x, y, key);
+    setMineNow((w) => ({ ...w, [key]: !had }));
+    react(key, !had);
+  };
+  const doubleTap = (e: MouseEvent) => {
+    if (!canDouble()) return;
+    if ((e.target as HTMLElement).closest("a, button, video, input, textarea, .reactions, .msg-replies")) { lastTap = 0; return; }
+    const now = Date.now();
+    if (now - lastTap > 320) { lastTap = now; return; }
+    lastTap = 0;
+    quickReact(e.clientX, e.clientY);
+  };
+  /**
+   * Pictures count too: a tap on one waits a moment for a second tap (two taps react, one opens the picture as
+   * before). Runs before the picture's own tap handler, which only gets the single taps.
+   */
+  let picTimer: ReturnType<typeof setTimeout> | undefined, picTap = 0, passing = false;
+  const picTaps = (el: HTMLElement) => {
+    if (!MOBILE_UI) return;
+    el.addEventListener("click", (e) => {
+      const pic = (e.target as HTMLElement).closest<HTMLElement>("img.media, img.em-img, img.embed-img, .media img, .pic-grid img, .attachments img");
+      if (!pic || passing || !canDouble() || pic.closest("a, button")) return;
+      e.stopPropagation(); e.preventDefault();
+      const now = Date.now();
+      if (now - picTap < 320) { clearTimeout(picTimer); picTap = 0; quickReact(e.clientX, e.clientY); return; }
+      picTap = now;
+      picTimer = setTimeout(() => { picTap = 0; passing = true; pic.click(); passing = false; }, 260);
+    }, true);
+    onCleanup(() => clearTimeout(picTimer));
+  };
+
   return (
     <Show when={!m().system} fallback={
       <div class="msg system" id={`msg-${m().id}`}><Icon name="arrow-in" size={16} /><span>{m().system}</span><time>{time(m().at)}</time></div>
     }>
       <article class="msg" id={`msg-${m().id}`} classList={{ head: head(), tight: compact(), mentioned: !!m().mentionsMe, pending: !!m().pending, hl: !!props.highlight }}
         data-own={mine() || undefined} onContextMenu={(e) => { if (props.editing || m().pending) return; menu(e); }}
+        ref={picTaps} onClick={(e) => { if (MOBILE_UI) doubleTap(e); }}
         onPointerEnter={(e) => {
           // The toolbar sits over the message's top edge; at the very top of the chat that's cut off, so it drops inside.
           const el = e.currentTarget, list = el.closest(".messages") ?? el.parentElement;
@@ -458,22 +572,20 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
               <SpoilerCover on={c.spoiler}>{c.kind === "embed" ? <EmbedView e={c.e} /> : <SocialPreview url={c.url} fallback={c.fallback} />}</SpoilerCover>
             )}</For></div>
           </Show>
-          <Show when={m().reactions?.length}>
+          <Show when={reactions().length}>
             <div class="reactions">
-              <For each={m().reactions}>{(r) => <ReactionChip r={r} onToggle={(on) => react(r.emoji, on)} onView={() => openReactions(m(), r.emoji)} />}</For>
+              <For each={reactions()}>{(r) => <ReactionChip r={r} mid={m().id} onToggle={(on) => { setMineNow((w) => ({ ...w, [r.emoji]: on })); react(r.emoji, on); }} onView={() => openReactions(m(), r.emoji)} />}</For>
               <button class="reaction add" aria-label="Add reaction" onClick={(e) => openEmojiPicker(e.currentTarget, ({ key }) => react(key, true))}><Icon name="smile-plus" size={16} /></button>
             </div>
           </Show>
           <Show when={m().failed}><small class="err">Couldn't send. Check your connection.</small></Show>
           <Show when={confirmDel()}>
-            <div class="confirm panel-inset" role="alertdialog" aria-label="Delete message">
-              <span>Delete this message?</span>
-              <button class="btn small danger-fill" onClick={() => { setConfirmDel(false); props.act.onEdit(null); void b().remove(m().channelId, m().id).catch(fail); }}>Delete</button>
-              <button class="btn small" onClick={() => setConfirmDel(false)}>Cancel</button>
-            </div>
+            <DeleteDialog m={m()} ctx={props.act.ctx} onCancel={() => setConfirmDel(false)}
+              onDelete={() => { setConfirmDel(false); props.act.onEdit(null); void b().remove(m().channelId, m().id).catch(fail); }} />
           </Show>
         </div>
-        <Show when={!m().pending && !props.editing}>
+        {/* Desktop only: on phones and tablets holding the message gives every option. */}
+        <Show when={!MOBILE_UI && !m().pending && !props.editing}>
           <div class="msg-tools panel" role="toolbar" aria-label="Message actions">
             <Show when={rules().canSend}><button aria-label="Reply" title="Reply" onClick={() => props.act.onReply(m())}><Icon name="reply" size={18} /></button></Show>
             <Show when={rules().canReact}><button aria-label="Add reaction" title="Add reaction" onClick={(e) => openEmojiPicker(e.currentTarget, ({ key }) => react(key, true))}><Icon name="smile-plus" size={18} /></button></Show>
@@ -486,5 +598,40 @@ export function MessageRow(props: { m: Msg; prev?: Msg; editing: boolean; act: M
         </Show>
       </article>
     </Show>
+  );
+}
+
+/**
+ * "Delete message?" like Discord's: a pop-up showing the message you're about to delete, Cancel and Delete. Enter
+ * deletes, Escape cancels; on desktop, holding Shift when you click the bin skips it.
+ */
+function DeleteDialog(props: { m: Msg; ctx: MdCtx; onCancel(): void; onDelete(): void }) {
+  useBack(props.onCancel);
+  const keys = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); props.onCancel(); } if (e.key === "Enter") { e.preventDefault(); props.onDelete(); } };
+  onMount(() => addEventListener("keydown", keys));
+  onCleanup(() => removeEventListener("keydown", keys));
+  return (
+    <Portal>
+      <div class="scrim del-scrim" onClick={(e) => e.target === e.currentTarget && props.onCancel()}>
+        <div class="modal panel del-dialog" role="alertdialog" aria-label="Delete message">
+          <h3>Delete message</h3>
+          <p class="muted">Are you sure you want to delete this message?</p>
+          <div class="del-preview">
+            <Avatar person={props.m.author} size={36} presence={false} still />
+            <div class="del-body">
+              <div class="del-head"><NameText person={props.m.author} fontOnly /><time>{props.m.at.toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</time></div>
+              <Show when={props.m.text} fallback={<span class="muted">{props.m.attachments?.length ? "An attachment" : "A message"}</span>}>
+                <div class="del-text"><Markdown text={props.m.text} ctx={props.ctx} /></div>
+              </Show>
+            </div>
+          </div>
+          <Show when={!MOBILE_UI}><p class="del-tip"><b>Tip:</b> hold Shift when you click the bin to delete straight away.</p></Show>
+          <div class="dialog-actions">
+            <button class="btn" onClick={props.onCancel}>Cancel</button>
+            <button class="btn danger-fill" onClick={props.onDelete} ref={(el) => queueMicrotask(() => el.focus())}>Delete</button>
+          </div>
+        </div>
+      </div>
+    </Portal>
   );
 }

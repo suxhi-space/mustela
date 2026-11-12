@@ -1,5 +1,5 @@
 import type { ChannelInfo } from "../lib/backend/types";
-import type { PinGroup } from "../lib/sync/settings";
+import { DEFAULT_PIN_GROUP, type PinGroup } from "../lib/sync/settings";
 import type { FavGroup } from "../lib/sync/ext";
 import { confirmDialog, promptDialog, type MenuItem } from "./menu";
 import { ext, settings, updateExt, updateSettings } from "./store";
@@ -16,14 +16,18 @@ const COLOR_NAMES = ["Amber", "Red", "Pink", "Violet", "Blue", "Teal", "Green", 
 export const pinOf =(channelId: string) => settings().pins.items.find((i) => i.channel === channelId)?.group;
 
 export function setPin(channel: string, group: string | null) {
-  updateSettings((s) => ({ ...s, pins: { ...s.pins, items: [...s.pins.items.filter((i) => i.channel !== channel), ...(group ? [{ channel, group }] : [])] } }));
+  updateSettings((s) => {
+    // Pinning into "Pinned" after it was deleted brings it back.
+    const groups = group && !s.pins.groups.some((g) => g.id === group) ? [...s.pins.groups, { ...DEFAULT_PIN_GROUP, id: group }] : s.pins.groups;
+    return { ...s, pins: { groups, items: [...s.pins.items.filter((i) => i.channel !== channel), ...(group ? [{ channel, group }] : [])] } };
+  });
 }
 
 export async function newPinGroup(channel?: string) {
   const name = await promptDialog("New pin group", "Group name", "Create group", "", { placeholder: "Close friends", max: 40 });
   if (!name?.trim()) return;
-  const used = new Set(settings().pins.groups.map((g) => g.color));
-  const g: PinGroup = { id: `g${Date.now().toString(36)}`, name: name.trim(), color: PIN_COLORS.find((c) => !used.has(c)) ?? PIN_COLORS[0]! };
+  // No colour until you pick one.
+  const g: PinGroup = { id: `g${Date.now().toString(36)}`, name: name.trim(), color: "none" };
   updateSettings((s) => ({ ...s, pins: { groups: [...s.pins.groups, g], items: s.pins.items } }));
   if (channel) setPin(channel, g.id);
 }
@@ -33,8 +37,9 @@ export function pinItems(c: ChannelInfo): MenuItem[] {
   if (c.kind !== "dm" && c.kind !== "group") return [];
   const cur = pinOf(c.id), groups = settings().pins.groups;
   const items: MenuItem[] = [];
-  if (groups.length === 1 && !cur) items.push({ label: "Pin conversation", icon: "pin", onSelect: () => setPin(c.id, groups[0]!.id) });
-  else items.push({
+  if (!groups.length && !cur) items.push({ label: "Pin conversation", icon: "pin", onSelect: () => setPin(c.id, DEFAULT_PIN_GROUP.id) }, { label: "Pin to a new group…", icon: "plus", onSelect: () => newPinGroup(c.id) });
+  else if (groups.length === 1 && !cur) items.push({ label: "Pin conversation", icon: "pin", onSelect: () => setPin(c.id, groups[0]!.id) });
+  else if (groups.length) items.push({
     label: cur ? "Move pin" : "Pin to…", icon: "pin", sub: [
       ...groups.map((g): MenuItem => ({ label: g.name, checked: cur === g.id, onSelect: () => setPin(c.id, g.id) })),
       { sep: true },
@@ -46,19 +51,44 @@ export function pinItems(c: ChannelInfo): MenuItem[] {
   return items;
 }
 
+/** Puts a pin group just before another (or last): dragging its heading, or Move up / Move down. */
+export function movePinGroup(id: string, before: string | null) {
+  updateSettings((s) => {
+    const g = s.pins.groups.find((x) => x.id === id);
+    if (!g || id === before) return s;
+    const rest = s.pins.groups.filter((x) => x.id !== id), at = before ? rest.findIndex((x) => x.id === before) : -1;
+    return { ...s, pins: { ...s.pins, groups: at < 0 ? [...rest, g] : [...rest.slice(0, at), g, ...rest.slice(at)] } };
+  });
+}
+/** The same for favorites categories. */
+export function moveFavGroup(id: string, before: string | null) {
+  updateExt((s) => {
+    const g = s.favGroups.find((x) => x.id === id);
+    if (!g || id === before) return s;
+    const rest = s.favGroups.filter((x) => x.id !== id), at = before ? rest.findIndex((x) => x.id === before) : -1;
+    return { ...s, favGroups: at < 0 ? [...rest, g] : [...rest.slice(0, at), g, ...rest.slice(at)] };
+  });
+}
+
 /** Right-click a group heading. */
 export function groupItems(g: PinGroup): MenuItem[] {
   const edit = (patch: Partial<PinGroup>) => updateSettings((s) => ({ ...s, pins: { ...s.pins, groups: s.pins.groups.map((x) => (x.id === g.id ? { ...x, ...patch } : x)) } }));
+  const list = settings().pins.groups, i = list.findIndex((x) => x.id === g.id);
   return [
     { label: "Rename group", icon: "pencil", onSelect: async () => { const v = await promptDialog("Rename group", "Group name", "Save", g.name, { max: 40 }); if (v?.trim()) edit({ name: v.trim() }); } },
-    { label: "Color", icon: "palette", sub: PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => edit({ color: c }) })) },
+    { label: "Color", icon: "palette", sub: [
+      { label: "No color", checked: g.color === "none", onSelect: () => edit({ color: "none" }) },
+      { sep: true },
+      ...PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => edit({ color: c }) })),
+    ] },
+    ...(i > 0 ? [{ label: "Move up", icon: "up", onSelect: () => movePinGroup(g.id, list[i - 1]!.id) } as MenuItem] : []),
+    ...(i >= 0 && i < list.length - 1 ? [{ label: "Move down", icon: "down", onSelect: () => movePinGroup(g.id, list[i + 2]?.id ?? null) } as MenuItem] : []),
     { label: "New group…", icon: "plus", onSelect: () => newPinGroup() },
-    ...(g.id === "pinned" ? [] : [{ sep: true } as MenuItem, {
-      label: "Delete group", icon: "trash", danger: true, onSelect: async () => {
-        if (!(await confirmDialog(`Delete ${g.name}?`, "Its conversations go back to your direct messages.", "Delete group", true))) return;
-        updateSettings((s) => ({ ...s, pins: { groups: s.pins.groups.filter((x) => x.id !== g.id), items: s.pins.items.filter((i) => i.group !== g.id) } }));
-      },
-    } as MenuItem]),
+    { sep: true },
+    { label: "Delete group", icon: "trash", danger: true, onSelect: async () => {
+      if (!(await confirmDialog(`Delete ${g.name}?`, "Its conversations go back to your direct messages.", "Delete group", true))) return;
+      updateSettings((s) => ({ ...s, pins: { groups: s.pins.groups.filter((x) => x.id !== g.id), items: s.pins.items.filter((i) => i.group !== g.id) } }));
+    } },
   ];
 }
 
@@ -84,8 +114,7 @@ export const setFavGroup = (channel: string, group: string | null) => updateExt(
 export async function newFavGroup(channel?: string) {
   const name = await promptDialog("New favorites category", "Category name", "Create category", "", { placeholder: "Gaming", max: 40 });
   if (!name?.trim()) return;
-  const used = new Set(ext().favGroups.map((g) => g.color));
-  const g: FavGroup = { id: `f${Date.now().toString(36)}`, name: name.trim(), color: PIN_COLORS.find((c) => !used.has(c)) ?? PIN_COLORS[0]! };
+  const g: FavGroup = { id: `f${Date.now().toString(36)}`, name: name.trim(), color: "none" };
   updateExt((s) => ({ ...s, favGroups: [...s.favGroups, g] }));
   if (channel) setFavGroup(channel, g.id);
 }
