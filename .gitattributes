@@ -1,0 +1,23 @@
+# Same line endings on every computer, so moving the project between Windows, macOS and Linux doesn't mark every file as changed.
+* text=auto eol=lf
+# Windows command scripts keep Windows line endings.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+# Never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.mp4 binary
+*.zip binary
+*.jar binary
+*.pdf binary

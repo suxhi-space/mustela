@@ -16,8 +16,8 @@ These need the real thing.
 ## Saved themes across devices
 - [ ] Update one device, save a theme, then open Mustela on a device still on build1 or older: the theme stays on the updated one, and comes back on the others once they update or the updated one syncs
 
-## Call pop-out (Windows)
-- [ ] With "Mustela's" title bar: the pop-out has Mustela's thin bar, no Windows frame; drag it by the bar, resize from the edges and corners, double-click the bar to maximize, minimize, keep on top, X brings the call back
+## Call pop-out
+- [x] Windows: didn't work in build2 (WebView2's own pop-up with an address bar); moved to 0.1.8
 - [ ] With "System's" title bar (Settings > Performance): the pop-out has the Windows frame (on Mac and Linux too)
 
 ## Phones

@@ -36,7 +36,7 @@ jobs:
         include:
           - { platform: windows, os: windows-latest, artifacts: "release/windows/*" }
           - { platform: macos,   os: macos-latest,   artifacts: "release/macos/*" }
-          - { platform: linux,   os: ubuntu-22.04,   artifacts: "release/linux/*" }
+          - { platform: linux,   os: ubuntu-24.04,   artifacts: "release/linux/*" }
           - { platform: android, os: ubuntu-22.04,   artifacts: "release/android/*" }
     runs-on: ${{ matrix.os }}
     steps:

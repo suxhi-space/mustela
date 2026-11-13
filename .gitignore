@@ -5,7 +5,11 @@ src-tauri/target/
 src-tauri/gen/
 .signing/
 *.keystore
+*.jks
 .DS_Store
 .env
 .build.json
 src-tauri/tauri.android.conf.json
+
+# Private notes (AI chat briefs, research): kept on this computer, never uploaded
+.notes/
