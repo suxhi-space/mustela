@@ -14,77 +14,76 @@ Stoat's own apps. Everything you do in Mustela shows up in Stoat and the other w
 
 The name comes from *Mustela erminea*, the stoat's scientific name.
 
-Everything Stoat's apps do, Mustela should do too. This page only lists what Mustela adds on top, plus the big
-things most Stoat clients don't have yet, like calls.
+Everything Stoat's apps do, Mustela does too, including voice, video and screen share. This page lists what
+Mustela adds on top.
 
-## What you get
+## Contents
+- [Highlights](#highlights)
+- [What Mustela adds](#what-mustela-adds)
+- [Download](#download)
+- [Build it yourself](#build-it-yourself)
+- [Develop](#develop)
+- [With or without a sync server](#with-or-without-a-sync-server)
+- [Hosting a sync server](#hosting-a-sync-server)
+- [Game activity and Rich Presence](#game-activity-and-rich-presence)
+- [Status](#status)
+- [Credits](#credits)
+
+## Highlights
+- **Themes**: Mustela's own themes and your saved looks, with rich colours across the whole window
+- **Profile decorations**: avatar decorations, profile effects, card frames, nameplates and name effects
+- **Calls with extras**: stream sound, a soundboard, per-person volume and a call you can pop out
+- **Opens instantly** and connects in the background
+- **Android notifications** even while Mustela is closed, without showing you online
+- **Scheduled messages**, favorites, pinned DMs and server folders
+- **Game activity and Rich Presence**, like Discord's
+
+## What Mustela adds
 
 ### Calls
-- Voice calls in voice channels, DMs and groups
-- Camera and screen share, with your own picker for a whole screen or one app window
 - Stream sound: share a single app's audio, or everything except Mustela, in stereo
-- Watch or stop watching someone's stream, make any tile big, go full screen
-- Per-person volume up to 200%, "mute for me" for a person or just their stream, with a badge so you know it was you
-- Input sensitivity (automatic or a manual threshold with a live meter), echo cancellation, noise suppression,
-  device choice
-- A soundboard: add clips from a file or a link, trim them, search, favorite and rename them, preview them just for
-  you, play them into the call (even while you're muted), and set a sound for when you join
+- Your own picker for a whole screen or one app window
+- Per-person volume up to 200%, and "mute for me" for a person or just their stream
+- A soundboard: add clips from a file or a link, trim, search and favorite them, play them into the call (even while
+  you're muted), and set a sound for when you join
 - Pop the call out into its own window and back without dropping it
-- While you're in a call and reading another chat, the call sits in a small preview above the member list
-- A call that drops tries to reconnect once by itself
 - On Linux systems whose WebKitGTK has no WebRTC, voice still works (the call runs natively in Rust)
-- On Android: calls keep going in the background and use call volume, a floating call bubble over other apps,
-  picture-in-picture that shows the stream or whoever is talking, and screen sharing
+- On Android: a floating call bubble over other apps, and picture-in-picture that shows the stream or whoever is talking
 
 ### Profiles
-These are seen by other Mustela users. Stoat's apps just see your normal profile.
+Seen by other Mustela users. Stoat's apps just see your normal profile.
 - Avatar decorations, profile effects (petals, snow, fireflies and more), card frames and nameplates
-- Name fonts and name effects, profile colours, and pronouns
-- A profile editor with a live preview of your card, your messages and your nameplate
-- A different look per server: nickname, avatar, banner, about me, decorations and colours
-- A cropper for avatars and banners
+- Name fonts and name effects, and profile colours
+- A profile editor with a live preview, and a different look per server
 - Choose who can see your Mustela profile: everyone, friends, or friends plus servers you pick
 - Every decoration has a performance rating, and you choose the heaviest thing you're willing to see animated
-- Activity: what game you're playing (detected automatically), and Rich Presence from games that support Discord's,
-  with song progress and buttons. Shown on your profile and kept separate from your status
+- Activity: the game you're playing (detected automatically) and Rich Presence, with song progress and buttons
 
 ### Chat and servers
-- Favorite channels from any server, open them without leaving where you are, sort them into your own categories,
-  or give them their own button on the server list
-- Pin channels to the top of a server, and pin DMs into named, coloured groups
-- Drag to rearrange channels and categories (with permission), server folders with custom colours
-- Drafts kept per channel, even after a restart
-- Mentions, channels and roles show as chips while you type, and a formatting bar follows your selection
-- Spoiler option on uploads
-- Search with filters (who sent it, has media, has a link, has a file), plus tabs for media, links and files.
-  Tap a result to see it in context before jumping to it
-- "N new messages since…" with a jump back to where you left off, and mark as unread
-- An inbox for mentions, and new DMs shown above your server list
+- Scheduled messages: right-click (or hold) Send to pick when it goes out
+- Favorite channels from any server, in your own categories, or with their own button on the server list
+- Pin channels to the top of a server, pin DMs into named, coloured groups, and server folders with any colour
+- Search with tabs for media, links and files, and Home search (Ctrl+K on desktop) to jump to anyone or any chat
 - A friends page that shows who's in voice, who's streaming and what they're playing
-- Emoji in any of Stoat's packs, and single emoji messages shown bigger
-- Previews with the picture or a playable video for X, Instagram, TikTok, Reddit, Bluesky, Fur Affinity, pixiv,
+- Previews with every picture or a playable video for X, Instagram, TikTok, Reddit, Bluesky, Fur Affinity, pixiv,
   DeviantArt, Tumblr and Threads, including the "fix the embed" links people paste (fxtwitter, kkinstagram, rxddit…)
 
 ### Look
-- A 3D style with floating panels and chunky buttons, or flat if you prefer
-- Material You colours: 9 themes or any colour, palette styles, contrast levels, light, dark and pure black
-- Gradient themes that can tint the whole window, with a strength slider
-- Backgrounds: plain, stars, gradient, your own picture, or your picture blurred, with adjustable see-through panels
+- Themes: one tap sets the colours, gradient and background. Mustela comes with a set of dark and light ones, and you
+  can save your own look as a theme
+- A 3D style with floating panels and chunky buttons, or flat
+- Backgrounds: stars, gradient or your own picture, with see-through panels
+- Window materials on desktop (Mica and Acrylic on Windows, vibrancy on macOS)
 - Android 12+ can follow your wallpaper colours
-- Window materials on desktop (Mica and Acrylic on Windows, vibrancy on macOS) and a slim title bar
-- Message size, spacing, font and density
 
 ### Desktop and phone
-- Tray icon with mute, deafen and leave
-- Start with your computer, and closing the window keeps Mustela running in the tray
-- Updates itself from GitHub releases (Windows and the AppImage install them in place)
-- The Linux AppImage can install itself into your menu with an icon
-- Phones and tablets get their own screens made for touch: swipe between the channel list, chat and members,
-  profile cards and menus that come up from the bottom (pull down to close), a pull-up sheet for call controls,
-  and hold on someone in a call for their options
-- Tablets use the phone layout held upright and the desktop layout sideways
+- Opens instantly and connects in the background
+- Android: notifications while Mustela is closed, with Reply and Mark as read, checked without showing you online
 - Several accounts with quick switching
-- A Performance page: pause animations in the background, lighter in calls, GIFs on or off, blur on or off
+- Tray icon with mute, deafen and leave, and closing the window keeps Mustela running there
+- Updates itself from GitHub releases; the Linux AppImage can install itself into your menu
+- Tablets use the phone layout held upright and the desktop layout sideways
+- A Performance page: pause animations in the background, lighter in calls and big servers
 
 ## Download
 
@@ -116,14 +115,14 @@ You don't need to install anything first. The build script works out what's miss
 If you already have any of these (Android Studio, Homebrew Java and so on), they get used.
 
 ```sh
-git clone https://github.com/YOUR-NAME/mustela.git
+git clone https://github.com/suxhi-space/mustela.git
 cd mustela
 ./build.sh          # macOS / Linux
 build.cmd           # Windows
 ```
 
 It asks which platform you want, the version number, and which GitHub repository the app should check for updates
-(`you/mustela` or a link to it, or `none`). For Android it also asks for the package name. Finished files go in
+(`suxhi-space/mustela`, your own fork, or `none`). For Android it also asks for the package name. Finished files go in
 `release/<platform>/`.
 
 To skip the questions:
@@ -184,18 +183,31 @@ server/         the sync server you can host
 scripts/        the build script
 ```
 
-## How profiles reach other people
+## With or without a sync server
 
-Two ways, use either or both (Settings > Sync & servers):
+Mustela works fully on its own. A sync server only adds the things Stoat has no place for.
 
-**A sync server.** A small server anyone can run (see below). Link it once and Mustela publishes your profile and
-activity there, and reads other people's from the servers you've added.
+| | Without a sync server | With one |
+|---|---|---|
+| Everything in Stoat, calls, themes, scheduled messages, notifications | ✓ | ✓ |
+| Your settings (colours, themes, profile, favorites, pins) on every device you sign in on | ✓ saved in your Stoat account | ✓ |
+| Your decorations, effects, frames and colours seen by other Mustela users | ✓ if your profile is public (carried in your banner) | ✓ |
+| A private profile (friends, or friends plus servers you pick) | | ✓ |
+| A different look per server | Nickname and picture (Stoat keeps those, everyone sees them) | Also banner, about me, decorations, name style and colours |
+| What you're playing (game activity and Rich Presence) seen by others | | ✓ |
+
+### How profiles reach other people
 
 **Your banner.** Your profile settings fit in about 20 bytes. When you publish, Mustela re-uploads your Stoat banner
-with those bytes drawn as a thin strip of grey blocks along the bottom. Other Mustela users read the strip and draw
-your decorations on their side. Mustela hides the strip; Stoat's apps show it as a thin grey line. The strip is only
-data, it can't run anything, and since every effect is drawn on the viewer's device from a few numbers, nobody can
-make a profile that lags your phone.
+a little taller, with those bytes drawn as a thin strip of grey blocks below the picture. Other Mustela users read the
+strip and draw your decorations on their side. Nobody sees the strip: Mustela hides it, and Stoat's apps only show the
+middle of a banner, so it stays out of view there too. The strip is only data, it can't run anything, and since every
+effect is drawn on the viewer's device from a few numbers, nobody can make a profile that lags your phone. This only
+carries a public profile.
+
+**A sync server.** A small server anyone can run (see below). Link it in **Settings > Sync & servers** and Mustela
+publishes your profile, your per-server looks and your activity there, and reads other people's from the servers
+you've added. To see someone's private profile or activity, you need a sync server in common with them.
 
 ## Hosting a sync server
 
@@ -238,7 +250,6 @@ Known limits:
 - Stoat's search only matches words, so the media, links and files tabs look through recent history.
 - Screen share is 720p, or 1080p if your Stoat account allows it. 60 fps waits on Stoat.
 - Rich Presence only reaches Mustela if Mustela started before Discord. Game detection works either way.
-- Role permissions are edited in Stoat's web app for now.
 - No iPhone or iPad build yet.
 
 ## Credits
