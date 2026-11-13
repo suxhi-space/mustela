@@ -13,7 +13,7 @@ import logo from "../../icons/app-icon.svg";
  */
 export const hasTitleBar = () => inTauri() && (platform === "windows" || platform === "mac" || platform === "linux") && !systemFrame;
 /** Read once at start: switching frames needs a restart, so the layout never jumps under you. */
-const systemFrame = (() => { try { return JSON.parse(localStorage.getItem("mustela:device") ?? "{}")?.titleBar === "system"; } catch { return false; } })();
+export const systemFrame = (() => { try { return JSON.parse(localStorage.getItem("mustela:device") ?? "{}")?.titleBar === "system"; } catch { return false; } })();
 
 /**
  * Puts the window frame in line with the setting on every start. Both ways are set explicitly:

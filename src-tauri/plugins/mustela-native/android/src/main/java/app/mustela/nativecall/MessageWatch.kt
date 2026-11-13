@@ -68,7 +68,8 @@ object MessageWatch {
         val p = prefs(ctx)
         if (on && !profile.isNullOrEmpty()) {
             val first = p.getString("profile", null) == null
-            p.edit().putString("profile", profile).apply()
+            // Encrypted with the Keystore key (it holds your session); read back with Vault.open.
+            p.edit().putString("profile", Vault.seal(profile)).apply()
             runCatching { JSONObject(profile) }.getOrNull()?.let { Notifier.setSession(ctx, it.optString("api"), it.optString("token")) }
             if (first) p.edit().putLong("since", System.currentTimeMillis()).apply()
             MessageWatchService.start(ctx)
@@ -99,7 +100,7 @@ object MessageWatch {
     /** One check, on whatever thread calls it (never the main one). Skipped while the app is open. */
     fun check(ctx: Context) {
         val p = prefs(ctx)
-        val profile = p.getString("profile", null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
+        val profile = Vault.open(p.getString("profile", null))?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
         if (System.currentTimeMillis() - p.getLong("alive", 0L) < ALIVE_MS) return
         synchronized(this) { if (running) return; running = true }
         try {

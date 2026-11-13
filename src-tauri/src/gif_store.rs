@@ -51,9 +51,7 @@ fn reply(status: StatusCode, kind: &str, body: Vec<u8>, extra: Option<String>) -
 
 async fn fetch(url: &str) -> Option<Vec<u8>> {
     let target = crate::fetch::validate_url(url).ok()?;
-    let c = reqwest::Client::builder().timeout(Duration::from_secs(40))
-        .redirect(reqwest::redirect::Policy::custom(|a| if a.previous().len() < 4 && crate::fetch::validate_url(a.url().as_str()).is_ok() { a.follow() } else { a.stop() }))
-        .build().ok()?;
+    let c = crate::fetch::outside_client(Duration::from_secs(40)).build().ok()?;
     let mut r = c.get(target).send().await.ok()?;
     if !r.status().is_success() || r.content_length().is_some_and(|n| n as usize > MAX_BYTES) { return None; }
     let mut buf = Vec::new();

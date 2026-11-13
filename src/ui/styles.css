@@ -1357,6 +1357,16 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .popout .cstage { flex: 1; }
 .pop-bar { height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding-left: 10px; color: #aab1b8; font-size: 12px; font-weight: 750; user-select: none; -webkit-user-select: none; background: #0d0e10; }
 :root[data-platform="mac"] .pop-bar { padding-left: 78px; }
+/* Windows, frame taken off (src/ui/call/CallWindow.tsx): a hairline edge, and grab strips to resize from. */
+.popout.bare { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09); }
+.pop-edge { position: fixed; z-index: 60; }
+.pop-edge.n, .pop-edge.s { left: 8px; right: 8px; height: 5px; cursor: ns-resize; }
+.pop-edge.n { top: 0; } .pop-edge.s { bottom: 0; }
+.pop-edge.e, .pop-edge.w { top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; }
+.pop-edge.e { right: 0; } .pop-edge.w { left: 0; }
+.pop-edge.ne, .pop-edge.nw, .pop-edge.se, .pop-edge.sw { width: 10px; height: 10px; }
+.pop-edge.ne { top: 0; right: 0; cursor: nesw-resize; } .pop-edge.sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.pop-edge.nw { top: 0; left: 0; cursor: nwse-resize; } .pop-edge.se { bottom: 0; right: 0; cursor: nwse-resize; }
 .pop-title { color: #e9ecef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pop-bar .tb-win { height: 28px; }
 :root[data-platform="mac"] .pop-bar .tb-win { display: none; }

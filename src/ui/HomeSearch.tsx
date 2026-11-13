@@ -292,7 +292,7 @@ export function HomeSearch(props: { spaces: () => Space[] | undefined; openChann
   onMount(() => requestAnimationFrame(() => input?.focus()));
 
   return (
-    <div class="hsearch" classList={{ "hs-window": !!props.window }} role="dialog" aria-label="Search">
+    <div class="hsearch" classList={{ "hs-window": !!props.window }} role="dialog" aria-label="Search" data-swipe-tabs>
       {/* The same header and pill tabs as the search in a chat (MessagePanel), so search looks like Mustela everywhere */}
       <header class="mp-head hs-head">
         <Icon name="search" size={18} />

@@ -11,6 +11,10 @@ mod desktop;
 mod screen;
 #[cfg(desktop)]
 mod notify;
+#[cfg(desktop)]
+mod vault;
+#[cfg(windows)]
+mod popout_win;
 #[cfg(target_os = "windows")]
 mod wgc_capture;
 #[cfg(target_os = "linux")]
@@ -578,7 +582,8 @@ pub fn run() {
             #[cfg(target_os = "linux")] call_linux::voice_call_state,
             #[cfg(desktop)] notify::notify_rich, #[cfg(desktop)] set_start_open, #[cfg(desktop)] open_discover, #[cfg(desktop)] discover_embed, #[cfg(desktop)] save_image, #[cfg(desktop)] device_name, #[cfg(desktop)] start_open,
             #[cfg(desktop)] desktop::tray_state, #[cfg(desktop)] desktop::tray_image, #[cfg(desktop)] desktop::set_close_to_tray,
-            #[cfg(desktop)] desktop::appimage_status, #[cfg(desktop)] desktop::appimage_install, #[cfg(desktop)] desktop::relaunch_installed])
+            #[cfg(desktop)] desktop::appimage_status, #[cfg(desktop)] desktop::appimage_install, #[cfg(desktop)] desktop::relaunch_installed,
+            #[cfg(desktop)] vault::vault_available, #[cfg(desktop)] vault::vault_get, #[cfg(desktop)] vault::vault_set, #[cfg(desktop)] vault::vault_delete, #[cfg(windows)] popout_win::popout_frame])
         .run(tauri::generate_context!())
         .expect("error while running Mustela");
 }

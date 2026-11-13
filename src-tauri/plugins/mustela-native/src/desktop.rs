@@ -41,4 +41,8 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn photo_file(&self, _: PhotoFile) -> Result<serde_json::Value> { Ok(serde_json::Value::Null) }
   pub fn take_media(&self, _: TakeMedia) -> Result<serde_json::Value> { Ok(serde_json::json!({ "cancelled": true })) }
   pub fn pending_media(&self) -> Result<serde_json::Value> { Ok(serde_json::json!({})) }
+  pub fn vault_available(&self) -> Result<serde_json::Value> { Ok(serde_json::json!({ "ok": false })) }
+  pub fn vault_get(&self, _: VaultKey) -> Result<serde_json::Value> { Ok(serde_json::json!({})) }
+  pub fn vault_set(&self, _: VaultPut) -> Result<serde_json::Value> { Ok(serde_json::json!({ "ok": false })) }
+  pub fn vault_delete(&self, _: VaultKey) -> Result<()> { Ok(()) }
 }

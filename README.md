@@ -245,7 +245,7 @@ This is a beta. It's being used day to day on Windows, macOS, Linux and Android,
 open an issue when something breaks.
 
 Known limits:
-- Sign-in tokens are kept in the app's own storage, not the system keychain.
+- On Linux, sign-in stays in the app's own storage when no keyring (GNOME Keyring, KWallet) is running. Everywhere else it's in the system keychain.
 - Linux window blur only shows if your desktop blurs windows (KDE can).
 - Stoat's search only matches words, so the media, links and files tabs look through recent history.
 - Screen share is 720p, or 1080p if your Stoat account allows it. 60 fps waits on Stoat.

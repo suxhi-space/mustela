@@ -5,6 +5,7 @@ import { installGlobalContextMenu } from "../ui/menu";
 import { startPerfLog, startupMark } from "../ui/perfLog";
 import "./mobile.css";
 import { installGestures } from "./gestures";
+import { installTabSwipe } from "./tabSwipe";
 import { installKeyboardFit } from "./keyboard";
 import { startAppSize } from "../ui/appSize";
 
@@ -17,6 +18,7 @@ export function start(root: HTMLElement) {
   document.documentElement.dataset.ui = "mobile";
   installGlobalContextMenu(); // hold-to-open menus on touch
   installGestures();
+  installTabSwipe();
   installKeyboardFit(); // text boxes in dialogs and pages stay above the keyboard
   startAppSize(); // Accessibility > App size (follows the phone's font size by default)
   startPerfLog(); // Settings > Advanced > Copy performance report

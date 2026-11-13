@@ -1,4 +1,36 @@
-# 0.1.7-build1: what to check on a real device
+# 0.1.7-build2: what to check on a real device
+
+Checked here: the keychain move and the theme-wipe fix (simulated in the app), the pop-out title bar (simulated
+Windows), the YouTube button, unit tests, the Rust and Windows code compiling, and the four-size sweep with no errors.
+These need the real thing.
+
+## Sign-in in the keychain (every system)
+- [ ] Update from build1 while signed in: Mustela opens signed in, no new sign-in asked
+- [ ] Windows: Credential Manager > Windows Credentials lists `app.mustela.client` entries
+- [ ] macOS: Keychain Access lists `app.mustela.client`; after the update the Mac may ask once: Always Allow
+- [ ] Linux (with GNOME Keyring or KWallet): Seahorse / KWalletManager lists it; without one, sign-in still works
+- [ ] Android: still signed in after the update; notifications while closed still arrive (their saved details are now encrypted)
+- [ ] Sign out of an account: its entry leaves the keychain
+- [ ] A linked sync server stays linked after the update
+
+## Saved themes across devices
+- [ ] Update one device, save a theme, then open Mustela on a device still on build1 or older: the theme stays on the updated one, and comes back on the others once they update or the updated one syncs
+
+## Call pop-out (Windows)
+- [ ] With "Mustela's" title bar: the pop-out has Mustela's thin bar, no Windows frame; drag it by the bar, resize from the edges and corners, double-click the bar to maximize, minimize, keep on top, X brings the call back
+- [ ] With "System's" title bar (Settings > Performance): the pop-out has the Windows frame (on Mac and Linux too)
+
+## Phones
+- [ ] Mustela stays upright when the phone turns (tablets still turn)
+- [ ] A video in the viewer can turn sideways; closing it goes back upright
+- [ ] Watching a stream in a call still turns sideways
+- [ ] A YouTube video in the chat: the corner button opens the YouTube app
+- [ ] Swipe left/right on Friends, search and a full profile: the tab changes; on Friends' first tab a right swipe still goes back to the list
+- [ ] Settings: swipe right on a page goes back to the list, on the list closes Settings (server and channel settings too); sliders and colour pickers still drag normally
+
+---
+
+# 0.1.7-build1: what to check on a real device (earlier)
 
 The screens were checked automatically at four sizes (desktop, phone, tablet upright and sideways) with no errors, after round 2 as well.
 These are the parts only a real phone, tablet or computer can confirm.

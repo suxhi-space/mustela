@@ -31,7 +31,7 @@ function ReactionsView(props: { m: Msg; pick?: string }) {
       <div class="scrim" onClick={(e) => e.target === e.currentTarget && close()} onKeyDown={(e) => e.key === "Escape" && close()}>
         <div class="modal reactions-view" role="dialog" aria-label="Reactions">
           <header class="rv-head"><h2>Reactions</h2><span class="grow" /><button class="icon-btn" aria-label="Close" onClick={close}><Icon name="close" size={18} /></button></header>
-          <div class="rv-body">
+          <div class="rv-body" data-swipe-tabs>
             <nav class="rv-tabs" role="tablist">
               <For each={list()}>{(r) => (
                 <button role="tab" aria-selected={tab() === r.emoji} classList={{ on: tab() === r.emoji }} onClick={() => setTab(r.emoji)}>{icon(r.emoji)}<span>{r.users.length}</span></button>

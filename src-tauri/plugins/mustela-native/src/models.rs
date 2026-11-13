@@ -177,3 +177,18 @@ pub struct NotifyMessage {
   pub token: String,
   pub accent: i32,
 }
+
+/// Sign-in tokens kept in the Android Keystore-backed vault (Vault.kt).
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultKey {
+  pub account: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultPut {
+  pub account: String,
+  pub secret: String,
+}
+

@@ -52,4 +52,8 @@ impl<R: Runtime> MustelaNative<R> {
   pub fn photo_file(&self, p: PhotoFile) -> Result<serde_json::Value> { self.0.run_mobile_plugin("photoFile", p).map_err(Into::into) }
   pub fn take_media(&self, p: TakeMedia) -> Result<serde_json::Value> { self.0.run_mobile_plugin("takeMedia", p).map_err(Into::into) }
   pub fn pending_media(&self) -> Result<serde_json::Value> { self.0.run_mobile_plugin("pendingMedia", ()).map_err(Into::into) }
+  pub fn vault_available(&self) -> Result<serde_json::Value> { self.0.run_mobile_plugin("vaultAvailable", ()).map_err(Into::into) }
+  pub fn vault_get(&self, p: VaultKey) -> Result<serde_json::Value> { self.0.run_mobile_plugin("vaultGet", p).map_err(Into::into) }
+  pub fn vault_set(&self, p: VaultPut) -> Result<serde_json::Value> { self.0.run_mobile_plugin("vaultSet", p).map_err(Into::into) }
+  pub fn vault_delete(&self, p: VaultKey) -> Result<()> { self.0.run_mobile_plugin("vaultDelete", p).map_err(Into::into) }
 }

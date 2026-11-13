@@ -172,6 +172,7 @@ export class DemoBackend implements ChatBackend {
           { ...IMG, id: "a4" }, { ...IMG2, id: "a5" }, { ...IMG, id: "a6", name: "ridge.png", url: scene(150, 10), previewUrl: scene(150, 10) },
           { ...IMG2, id: "a7", name: "lake.png", url: scene(210, 260), previewUrl: scene(210, 260) }, { ...IMG, id: "a8", name: "path.png", url: scene(30, 90), previewUrl: scene(30, 90), spoiler: true },
         ] }),
+        seed("c2", "u4", "The open movie I mentioned: https://youtu.be/aqz-KE-bpKQ", 82, me, { embeds: [{ kind: "website", special: { type: "YouTube", id: "aqz-KE-bpKQ" }, url: "https://youtu.be/aqz-KE-bpKQ", siteName: "YouTube", title: "Big Buck Bunny 60fps 4K", colour: "#ff0000", image: { url: scene(20, 480, 640, 360), width: 640, height: 360 } }] }),
         seed("c2", "u1", "Mine is **Sakura** nameplate + **Petal Fall** + **Ornate Corners** frame.", 80, me, { reactions: [{ emoji: "😍", users: ["u2"] }] }),
       ],
       c4: [seed("c4", "u3", "gm", 300, me), seed("c4", "u6", "it's 3am but sure, gm", 290, me)],
@@ -526,6 +527,8 @@ export class DemoBackend implements ChatBackend {
   private get key() { return `mustela:demo-sync:${this.persona}`; }
   async pullExt() { return null; }
   async pushExt() {}
+  async pullDoc(key: string) { try { const v = JSON.parse(localStorage.getItem(`${this.key}:doc:${key}`) ?? "null"); return v && typeof v === "object" ? v : null; } catch { return null; } }
+  async pushDoc(key: string, doc: Record<string, unknown>) { try { localStorage.setItem(`${this.key}:doc:${key}`, JSON.stringify(doc)); } catch { /* ignore */ } }
   async pullSettings() { try { return parseRemote(localStorage.getItem(this.key)); } catch { return null; } }
   async pushSettings(s: MustelaSettings) { try { localStorage.setItem(this.key, JSON.stringify(s)); } catch { /* ignore */ } }
   person(id: string): Person {

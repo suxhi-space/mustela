@@ -595,6 +595,54 @@
           "markdownDescription": "Denies the take_media command without any pre-configured scope."
         },
         {
+          "description": "Enables the vault_available command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-vault-available",
+          "markdownDescription": "Enables the vault_available command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the vault_available command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-vault-available",
+          "markdownDescription": "Denies the vault_available command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the vault_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-vault-delete",
+          "markdownDescription": "Enables the vault_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the vault_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-vault-delete",
+          "markdownDescription": "Denies the vault_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the vault_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-vault-get",
+          "markdownDescription": "Enables the vault_get command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the vault_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-vault-get",
+          "markdownDescription": "Denies the vault_get command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the vault_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-vault-set",
+          "markdownDescription": "Enables the vault_set command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the vault_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-vault-set",
+          "markdownDescription": "Denies the vault_set command without any pre-configured scope."
+        },
+        {
           "description": "Enables the watch command without any pre-configured scope.",
           "type": "string",
           "const": "allow-watch",
@@ -631,10 +679,10 @@
           "markdownDescription": "Denies the watch_clear command without any pre-configured scope."
         },
         {
-          "description": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`\n- `allow-media-file`\n- `allow-watch`\n- `allow-watch-alive`\n- `allow-watch-clear`\n- `allow-notify-message`\n- `allow-recent-photos`\n- `allow-request-photos`\n- `allow-photo-file`\n- `allow-take-media`\n- `allow-pending-media`",
+          "description": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`\n- `allow-media-file`\n- `allow-watch`\n- `allow-watch-alive`\n- `allow-watch-clear`\n- `allow-notify-message`\n- `allow-recent-photos`\n- `allow-request-photos`\n- `allow-photo-file`\n- `allow-take-media`\n- `allow-pending-media`\n- `allow-vault-available`\n- `allow-vault-get`\n- `allow-vault-set`\n- `allow-vault-delete`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`\n- `allow-media-file`\n- `allow-watch`\n- `allow-watch-alive`\n- `allow-watch-clear`\n- `allow-notify-message`\n- `allow-recent-photos`\n- `allow-request-photos`\n- `allow-photo-file`\n- `allow-take-media`\n- `allow-pending-media`"
+          "markdownDescription": "Accent color and native voice call commands\n#### This default permission set includes:\n\n- `allow-accent`\n- `allow-start-call`\n- `allow-end-call`\n- `allow-set-mic`\n- `allow-call-state`\n- `allow-pip`\n- `allow-background`\n- `allow-call-audio`\n- `allow-set-call-overlay`\n- `allow-overlay-allowed`\n- `allow-request-overlay`\n- `allow-screen-start`\n- `allow-screen-ack`\n- `allow-screen-stop`\n- `allow-landscape`\n- `allow-system-bars`\n- `allow-audio-outputs`\n- `allow-set-audio-output`\n- `allow-media-file`\n- `allow-watch`\n- `allow-watch-alive`\n- `allow-watch-clear`\n- `allow-notify-message`\n- `allow-recent-photos`\n- `allow-request-photos`\n- `allow-photo-file`\n- `allow-take-media`\n- `allow-pending-media`\n- `allow-vault-available`\n- `allow-vault-get`\n- `allow-vault-set`\n- `allow-vault-delete`"
         }
       ]
     }

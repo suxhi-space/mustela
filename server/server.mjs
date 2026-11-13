@@ -29,7 +29,7 @@
  * PNG, JPEG, WebP or GIF, at most 512 KB), stored as files next to data.json.
  */
 import { createServer } from "node:http";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -64,7 +64,7 @@ function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     const tmp = FILE + ".tmp";
-    writeFileSync(tmp, JSON.stringify(db));
+    writeFileSync(tmp, JSON.stringify(db), { mode: 0o600 }); // only this server's user can read it
     renameSync(tmp, FILE);
   }, 500);
 }
@@ -73,11 +73,9 @@ const hash = (k) => createHash("sha256").update(k).digest("hex");
 function userFor(req) {
   const m = /^Bearer ([A-Za-z0-9_-]{20,100})$/.exec(req.headers.authorization ?? "");
   if (!m) return null;
+  // Looked up by the key's SHA-256, so timing says nothing about the key itself (and it stays fast with many people).
   const h = hash(m[1]);
-  for (const [stored, uid] of Object.entries(db.keys)) {
-    if (stored.length === h.length && timingSafeEqual(Buffer.from(stored), Buffer.from(h))) return { uid, h };
-  }
-  return null;
+  return Object.hasOwn(db.keys, h) ? { uid: db.keys[h], h } : null;
 }
 
 /* ---------------------------------------------------------------- limits */
@@ -247,7 +245,8 @@ const server = createServer(async (req, res) => {
   const path = url.pathname.replace(/\/+$/, "");
   if (!path.startsWith(`/${PROTOCOL}/`)) return send(res, 404, { error: "Not found." });
   const rest = path.slice(PROTOCOL.length + 1);
-  if (!allowed(ip, req.method === "GET" ? 1 : 3)) return send(res, 429, { error: "Slow down a little." });
+  // Linking asks Stoat each time, so it costs more.
+  if (!allowed(ip, req.method === "GET" ? 1 : rest === "/link" && req.method === "POST" ? 10 : 3)) return send(res, 429, { error: "Slow down a little." });
   try {
     // Per-server banners (1.2): PUT/DELETE /image/<serverId> as the owner, GET /image/<userId>/<serverId>.
     const own = /^\/image\/([^/]+)$/.exec(rest);
@@ -316,5 +315,9 @@ const server = createServer(async (req, res) => {
   }
 });
 
+// Connections that trickle data in slowly to tie the server up are cut off.
+server.headersTimeout = 15_000;
+server.requestTimeout = 30_000;
+server.keepAliveTimeout = 5_000;
 server.listen(PORT, HOST, () => console.log(`${NAME} ${VERSION} on http://${HOST}:${PORT}/${PROTOCOL}/health · accounts from ${APIS.join(", ")}`));
 for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { clearTimeout(saveTimer); try { writeFileSync(FILE, JSON.stringify(db)); } catch { /* best effort */ } process.exit(0); });

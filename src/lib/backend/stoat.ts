@@ -13,6 +13,7 @@ import { packProfile, unpackProfile } from "../profile/pack";
 import { BANNER_HEIGHT, CANONICAL_HEIGHT, CANONICAL_WIDTH, decodeMarkerScaled, encodeMarker, markerHeight } from "../marker/codec";
 import { pullSettings, pushSettings, type MustelaSettings, type SyncApi } from "../sync/settings";
 import { pullExt, pushExt, type ExtSettings } from "../sync/ext";
+import { pullDoc, pushDoc } from "../sync/merge";
 import { fetchBytes } from "../net";
 import { decodeBottom, imageSize, MAX_PIXELS } from "../imageData";
 import { createLimiter } from "../limit";
@@ -1227,6 +1228,8 @@ export class StoatBackend implements ChatBackend {
   private get syncApi(): SyncApi { return this.client.api as unknown as SyncApi; }
   pullExt() { return pullExt(this.syncApi); }
   pushExt(s: ExtSettings) { return pushExt(this.syncApi, s); }
+  pullDoc(key: string) { return pullDoc(this.syncApi, key); }
+  pushDoc(key: string, doc: Record<string, unknown>) { return pushDoc(this.syncApi, key, doc); }
   pullSettings() { return pullSettings(this.syncApi); }
   pushSettings(s: MustelaSettings) { return pushSettings(this.syncApi, s); }
 

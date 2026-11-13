@@ -32,6 +32,10 @@ Accent color and native voice call commands
 - `allow-photo-file`
 - `allow-take-media`
 - `allow-pending-media`
+- `allow-vault-available`
+- `allow-vault-get`
+- `allow-vault-set`
+- `allow-vault-delete`
 
 ## Permission Table
 
@@ -688,6 +692,110 @@ Enables the take_media command without any pre-configured scope.
 <td>
 
 Denies the take_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-vault-available`
+
+</td>
+<td>
+
+Enables the vault_available command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-vault-available`
+
+</td>
+<td>
+
+Denies the vault_available command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-vault-delete`
+
+</td>
+<td>
+
+Enables the vault_delete command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-vault-delete`
+
+</td>
+<td>
+
+Denies the vault_delete command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-vault-get`
+
+</td>
+<td>
+
+Enables the vault_get command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-vault-get`
+
+</td>
+<td>
+
+Denies the vault_get command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:allow-vault-set`
+
+</td>
+<td>
+
+Enables the vault_set command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mustela-native:deny-vault-set`
+
+</td>
+<td>
+
+Denies the vault_set command without any pre-configured scope.
 
 </td>
 </tr>

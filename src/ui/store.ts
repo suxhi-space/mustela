@@ -6,6 +6,8 @@ import { AnimationBudget } from "../lib/decor/rating";
 import { contrast, parseHex } from "../lib/color";
 import { DEFAULT_DEVICE, DENSITY_VARS, sanitizeDevice, type DeviceSettings } from "../lib/device";
 import { detectPlatform, inTauri } from "../lib/platform";
+import { forgetToken, readToken, vaultAvailable, VAULT_MARK, writeToken } from "../lib/session/vault";
+import { unlockCloudKeys } from "../lib/cloud";
 import {
   activeAccount, addAccount, demoAccountId, loadBook, normalizeBase, removeAccount, saveBook, setActive,
   stoatAccountId, type Account, type Book,
@@ -13,8 +15,9 @@ import {
 import { revokeSession } from "../lib/session/revoke";
 import { startupMark } from "./perfLog";
 import { clearSnapshot, loadSnapshot, saveSnapshot, snapshotBackend } from "../lib/backend/snapshot";
-import { DEFAULT_SETTINGS, parseRemote, resolve, sanitize, type MustelaSettings } from "../lib/sync/settings";
-import { DEFAULT_EXT, parseExt, sanitizeExt, type ExtSettings } from "../lib/sync/ext";
+import { DEFAULT_SETTINGS, parseRemote, sanitize, SYNC_KEY, type MustelaSettings } from "../lib/sync/settings";
+import { DEFAULT_EXT, EXT_KEY, parseExt, sanitizeExt, type ExtSettings } from "../lib/sync/ext";
+import { mergeDocs, parseDoc, sameDoc, stampDoc, type Doc } from "../lib/sync/merge";
 import { buildRoles, getTheme, gradientEnd, toCssVars } from "../lib/theme/palette";
 import { getSystemSeed } from "../lib/theme/system";
 
@@ -84,20 +87,74 @@ export const budget = new AnimationBudget();
 
 function safeJson(s: string | null): unknown { try { return s ? JSON.parse(s) : null; } catch { return null; } }
 
-function commitBook(b: Book) { setBookSig(b); saveBook(kv, b); }
+/*
+ * Sign-in tokens in the system keychain (lib/session/vault.ts). `inVault`: the token the keychain holds for each
+ * account. The saved list carries a placeholder for those; anything not (yet) in the keychain is moved there.
+ */
+const inVault = new Map<string, string>();
+function commitBook(b: Book) { setBookSig(b); saveBook(kv, b, inVault); void secureTokens(); }
+
+/** Moves any token that isn't in the keychain yet into it, then saves the list without it. */
+async function secureTokens() {
+  if (!(await vaultAvailable())) return;
+  let moved = false;
+  for (const a of book().accounts) {
+    const t = a.session?.token;
+    if (a.kind !== "stoat" || !t || t === VAULT_MARK || inVault.get(a.id) === t) continue;
+    if (await writeToken(a.id, t)) { inVault.set(a.id, t); moved = true; }
+  }
+  if (moved) saveBook(kv, book(), inVault);
+}
+
+/**
+ * Start-up: reads each account's token back from the keychain. An account whose token isn't there any more needs
+ * signing in again; if the keychain can't be reached at all (locked, or its service not running), nothing is removed
+ * and you're asked to sign in for now. Tokens saved by older Mustelas are moved into the keychain.
+ */
+async function unlockBook() {
+  const b = book();
+  const locked = b.accounts.filter((a) => a.session?.token === VAULT_MARK);
+  if (!locked.length) return void secureTokens();
+  const ok = await vaultAvailable();
+  const accounts = [];
+  let unreachable = false;
+  for (const a of b.accounts) {
+    if (a.session?.token !== VAULT_MARK) { accounts.push(a); continue; }
+    const t = ok ? await readToken(a.id) : null;
+    if (t) { inVault.set(a.id, t); accounts.push({ ...a, session: { ...a.session, token: t } }); }
+    else if (!ok) { unreachable = true; accounts.push(a); } // kept: the keychain may be back next time
+  }
+  const active = accounts.some((a) => a.id === b.active && a.session?.token !== VAULT_MARK) ? b.active : accounts.find((a) => a.session?.token !== VAULT_MARK)?.id ?? null;
+  setBookSig({ ...b, accounts, active });
+  if (!unreachable) saveBook(kv, book(), inVault); // accounts whose token is gone are dropped from the list
+  if (unreachable) setError("Mustela couldn't open your keychain to sign you in. Unlock it (or start its service) and restart Mustela, or sign in again.");
+  void secureTokens();
+}
 
 /* ---------- settings: synced (look + profile) vs device (density, material, ...) ---------- */
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
 
-function persistSettings(s: MustelaSettings) {
+/*
+ * The synced settings as stored and sent: the settings plus each part's "last changed" time and any parts a newer
+ * Mustela added that this one doesn't know. Merged part by part with other devices (lib/sync/merge.ts), so a device
+ * that's missing a part (an older build, an old local copy) can never wipe it for everyone.
+ */
+let settingsDoc: Doc = {};
+let extDoc: Doc = {};
+const SETTINGS_PARTS = [...Object.keys(DEFAULT_SETTINGS), "lookPhone", "friendNicks"];
+const EXT_PARTS = [...Object.keys(DEFAULT_EXT), "entrySound", "doubleTap", "themes"];
+
+function persistSettings(_s?: MustelaSettings) {
   const a = activeAccount(book());
-  if (a) kv.setItem(settingsKey(a.id), JSON.stringify(s));
+  if (a) kv.setItem(settingsKey(a.id), JSON.stringify(settingsDoc));
 }
 
 function applyLimits(s: MustelaSettings) { budget.setLimits({ maxRating: s.maxRating, budget: 260 }); }
 
 export function updateSettings(fn: (s: MustelaSettings) => MustelaSettings) {
-  const next = sanitize({ ...fn(settings()), updatedAt: Date.now() });
+  const now = Date.now();
+  const next = sanitize({ ...fn(settings()), updatedAt: now });
+  settingsDoc = stampDoc(settingsDoc, next, SETTINGS_PARTS, now);
   setSettings(next);
   persistSettings(next);
   applyLimits(next);
@@ -106,20 +163,44 @@ export function updateSettings(fn: (s: MustelaSettings) => MustelaSettings) {
   clearTimeout(syncTimer);
   setSyncState("syncing");
   syncTimer = setTimeout(async () => {
-    try { await b.pushSettings(settings()); setSyncState("synced"); } catch { setSyncState("error"); }
+    try { await syncDoc(b, SYNC_KEY); setSyncState("synced"); } catch { setSyncState("error"); }
   }, 1500); // debounce: dragging a slider shouldn't hit the API on every tick
 }
 
 let extTimer: ReturnType<typeof setTimeout> | undefined;
 export function updateExt(fn: (s: ExtSettings) => ExtSettings) {
-  const next = sanitizeExt({ ...fn(ext()), updatedAt: Date.now() });
+  const now = Date.now();
+  const next = sanitizeExt({ ...fn(ext()), updatedAt: now });
+  extDoc = stampDoc(extDoc, next, EXT_PARTS, now);
   setExtSig(next);
   const a = activeAccount(book());
-  if (a) kv.setItem(extKey(a.id), JSON.stringify(next));
+  if (a) kv.setItem(extKey(a.id), JSON.stringify(extDoc));
   const b = backend();
   if (!b) return;
   clearTimeout(extTimer);
-  extTimer = setTimeout(() => void b.pushExt(ext()).catch(() => {}), 1500);
+  extTimer = setTimeout(() => void syncDoc(b, EXT_KEY).catch(() => {}), 1500);
+}
+
+/**
+ * Brings one synced document in step with the account: fetches what's there, merges it part by part with this
+ * device's copy, uses the result here, and sends it back only if the account's copy was missing something.
+ */
+async function syncDoc(b: ChatBackend, key: string): Promise<void> {
+  const remote = await b.pullDoc(key);
+  if (backend() !== b) return; // switched account meanwhile
+  const isExt = key === EXT_KEY;
+  const local = isExt ? extDoc : settingsDoc;
+  const merged = mergeDocs(local, remote);
+  const a = activeAccount(book());
+  if (!sameDoc(merged, local)) {
+    if (isExt) { extDoc = merged; setExtSig(sanitizeExt(merged)); if (a) kv.setItem(extKey(a.id), JSON.stringify(merged)); }
+    else {
+      settingsDoc = merged;
+      const s = parseRemote(JSON.stringify(merged)) ?? settings();
+      setSettings(s); applyLimits(s); persistSettings(s);
+    }
+  }
+  if (!sameDoc(merged, remote)) await b.pushDoc(key, merged);
 }
 
 /** Colours and theme in use: your account's, or this device's own when "Sync appearance" is off. */
@@ -195,7 +276,9 @@ function adopt(acc: Account, b: ChatBackend) {
   batch(() => {
     commitBook(nextBook);
     useAccountLook(acc.id);
-    const local = parseRemote(kv.getItem(settingsKey(acc.id))) ?? structuredClone(DEFAULT_SETTINGS);
+    const storedSettings = kv.getItem(settingsKey(acc.id));
+    const local = parseRemote(storedSettings) ?? structuredClone(DEFAULT_SETTINGS);
+    settingsDoc = parseDoc(storedSettings) ?? {};
     setSettings(local);
     applyLimits(local);
     setBackend(b);
@@ -204,25 +287,15 @@ function adopt(acc: Account, b: ChatBackend) {
     setPhase("ready");
     setSyncState("syncing");
   });
-  // The newer settings: local copy first, then whichever is newer.
-  const localExt = parseExt(kv.getItem(extKey(acc.id))) ?? structuredClone(DEFAULT_EXT);
-  setExtSig(localExt);
+  // The newer settings: this device's copy first, then merged part by part with the account's.
+  const storedExt = kv.getItem(extKey(acc.id));
+  extDoc = parseDoc(storedExt) ?? {};
+  setExtSig(parseExt(storedExt) ?? structuredClone(DEFAULT_EXT));
   const pullAll = () => {
-    void b.pullExt().then((remote) => {
-      if (backend() !== b) return;
-      if (remote && remote.updatedAt > ext().updatedAt) { setExtSig(remote); kv.setItem(extKey(acc.id), JSON.stringify(remote)); }
-      else if (ext().updatedAt > (remote?.updatedAt ?? 0)) void b.pushExt(ext()).catch(() => {});
-    }).catch(() => {});
-    // Merge with what the account has on the server, in the background.
+    void syncDoc(b, EXT_KEY).catch(() => {});
     void (async () => {
-      try {
-        const remote = await b.pullSettings();
-        if (backend() !== b) return; // switched away meanwhile
-        const { winner, push } = resolve(settings(), remote);
-        setSettings(winner); persistSettings(winner); applyLimits(winner);
-        if (push) await b.pushSettings(winner);
-        setSyncState("synced");
-      } catch { if (backend() === b) setSyncState("error"); }
+      try { await syncDoc(b, SYNC_KEY); if (backend() === b) setSyncState("synced"); }
+      catch { if (backend() === b) setSyncState("error"); }
     })();
   };
   pullAll();
@@ -346,6 +419,9 @@ export async function removeAccountById(id: string) {
   const acc = book().accounts.find((a) => a.id === id);
   if (!acc) return;
   if (acc.kind === "stoat" && acc.session) void revokeSession(acc.baseURL, acc.session);
+  // Signed out: its token leaves the keychain too.
+  inVault.delete(id);
+  void forgetToken(id);
   kv.setItem(settingsKey(id), "");
   clearSnapshot(id); // signed out: nothing of this account is shown on the next start
   try { localStorage.removeItem(lookKey(id)); localStorage.removeItem(backdropKey(id)); } catch { /* fine */ }
@@ -356,11 +432,12 @@ export async function removeAccountById(id: string) {
   const nextActive = activeAccount(next);
   const cur = backend();
   if (nextActive) { await openAccount(nextActive); }
-  else { cur?.dispose(); batch(() => { setBackend(null); setSettings(structuredClone(DEFAULT_SETTINGS)); setPhase("login"); }); }
+  else { cur?.dispose(); settingsDoc = {}; extDoc = {}; batch(() => { setBackend(null); setSettings(structuredClone(DEFAULT_SETTINGS)); setPhase("login"); }); }
 }
 
 export async function boot() {
   startupMark("boot");
+  await Promise.all([unlockBook(), unlockCloudKeys()]);
   const acc = activeAccount(book());
   // Connecting comes first: nothing below needs to finish before it starts (it used to wait for them).
   const opening = acc ? openAccount(acc) : (setPhase("login"), Promise.resolve());

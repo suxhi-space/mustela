@@ -141,3 +141,24 @@ describe("limiter", () => {
     expect(await b).toBe(7);
   });
 });
+
+describe("tokens kept in the keychain", () => {
+  it("saves a placeholder instead of a token the keychain holds, and the real token otherwise", async () => {
+    const { saveBook, parseBook } = await import("./book");
+    const { VAULT_MARK } = await import("./vault");
+    const store = new Map<string, string>();
+    const kv = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    const sess = (t: string) => ({ _id: "s", token: t, user_id: "u" });
+    const book = { v: 1 as const, active: "a", accounts: [
+      { id: "a", kind: "stoat" as const, name: "A", session: sess("tok-a") },
+      { id: "b", kind: "stoat" as const, name: "B", session: sess("tok-b") },
+    ] };
+    saveBook(kv, book, new Map([["a", "tok-a"], ["b", "old-token"]]));
+    const saved = store.get("mustela:accounts")!;
+    expect(saved).not.toContain("tok-a"); // in the keychain: only the placeholder is written
+    expect(saved).toContain(VAULT_MARK);
+    expect(saved).toContain("tok-b"); // the keychain holds a different (old) token for b: keep the real one
+    // A list with placeholders still loads (the tokens are filled in from the keychain at start-up).
+    expect(parseBook(saved).accounts.map((x) => x.session?.token)).toEqual([VAULT_MARK, "tok-b"]);
+  });
+});

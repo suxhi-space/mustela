@@ -1,6 +1,6 @@
 [package]
 name = "mustela"
-version = "0.1.7-build1"
+version = "0.1.7-build2"
 description = "A compact chat client for Stoat"
 edition = "2021"
 
@@ -20,6 +20,9 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# Name lookups that refuse local addresses (src/fetch.rs), on every platform. Already in the build through
+# reqwest; desktop adds more of its features below.
+tokio = { version = "1", features = ["net"] }
 serde_json = "1"
 sha2 = "0.10"
 futures-util = "0.3"
@@ -40,6 +43,9 @@ fast_image_resize = "6"
 jpeg-encoder = { version = "0.7", features = ["simd"] }
 # Notification pictures: avatars arrive as PNG, JPEG, WebP or GIF and are saved as a small PNG for the system.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+# Sign-in tokens in the system keychain: Windows Credential Manager, macOS Keychain, the Linux Secret Service
+# (GNOME Keyring, KWallet). Pure-Rust D-Bus on Linux, so building needs no extra system libraries.
+keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Only to switch on WebRTC / getUserMedia in the Linux webview (off by default in WebKitGTK).
@@ -66,6 +72,8 @@ windows = { version = "0.62", features = [
   "Foundation", "Graphics", "Graphics_Capture", "Graphics_DirectX", "Graphics_DirectX_Direct3D11",
   "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",
   "Win32_Graphics_Dxgi_Common", "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture",
+  # The call pop-out's own title bar (src/popout_win.rs).
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]

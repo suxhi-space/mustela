@@ -56,11 +56,11 @@ object Notifier {
 
     /** Where Reply and Mark as read are sent (the page and MessageWatch keep this current). */
     fun setSession(ctx: Context, api: String, token: String) {
-        if (api.isNotEmpty() && token.isNotEmpty()) prefs(ctx).edit().putString("api", api.trimEnd('/')).putString("token", token).apply()
+        if (api.isNotEmpty() && token.isNotEmpty()) prefs(ctx).edit().putString("api", api.trimEnd('/')).putString("token", Vault.seal(token)).apply()
     }
     fun forgetSession(ctx: Context) { prefs(ctx).edit().clear().apply() }
     private fun session(ctx: Context): Pair<String, String>? {
-        val p = prefs(ctx); val api = p.getString("api", null); val token = p.getString("token", null)
+        val p = prefs(ctx); val api = p.getString("api", null); val token = Vault.open(p.getString("token", null))
         return if (api.isNullOrEmpty() || token.isNullOrEmpty()) null else api to token
     }
 

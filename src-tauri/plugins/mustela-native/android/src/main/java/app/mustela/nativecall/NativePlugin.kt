@@ -81,6 +81,12 @@ class AliveArgs {
 }
 
 @InvokeArg
+class VaultArgs {
+    var account: String = ""
+    var secret: String = ""
+}
+
+@InvokeArg
 class ClearArgs {
     var channel: String = ""
 }
@@ -167,7 +173,7 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
         // page's base size (--font-scale) a little.
         val fontScale = activity.resources.configuration.fontScale
         lockPageScale(webView)
-        activity.runOnUiThread { clearBarScrims() }
+        activity.runOnUiThread { clearBarScrims(); activity.requestedOrientation = upright() }
         webView.post { webView.evaluateJavascript("document.documentElement.style.setProperty('--font-scale','${fontScale.coerceIn(0.85f, 1.3f)}')", null) }
         val density = activity.resources.displayMetrics.density
         ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
@@ -362,12 +368,17 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun callState(invoke: Invoke) = invoke.resolve(state())
 
-    /** Watching a stream: the phone may turn sideways (even with rotation locked, like video apps); off goes back to normal. */
+    /** Phones stay upright (Mustela's phone layout is made for that); tablets turn freely, they have a sideways layout. */
+    private fun upright() =
+        if (activity.resources.configuration.smallestScreenWidthDp < 600) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+    /** Watching a stream or a video full screen: the phone may turn sideways (even with rotation locked, like video apps); off goes back upright. */
     @Command
     fun landscape(invoke: Invoke) {
         val args = invoke.parseArgs(MicArgs::class.java)
         activity.runOnUiThread {
-            activity.requestedOrientation = if (args.on) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity.requestedOrientation = if (args.on) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else upright()
             invoke.resolve()
         }
     }
@@ -630,6 +641,34 @@ class NativePlugin(private val activity: Activity) : Plugin(activity) {
     fun watchAlive(invoke: Invoke) {
         val args = invoke.parseArgs(AliveArgs::class.java)
         MessageWatch.alive(activity.applicationContext, args.alive)
+        invoke.resolve()
+    }
+
+    /* ---------- sign-in tokens, encrypted with a key kept in the Android Keystore (Vault.kt) ---------- */
+
+    @Command
+    fun vaultAvailable(invoke: Invoke) { val r = JSObject(); r.put("ok", Vault.available()); invoke.resolve(r) }
+
+    @Command
+    fun vaultGet(invoke: Invoke) {
+        val a = invoke.parseArgs(VaultArgs::class.java)
+        val out = JSObject()
+        if (a.account.isNotEmpty() && a.account.length <= 300) Vault.get(activity.applicationContext, a.account)?.let { out.put("secret", it) }
+        invoke.resolve(out)
+    }
+
+    @Command
+    fun vaultSet(invoke: Invoke) {
+        val a = invoke.parseArgs(VaultArgs::class.java)
+        val ok = a.account.isNotEmpty() && a.account.length <= 300 && a.secret.isNotEmpty() && a.secret.length <= 2000 &&
+            Vault.put(activity.applicationContext, a.account, a.secret)
+        val r = JSObject(); r.put("ok", ok); invoke.resolve(r)
+    }
+
+    @Command
+    fun vaultDelete(invoke: Invoke) {
+        val a = invoke.parseArgs(VaultArgs::class.java)
+        if (a.account.isNotEmpty()) Vault.remove(activity.applicationContext, a.account)
         invoke.resolve()
     }
 

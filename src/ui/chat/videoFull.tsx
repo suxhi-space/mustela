@@ -35,5 +35,7 @@ export function VideoBox(props: { src: string; poster?: string; class?: string; 
 }
 
 /** YouTube's player address: without its own full-screen button in the chat; in the viewer only on computers. */
-export const ytEmbed = (id: string, fs: boolean) => `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&fs=${fs ? 1 : 0}`;
+export const ytEmbed = (id: string, fs: boolean) => `https://www.youtube-nocookie.com/embed/${/^[\w-]{6,20}$/.test(id) ? id : "invalid"}?autoplay=1&rel=0&fs=${fs ? 1 : 0}`;
+/** Video frames can play, go full screen and open YouTube in the browser, but never steer the Mustela window itself. */
+export const FRAME_SANDBOX = "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox";
 

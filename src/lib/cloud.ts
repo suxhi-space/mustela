@@ -1,6 +1,7 @@
 import type { ProfileConfig } from "./profile/model";
 import { sanitizeProfile } from "./profile/model";
 import { sanitizeServerLooks, type ServerLooks } from "./profile/servers";
+import { forgetToken, readToken, VAULT_MARK, vaultAvailable, writeToken } from "./session/vault";
 
 /**
  * Mustela sync servers ("cloud"): optional, self-hostable servers that hold the
@@ -44,6 +45,40 @@ export interface CloudProfile { profile: ProfileConfig | null; activity: Activit
 export interface Health { ok: boolean; name?: string; version?: string; error?: string }
 
 const KEYS = "mustela.cloud.keys";
+
+/*
+ * Write keys for linked sync servers. Like sign-in tokens, they live in the system keychain where there is one
+ * (one entry per server and account); the saved list then holds VAULT_MARK in their place. `held` is the real list
+ * for this run.
+ */
+let held: Record<string, string> | null = null;
+const entry = (slot: string) => `sync|${slot}`;
+const storedKeys = (): Record<string, string> => { try { const v = JSON.parse(localStorage.getItem(KEYS) ?? "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; } };
+const writeStored = (k: Record<string, string>) => { try { localStorage.setItem(KEYS, JSON.stringify(k)); } catch { /* storage full or blocked */ } };
+
+/** Run once at start: reads keys kept in the keychain and moves any plain ones into it. */
+export async function unlockCloudKeys(): Promise<void> {
+  const stored = storedKeys();
+  const real: Record<string, string> = {};
+  for (const [slot, v] of Object.entries(stored)) {
+    if (v !== VAULT_MARK) { real[slot] = v; continue; }
+    const k = await readToken(entry(slot));
+    if (k) real[slot] = k; // a key the keychain lost just needs linking again
+  }
+  held = real;
+  await secureCloudKeys();
+}
+
+async function secureCloudKeys() {
+  if (!held || !(await vaultAvailable())) return;
+  const stored = storedKeys();
+  let changed = false;
+  for (const [slot, v] of Object.entries(stored)) {
+    if (v === VAULT_MARK || held[slot] !== v) continue;
+    if (await writeToken(entry(slot), v)) { stored[slot] = VAULT_MARK; changed = true; }
+  }
+  if (changed) writeStored(stored);
+}
 const PROTOCOL = "v1";
 const clean = (u: string) => u.trim().replace(/\/+$/, "");
 const TIMEOUT = 6000;
@@ -84,13 +119,18 @@ export class Cloud {
   }
   get list() { return this.servers; }
 
-  private keys(): Record<string, string> { try { return JSON.parse(localStorage.getItem(KEYS) ?? "{}") ?? {}; } catch { return {}; } }
+  private keys(): Record<string, string> {
+    return held ?? Object.fromEntries(Object.entries(storedKeys()).filter(([, v]) => v !== VAULT_MARK));
+  }
   private slot(server: string) { return `${clean(server)}|${this.userId()}`; }
   keyFor(server: string): string | undefined { return this.keys()[this.slot(server)]; }
   private saveKey(server: string, key: string | null) {
-    const k = this.keys();
-    if (key) k[this.slot(server)] = key; else delete k[this.slot(server)];
-    try { localStorage.setItem(KEYS, JSON.stringify(k)); } catch { /* storage full or blocked */ }
+    const slot = this.slot(server);
+    held = { ...this.keys() };
+    const stored = storedKeys();
+    if (key) { held[slot] = key; stored[slot] = key; } else { delete held[slot]; delete stored[slot]; void forgetToken(entry(slot)); }
+    writeStored(stored);
+    if (key) void secureCloudKeys();
   }
   linked = (server: string) => !!this.keyFor(server);
 

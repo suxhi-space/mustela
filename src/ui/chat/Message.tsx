@@ -18,10 +18,11 @@ import { inTauri } from "../../lib/platform";
 import { Markdown, PlainLine, type MdCtx } from "./Markdown";
 import { justReacted, markReacted, reactBurst } from "./reactFx";
 import { doubleTapEmoji, isFav, openEmojiPicker, openGallery, openLightbox, toggleFav } from "./overlays";
+import { openOutside } from "./Gallery";
 import { messageMenu } from "../menus";
 import { copy } from "../menu";
 import { UEmoji } from "./UEmoji";
-import { VideoBox, ytEmbed } from "./videoFull";
+import { FRAME_SANDBOX, VideoBox, ytEmbed } from "./videoFull";
 
 const time = (d: Date) => fmtTime(d);
 const stamp = (d: Date) => fmtStamp(d);
@@ -220,13 +221,22 @@ function YouTubeInline(props: { id: string; thumb?: string; title?: string }) {
     }>
       <div class="vid-box yt-box">
         <iframe class="em-frame" src={ytEmbed(id(), false)} title={props.title ?? "YouTube video"}
-          allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerPolicy="strict-origin-when-cross-origin" />
-        {/* Opens in the media viewer, like pictures (YouTube's own full-screen button is turned off in the chat). */}
-        <button type="button" class="vid-fs" aria-label="Full screen" title="Full screen" onClick={(ev) => {
-          (ev.currentTarget.parentElement?.querySelector("iframe") as HTMLIFrameElement | null)?.setAttribute("src", "about:blank");
-          openGallery([{ url: `https://www.youtube.com/watch?v=${id()}`, name: props.title ?? "YouTube", video: true, preview: props.thumb ?? `https://i.ytimg.com/vi/${id()}/hqdefault.jpg`, frame: ytEmbed(id(), !MOBILE_UI) }]);
-          setOn(false);
-        }}><Icon name="fullscreen" size={18} /></button>
+          sandbox={FRAME_SANDBOX} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerPolicy="strict-origin-when-cross-origin" />
+        {/* Computers: opens in the media viewer, like pictures (YouTube's own full-screen button is turned off in the
+            chat). Phones and tablets: opens the video in the YouTube app (or the browser), which handles full screen
+            and turning sideways properly; Mustela itself stays upright. */}
+        <Show when={MOBILE_UI} fallback={
+          <button type="button" class="vid-fs" aria-label="Full screen" title="Full screen" onClick={(ev) => {
+            (ev.currentTarget.parentElement?.querySelector("iframe") as HTMLIFrameElement | null)?.setAttribute("src", "about:blank");
+            openGallery([{ url: `https://www.youtube.com/watch?v=${id()}`, name: props.title ?? "YouTube", video: true, preview: props.thumb ?? `https://i.ytimg.com/vi/${id()}/hqdefault.jpg`, frame: ytEmbed(id(), !MOBILE_UI) }]);
+            setOn(false);
+          }}><Icon name="fullscreen" size={18} /></button>
+        }>
+          <button type="button" class="vid-fs" aria-label="Open in YouTube" title="Open in YouTube" onClick={() => {
+            setOn(false); // stops the player here
+            void openOutside(`https://www.youtube.com/watch?v=${id()}`);
+          }}><Icon name="popout" size={18} /></button>
+        </Show>
       </div>
     </Show>
   );

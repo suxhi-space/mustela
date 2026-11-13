@@ -63,7 +63,7 @@ export function Friends(props: { onMessage(channelId: string): void; onProfile(p
   ];
 
   return (
-    <div class="friends">
+    <div class="friends" data-swipe-tabs>
       <header class="bar main-bar">
         <Show when={props.onBack}><button class="icon-btn back" onClick={props.onBack} aria-label="Back"><Icon name="back" size={20} /></button></Show>
         <Icon name="friends" size={20} class="muted" />

@@ -100,3 +100,14 @@ pub(crate) async fn pending_media<R: Runtime>(app: AppHandle<R>) -> Result<serde
 
 #[command]
 pub(crate) async fn notify_message<R: Runtime>(app: AppHandle<R>, payload: NotifyMessage) -> Result<()> { app.mustela_native().notify_message(payload) }
+
+/// Android: sign-in tokens in Keystore-encrypted storage (desktop uses the system keychain in the app itself).
+#[command]
+pub(crate) async fn vault_available<R: Runtime>(app: AppHandle<R>) -> Result<serde_json::Value> { app.mustela_native().vault_available() }
+#[command]
+pub(crate) async fn vault_get<R: Runtime>(app: AppHandle<R>, payload: VaultKey) -> Result<serde_json::Value> { app.mustela_native().vault_get(payload) }
+#[command]
+pub(crate) async fn vault_set<R: Runtime>(app: AppHandle<R>, payload: VaultPut) -> Result<serde_json::Value> { app.mustela_native().vault_set(payload) }
+#[command]
+pub(crate) async fn vault_delete<R: Runtime>(app: AppHandle<R>, payload: VaultKey) -> Result<()> { app.mustela_native().vault_delete(payload) }
+

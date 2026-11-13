@@ -197,10 +197,8 @@ const BOTS: &[&str] = &[
 ];
 
 fn client(ua: &str) -> Option<reqwest::Client> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
-        // Redirects stay on https (the fixer sites redirect to their CDN); private addresses are refused.
-        .redirect(reqwest::redirect::Policy::custom(|a| if a.previous().len() < 4 && crate::fetch::validate_url(a.url().as_str()).is_ok() { a.follow() } else { a.stop() }))
+    // Redirects stay on https (the fixer sites redirect to their CDN); private addresses are refused.
+    crate::fetch::outside_client(Duration::from_secs(8))
         .user_agent(ua)
         .build().ok()
 }

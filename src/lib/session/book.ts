@@ -1,4 +1,5 @@
 import type { StoredSession } from "../backend/types";
+import { VAULT_MARK } from "./vault";
 
 /**
  * The list of signed-in accounts and which one is active.
@@ -6,10 +7,10 @@ import type { StoredSession } from "../backend/types";
  * Pure functions over a plain object, plus a thin storage wrapper, so the
  * logic is testable without a browser.
  *
- * SECURITY NOTE: session tokens are stored in the webview's app-private
- * storage (localStorage). That is sandboxed per app on Android, but on desktop
- * it is a plain file in the user's profile. Moving tokens to the OS keychain is
- * on the to-do list (README). Tokens are never logged or put in URLs.
+ * SECURITY: session tokens live in the system keychain (computers) or Keystore-encrypted storage (Android), see
+ * vault.ts. The saved list holds only VAULT_MARK in their place; the real tokens are read back at start-up. Only where
+ * no keychain can be used (the browser, a Linux desktop without a Secret Service) does a token stay in this list.
+ * Tokens are never logged or put in URLs.
  */
 
 export interface Account {
@@ -115,8 +116,13 @@ export function loadBook(kv: KV): Book {
   try { return parseBook(kv.getItem(BOOK_KEY)); } catch { return { ...EMPTY_BOOK, accounts: [] }; }
 }
 
-export function saveBook(kv: KV, b: Book): void {
-  try { kv.setItem(BOOK_KEY, JSON.stringify(b)); } catch { /* storage unavailable: stay signed in for this run only */ }
+/**
+ * Saves the list. `inVault` (account id -> the token kept in the keychain): those accounts are saved with VAULT_MARK
+ * instead of their token, as long as the keychain holds that same token.
+ */
+export function saveBook(kv: KV, b: Book, inVault?: ReadonlyMap<string, string>): void {
+  const out: Book = !inVault ? b : { ...b, accounts: b.accounts.map((a) => (a.session && inVault.get(a.id) === a.session.token ? { ...a, session: { ...a.session, token: VAULT_MARK } } : a)) };
+  try { kv.setItem(BOOK_KEY, JSON.stringify(out)); } catch { /* storage unavailable: stay signed in for this run only */ }
 }
 
 export const activeAccount = (b: Book) => b.accounts.find((a) => a.id === b.active) ?? null;

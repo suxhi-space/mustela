@@ -525,6 +525,9 @@ export interface ChatBackend {
   pushSettings(s: MustelaSettings): Promise<void>;
   pullExt(): Promise<ExtSettings | null>;
   pushExt(s: ExtSettings): Promise<void>;
+  /** A whole synced document (settings or ext), merged part by part by the app (lib/sync/merge.ts). */
+  pullDoc(key: string): Promise<Record<string, unknown> | null>;
+  pushDoc(key: string, doc: Record<string, unknown>): Promise<void>;
   /** Looks someone up by id for call participants and mentions. Never throws. */
   person(id: string): Person;
   /** Name for a channel id, for <#id> mentions. */

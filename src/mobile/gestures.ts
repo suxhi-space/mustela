@@ -1,6 +1,7 @@
 import { zoomNow } from "../ui/appSize";
 import { phoneLayout } from "../ui/hooks";
 import { backToChat, backToList, openMembersSheet } from "../ui/nav";
+import { canStep, inSideScroller, tabRowAt } from "./swipeUtil";
 
 /**
  * Swipes in the touch layout (phones, and tablets held upright), like Discord's and Stoat's apps:
@@ -19,14 +20,6 @@ function untilViewChanges(app: HTMLElement) {
     if (app.dataset.view !== "nav" && (was === "nav" || app.dataset.view === "chat")) { app.classList.remove("swiped"); mo.disconnect(); }
   });
   mo.observe(app, { attributes: true, attributeFilter: ["data-view"] });
-}
-
-/** Something under the finger that scrolls sideways itself (the "active now" strip, filter chips, a row of pictures). */
-function inSideScroller(t: Element | null): boolean {
-  for (let e = t; e && e !== document.body; e = e.parentElement) {
-    if (e.scrollWidth > e.clientWidth + 2) { const o = getComputedStyle(e).overflowX; if (o === "auto" || o === "scroll") return true; }
-  }
-  return false;
 }
 
 /** How far a swipe goes before the chat starts moving (in screen pixels). */
@@ -81,6 +74,10 @@ export function installGestures() {
       // Decide once it's clearly sideways; anything else is a scroll and is left alone.
       if (Math.abs(x) < 14 && Math.abs(y) < 14) return;
       if (Math.abs(x) < Math.abs(y) * 1.4) { start = null; return; }
+      // On tabs (Friends), a swipe towards another tab switches tabs (tabSwipe.ts); past the first or last tab it's
+      // a screen swipe as before.
+      const row = startEl && tabRowAt(startEl);
+      if (row && canStep(row.list, x < 0 ? 1 : -1)) { start = null; return; }
       if (start.view === "chat" && x > 0) {
         mode = "drawer";
         main = app.querySelector<HTMLElement>(".main");

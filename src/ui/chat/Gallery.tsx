@@ -8,6 +8,7 @@ import { Icon } from "../icons";
 import { copy, toast } from "../menu";
 import { platform } from "../store";
 import { MOBILE_UI } from "../target";
+import { FRAME_SANDBOX } from "./videoFull";
 
 /**
  * Pictures and videos shown big, like a phone's gallery: black screen, swipe sideways between them, pinch or
@@ -71,7 +72,7 @@ async function share(it: GalleryItem) {
   void copy(it.url, "Link copied");
 }
 
-async function openOutside(url: string) {
+export async function openOutside(url: string) {
   // Android: straight to the browser through Android itself.
   if (platform === "android" && "__TAURI_INTERNALS__" in globalThis) {
     try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("plugin:mustela-native|media_file", { payload: { url, name: "link", share: false, mode: "open" } }); return; } catch { /* the opener below */ }
@@ -94,6 +95,15 @@ function GalleryView() {
   const bars = (on: boolean) => { if (platform === "android") void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|system_bars", { payload: { on } })).catch(() => {}); };
   createEffect(on(chrome, (c) => bars(c), { defer: true }));
   onCleanup(() => bars(true));
+  // Phones stay upright, except for a video filling the viewer, which may turn sideways (like a stream in a call).
+  let sideways = false;
+  const turn = (on: boolean) => {
+    if (platform !== "android" || on === sideways) return;
+    sideways = on;
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("plugin:mustela-native|landscape", { payload: { on } })).catch(() => {});
+  };
+  createEffect(() => { const it = items()[index()]; turn(MOBILE_UI && !!it?.video && !it.frame); });
+  onCleanup(() => turn(false));
   const [menu, setMenu] = createSignal(false);
   // Zoom of the picture in view, and how far it's moved (app pixels).
   const [scale, setScale] = createSignal(1);
@@ -295,7 +305,7 @@ function GalleryView() {
                 }>
                   <Show when={it.frame} fallback={
                     <video src={it.url} poster={it.preview} controls playsinline autoplay={i() === index()} ref={(v) => { if (it.start) v.currentTime = it.start; }} />
-                  }>{(f) => <iframe class="gv-frame" src={i() === index() ? f() : undefined} title={it.name} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerPolicy="strict-origin-when-cross-origin" />}</Show>
+                  }>{(f) => <iframe class="gv-frame" src={i() === index() ? f() : undefined} title={it.name} sandbox={FRAME_SANDBOX} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerPolicy="strict-origin-when-cross-origin" />}</Show>
                 </Show>
               </Show>
             </div>

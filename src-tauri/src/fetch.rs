@@ -8,16 +8,52 @@ pub const MAX_BYTES: usize = 4 * 1024 * 1024;
 
 fn is_blocked_ip(ip: IpAddr) -> bool {
     match ip {
-        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast(),
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified() || (v6.segments()[0] & 0xfe00) == 0xfc00 /* unique local */ || (v6.segments()[0] & 0xffc0) == 0xfe80 /* link local */,
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast() || v4.is_multicast()
+                || o[0] == 0 /* "this network" */ || (o[0] == 100 && (o[1] & 0xc0) == 64) /* carrier-grade NAT */
+                || (o[0] == 198 && (o[1] & 0xfe) == 18) /* benchmarking */ || o[0] >= 240 /* reserved */
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() { return is_blocked_ip(IpAddr::V4(v4)); } // ::ffff:127.0.0.1 and friends
+            v6.is_loopback() || v6.is_unspecified() || v6.is_multicast()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00 /* unique local */ || (v6.segments()[0] & 0xffc0) == 0xfe80 /* link local */
+        }
     }
+}
+
+/// Looks names up like the system does, but refuses any that point at this computer or the local network, so a
+/// link in a message can't make Mustela reach your router, printer or anything else at home (this also covers
+/// names that change their answer between checks, "DNS rebinding").
+#[derive(Clone, Copy, Default)]
+pub struct PublicDns;
+
+impl reqwest::dns::Resolve for PublicDns {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(async move {
+            let host = name.as_str().to_string();
+            let found: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 0)).await?.filter(|a| !is_blocked_ip(a.ip())).collect();
+            if found.is_empty() {
+                return Err::<reqwest::dns::Addrs, Box<dyn std::error::Error + Send + Sync>>("that address is on a private network".into());
+            }
+            Ok(Box::new(found.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+/// Redirects: at most 3, and every hop must pass `validate_url` too.
+pub fn safe_redirects() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|a| if a.previous().len() < 4 && validate_url(a.url().as_str()).is_ok() { a.follow() } else { a.stop() })
+}
+
+/// A client for anything from outside (pictures, sounds, previews): public addresses only, safe redirects.
+pub fn outside_client(timeout: Duration) -> reqwest::ClientBuilder {
+    reqwest::Client::builder().timeout(timeout).dns_resolver(std::sync::Arc::new(PublicDns)).redirect(safe_redirects())
 }
 
 /// https only, and no localhost / private IP literals.
 ///
-/// Limit: a hostname that *resolves* to a private address is not caught here.
-/// The URLs we fetch come from the user's own Stoat instance, but a hardened
-/// build should resolve first and check the address.
+/// Names that *resolve* to a private address are refused when connecting, by `PublicDns`.
 pub fn validate_url(url: &str) -> Result<reqwest::Url, String> {
     let parsed = reqwest::Url::parse(url).map_err(|_| "bad url".to_string())?;
     if parsed.scheme() != "https" {
@@ -89,9 +125,7 @@ pub async fn fetch_audio(url: &str) -> Result<Vec<u8>, String> {
 
 async fn fetch_typed(url: &str, max: usize) -> Result<(Vec<u8>, String), String> {
     let parsed = validate_url(url)?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::limited(3))
+    let client = outside_client(Duration::from_secs(10))
         .user_agent("Mozilla/5.0 (compatible; Mustela)")
         .build()
         .map_err(|_| "client".to_string())?;
@@ -160,6 +194,23 @@ mod tests {
         assert_eq!(find_audio_link(src, &base).unwrap().as_str(), "https://www.myinstants.com/en/instant/vine-boom-sound-70972/sounds/x.wav?v=2");
         assert!(find_audio_link("<p>nothing here</p>", &base).is_none());
         assert!(find_audio_link(r#"<a href="http://insecure.example/a.mp3">"#, &base).is_none());
+    }
+
+    #[test]
+    fn sneaky_local_addresses_are_blocked() {
+        for ip in ["::ffff:127.0.0.1", "::ffff:192.168.1.1", "100.64.0.1", "0.1.2.3", "224.0.0.1", "ff02::1", "198.18.0.1"] {
+            assert!(is_blocked_ip(ip.parse().unwrap()), "{ip} should be blocked");
+        }
+        for ip in ["1.1.1.1", "2606:4700:4700::1111", "100.128.0.1"] {
+            assert!(!is_blocked_ip(ip.parse().unwrap()), "{ip} should be allowed");
+        }
+    }
+
+    #[tokio::test]
+    async fn names_that_point_home_are_refused() {
+        use reqwest::dns::Resolve;
+        let name: reqwest::dns::Name = "localhost".parse().unwrap();
+        assert!(PublicDns.resolve(name).await.is_err());
     }
 
     #[test]

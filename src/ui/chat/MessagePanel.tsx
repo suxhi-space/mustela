@@ -341,7 +341,7 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
   };
 
   return (
-    <section class="mpanel" aria-label={title()}>
+    <section class="mpanel" aria-label={title()} data-swipe-tabs>
       <header class="mp-head">
         <Icon name={pins() ? "pin" : "search"} size={18} />
         <Show when={!pins() && ownBox()} fallback={<h3>{title()}</h3>}>

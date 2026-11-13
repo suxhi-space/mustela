@@ -403,7 +403,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
             </div>
           </ProfileCard>
         </div>
-        <div class="pf-side">
+        <div class="pf-side" data-swipe-tabs>
           <nav class="pf-tabs" role="tablist">
             <button role="tab" aria-selected={tab() === "activity"} classList={{ on: tab() === "activity" }} onClick={() => setTab("activity")}>Activity</button>
             <Show when={!self()}>
