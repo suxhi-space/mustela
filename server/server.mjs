@@ -124,6 +124,7 @@ function cleanActivity(a) {
     endsAt: Number.isFinite(a.endsAt) ? a.endsAt : undefined,
     largeText: str(a.largeText, 128),
     smallImage: https(str(a.smallImage, 512)),
+    icon: https(str(a.icon, 512)),
     smallText: str(a.smallText, 128),
     buttons: cleanButtons(a.buttons),
   };

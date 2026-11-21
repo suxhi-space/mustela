@@ -169,6 +169,8 @@ function MeCard(props: { onClose(): void }) {
         {/* Phones and tablets: a way out at the top too, besides swiping down */}
         <Show when={MOBILE_UI}><button class="icon-btn me-back" aria-label="Close" title="Close" onClick={(e) => { e.stopPropagation(); props.onClose(); }}><Icon name="back" size={22} /></button></Show>
         <ProfileCard person={me()} profile={info()?.config ?? settings().profile} bio={info()?.bio} banner={info()?.bannerUrl} marked={!!info()?.bannerUrl} compact>
+          {/* Your controls stay at the bottom of the card while your About me and activities scroll under them. */}
+          <div class="me-dock">
           <div class="me-list">
             <button class="me-row" onClick={() => { props.onClose(); openProfileEditor(editTarget()); }}><Icon name="pencil" size={17} /><span>Edit profile</span></button>
             <button class="me-row" onClick={(e) => openMenu(e.currentTarget, PRESENCE.map((p) => ({ label: p.label, hint: p.hint, checked: presence() === p.v, onSelect: () => setPresence(p.v) })))}>
@@ -185,6 +187,7 @@ function MeCard(props: { onClose(): void }) {
             ])}><Icon name="swap" size={17} /><span>Switch accounts</span><Icon name="right" size={14} class="muted" /></button>
             <button class="me-row" onClick={() => { void copy(me().id, "User ID copied"); }}><Icon name="id" size={17} /><span>Copy user ID</span></button>
             <button class="me-row me-settings" onClick={() => { props.onClose(); setSettingsOpen("account"); }}><Icon name="gear" size={17} /><span>Settings</span></button>
+          </div>
           </div>
         </ProfileCard>
       </div>

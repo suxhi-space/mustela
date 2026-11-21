@@ -27,7 +27,7 @@ export function MemberRow(props: { person: Person; onOpen(p: Person): void; serv
       </Show>
       <Avatar person={props.person} size={32} />
       <span class="member-text">
-        <span class="member-name" style={roleStyle(props.person.colour)}><NameText person={props.person} />
+        <span class="member-name" style={roleStyle(props.person.colour)}><NameText person={props.person} fontOnly={!!props.person.colour} />
           <Show when={props.person.roleIcon}>{(src) => <img class="role-icon" src={src()} alt="" />}</Show>
           <Show when={props.person.bot}><span class="tag">Bot</span></Show></span>
         <Show when={act() && props.person.online} fallback={<Show when={props.person.status}><small><TextWithEmoji v={props.person.status!} /></small></Show>}>

@@ -110,7 +110,9 @@ body, .settings, .scrim.full, .popout { background: var(--world); }
   --glass: color-mix(in srgb, var(--s1) calc(var(--panel-op, 80) * 1%), transparent);
   --glass-2: color-mix(in srgb, var(--s2) calc(var(--panel-op, 80) * 0.92%), transparent);
 }
-/* "Blur behind panels": frosted glass over a picture or gradient; off, the background shows through sharp. */ /* wins over Performance's "blur behind menus" off */
+/* "Blur behind panels": frosted glass over a picture or gradient; off, the background shows through sharp. */
+:root[data-panel-blur]:is([data-backdrop="image"], [data-backdrop="gradient"]) :is(.panel, .menu, .modal:not(.profile-modal), .userpanel, .callpanel, .rail .orb) {
+  -webkit-backdrop-filter: blur(22px) saturate(1.15) !important; backdrop-filter: blur(22px) saturate(1.15) !important; } /* wins over Performance's "blur behind menus" off */
 :root:is([data-backdrop="image"], [data-backdrop="gradient"]) .settings-card { background: color-mix(in srgb, var(--s1) calc(var(--panel-op, 80) * 1%), transparent); -webkit-backdrop-filter: blur(22px); backdrop-filter: blur(22px); }
 /* Gradient themes: windows and panels take on the gradient too. */
 :root[data-wingrad] :is(.panel, .settings-card, .modal, .menu, .ctx) { background-image: var(--win-tint), linear-gradient(var(--glass), var(--glass)); }
@@ -621,7 +623,7 @@ a.em-title:hover { text-decoration: underline; }
 .pc-more { color: var(--pc-label); }
 .pc-actions { margin-top: 10px; display: flex; gap: 8px; position: relative; z-index: 6; }
 /* On someone's themed card the buttons are in their colours, not the app theme's (yours) */
-.pcard.themed .pc-actions .btn.primary { background: var(--pc-btn); background-image: none; color: var(--pc-on-btn); }
+.pcard.themed .pc-actions .btn.primary { --face: var(--pc-btn); --ink: var(--pc-on-btn); background: var(--pc-btn); background-image: none; color: var(--pc-on-btn); } /* --face: the raised edge in the button's own colour, not the app's */
 .pcard.themed .pc-actions .btn.primary:hover { background: color-mix(in srgb, var(--pc-btn) 86%, var(--pc-on-btn)); }
 .pcard.themed .pc-actions .btn:not(.primary) { background: color-mix(in srgb, var(--pc-fg) 14%, transparent); color: var(--pc-fg); }
 .pcard.themed .pc-actions .btn:not(.primary):hover { background: color-mix(in srgb, var(--pc-fg) 22%, transparent); }
@@ -1054,6 +1056,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .modal.dialog { background: var(--s2); }
 
 /* ---------- accent gradient: filled accents use it; outlines and text stay solid ---------- */
+:root[data-gradient] :is(.btn.primary, .btn.on, .switch[aria-checked="true"], .seg button.on, .orb.home.on, .sb-sound.add:hover, .jump-present) { background-image: var(--pri-grad); }
 :root[data-gradient] .chan.on, :root[data-gradient] .snav button.on, :root[data-gradient] .orb.on:not(.home) {
   background-image: linear-gradient(90deg, color-mix(in srgb, var(--pri) 22%, transparent), color-mix(in srgb, var(--pri-2) 22%, transparent)); }
 :root[data-gradient] .msg-name:not([style*="color"]) { color: var(--fg); }
@@ -1133,6 +1136,21 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 
 /* activity */
 .pc-activity .pa-row { display: flex; gap: 12px; }
+/* More than one activity on a card (computers): the first one, with the others as thin layers peeking out only below
+   its bottom edge (never behind it, since the card is see-through); they drop a little on hover; click opens the full
+   profile. */
+.pa-stack { position: relative; margin-bottom: 14px; cursor: pointer; border-radius: 12px; }
+.pa-stack::before, .pa-stack::after { content: ""; position: absolute; top: 100%; height: 6px; border-radius: 0 0 10px 10px; pointer-events: none;
+  background: color-mix(in srgb, var(--pc-fg, var(--fg)) 9%, transparent); transition: transform .18s ease; }
+.pa-stack::before { left: 10px; right: 10px; }
+.pa-stack::after { left: 22px; right: 22px; margin-top: 6px; height: 5px; background: color-mix(in srgb, var(--pc-fg, var(--fg)) 6%, transparent); }
+.pa-stack:hover::before { transform: translateY(2px); }
+.pa-stack:hover::after { transform: translateY(4px); }
+:root[data-reduce-motion] .pa-stack::before, :root[data-reduce-motion] .pa-stack::after { transition: none; }
+/* "+1": in the card's top-right corner, level with its "Playing…" heading. */
+.pa-stack .pc-activity { position: relative; }
+.pa-more { position: absolute; top: 12px; right: 12px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 850; line-height: 18px;
+  background: color-mix(in srgb, var(--pc-fg, var(--fg)) 12%, transparent); color: var(--pc-sub, var(--fg2)); }
 .pa-img { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; flex: none; background: color-mix(in srgb, var(--pc-fg, var(--fg)) 10%, transparent); }
 .pa-img.blank { display: grid; place-items: center; color: var(--pc-sub, var(--fg2)); }
 .pa-text { display: flex; flex-direction: column; min-width: 0; font-size: 13px; font-weight: 650; line-height: 1.35; }
@@ -1364,6 +1382,16 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .up-chev:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
 .mecard { position: fixed; left: 8px; bottom: 74px; width: 320px; max-height: calc(100vh - 100px); overflow-y: auto; scrollbar-width: none; border-radius: var(--rad); z-index: 71; animation: pop-in .12s ease-out; }
 :root[data-titlebar] .mecard { bottom: 74px; }
+/* Your card: the controls stick to its bottom, with a soft blurred fade above them, so a long About me or a few
+   activities scroll underneath instead of pushing them out of reach. The card clips its corners with "clip" here (not
+   "hidden"), which is what lets them stick; engines without "clip" keep the plain layout. */
+.mecard .pcard { overflow: hidden; overflow: clip; }
+.me-dock { position: sticky; bottom: 0; z-index: 7; margin: 0 -18px -18px; padding: 0 18px 14px;
+  background: color-mix(in srgb, var(--pc-bg2) 84%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+.me-dock::before { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 34px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--pc-bg2) 84%, transparent));
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000); mask-image: linear-gradient(to bottom, transparent, #000); }
 .me-list { margin-top: 10px; border-radius: 12px; background: color-mix(in srgb, var(--pc-fg) 7%, transparent); padding: 4px; position: relative; z-index: 6; display: flex; flex-direction: column; }
 .me-row { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: 9px; border: 0; background: none; color: var(--pc-fg); font-weight: 750; text-align: left; }
 .me-row span:not(.pdot) { flex: 1; }
@@ -1482,6 +1510,7 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .md.jumbo .ue-glyph { width: 60px; height: 60px; font-size: 50px; line-height: 60px; vertical-align: middle; }
 .reaction .re .ue-glyph { width: 17px; height: 17px; font-size: 14px; line-height: 17px; vertical-align: -3px; }
 .emoji-grid button .ue-glyph { width: 28px; height: 28px; font-size: 24px; line-height: 28px; vertical-align: 0; }
+:is(.emoji-pack .ep-row, .ctx-quick button, .react-row button) .ue-glyph { width: 24px; height: 24px; font-size: 20px; line-height: 24px; vertical-align: middle; }
 :is(.sb-emoji, .emoji-rail, .rv-tabs) .ue-glyph { width: 22px; height: 22px; font-size: 18px; line-height: 22px; vertical-align: middle; }
 .md.jumbo .uemoji-img { width: 60px; height: 60px; vertical-align: middle; }
 .reaction .re .uemoji-img { width: 17px; height: 17px; vertical-align: -3px; }
@@ -2130,6 +2159,8 @@ img.mini-orb.tiny { object-fit: cover; }
 
 /* Settings > Accessibility */
 :root[data-underline-links] :is(.md, .msg-text) a { text-decoration: underline; text-underline-offset: 2px; }
+:root[data-no-role-colors] :is(.member-name, .msg-head .name, .vm-name, .rr-name, .pc-name) { color: var(--fg) !important; }
+:root[data-no-role-colors] :is(.member-name, .msg-head .name, .vm-name, .rr-name) [style*="background-image"] { background-image: none !important; -webkit-text-fill-color: currentColor; color: var(--fg) !important; }
 :root[data-readable] :is(.msg-text, .md) { font-weight: 550; letter-spacing: .015em; word-spacing: .05em; line-height: 1.55; }
 .bar-peer { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 2px 8px 2px 2px; margin-left: -2px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; cursor: pointer; }
 .bar-peer:hover { background: color-mix(in srgb, var(--fg) 7%, transparent); }
@@ -3199,6 +3230,7 @@ a.mp-item.hs-link { display: flex; align-items: center; gap: 12px; margin-bottom
 
 
 /* Text on gradient fills (buttons, the chosen tab, switches): the colour that reads on both ends of the gradient */
+:root[data-gradient] :is(.btn.primary, .btn.on, .seg button.on, .jump-present) { color: var(--on-pri-grad, var(--on-pri)); --ink: var(--on-pri-grad, var(--on-pri)); }
 :root[data-gradient] :is(.btn.primary, .btn.on, .seg button.on) svg { color: inherit; }
 
 /* "View server as a role": a small bar at the top while previewing */

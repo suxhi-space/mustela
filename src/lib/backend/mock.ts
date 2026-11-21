@@ -1,3 +1,4 @@
+import type { Activity } from "../cloud";
 import { Cloud } from "../cloud";
 import type { AccountApi, BotRow, SessionRow, Attachment, BanRow, InviteRow, NotifyLevel, Role, ServerInfo, CustomEmoji, GifCategory, GifResult, InviteInfo, ChatBackend, ChatEvent, ChannelInfo, Friends, MeUpdate, MemberGroup, Msg, Person, ProfileInfo, SendOptions, Space, StoredSession, VoiceHandle, ServerFolder, CategoryInfo, ChannelDetails, DiscoverState, Override, ServerDetails, WebhookRow, SearchSort } from "./types";
 import { SEARCH_BATCH } from "./types";
@@ -508,10 +509,13 @@ export class DemoBackend implements ChatBackend {
   async profileOf(id: string): Promise<ProfileInfo> {
     const raw = profiles[id];
     const appIcon = (bg: string, fg: string, glyph: string) => "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${bg}"/><text x="32" y="44" font-size="34" text-anchor="middle" font-family="sans-serif" font-weight="700" fill="${fg}">${glyph}</text></svg>`);
-    return { config: raw ? sanitizeProfile(raw) : null, bio: bios[id], bannerUrl: banners[id], activity: id === "u2" ? { kind: "playing", name: "Stardew Valley", details: "Year 2, Summer", state: "Fishing at the beach", startedAt: Date.now() - 47 * 60_000, image: appIcon("#5fa84b", "#fff6c9", "S") }
+    const one: Activity | null = id === "u2" ? { kind: "playing", name: "Stardew Valley", details: "Year 2, Summer", state: "Fishing at the beach", startedAt: Date.now() - 47 * 60_000, image: appIcon("#5fa84b", "#fff6c9", "S") }
       : id === "u1" ? { kind: "listening", name: "YouTube Music", image: appIcon("#e33", "#fff", "♪"), details: "Rainy town, cozy village theme", state: "Lo-fi Garden", startedAt: Date.now() - 80_000, endsAt: Date.now() + 3540_000,
         buttons: [{ label: "Play on YouTube Music", url: "https://music.youtube.com/" }, { label: "View app on GitHub", url: "https://github.com/" }] }
-      : null };
+      : null;
+    // Mika is also playing something, so the demo shows two activities at once (a stacked card on computers).
+    const activities: Activity[] = id === "u1" && one ? [one, { kind: "playing" as const, name: "Pixel Garden", details: "Cherry grove", state: "Planting seeds", startedAt: Date.now() - 12 * 60_000, image: appIcon("#7b5cd6", "#f3ecff", "P"), icon: appIcon("#7b5cd6", "#f3ecff", "P") }] : one ? [one] : [];
+    return { config: raw ? sanitizeProfile(raw) : null, bio: bios[id], bannerUrl: banners[id], activity: one, activities };
   }
   async publishProfile() { /* nothing to publish to in demo mode */ }
   /** Demo: looks stay in this device's settings; banners as local picture links. */

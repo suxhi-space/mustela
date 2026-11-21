@@ -33,6 +33,8 @@ export interface Activity {
   /** The little badge on the corner of the picture, and its hover text */
   smallImage?: string;
   smallText?: string;
+  /** The app's own icon (YouTube Music's logo, not the song's art): voice lists show it, like Discord */
+  icon?: string;
   /** Up to two links the game offers ("Join game", "Listen along"), https only */
   buttons?: { label: string; url: string }[];
 }
@@ -358,6 +360,7 @@ export function sanitizeActivity(a: unknown): Activity | null {
     endsAt: typeof r.endsAt === "number" && Number.isFinite(r.endsAt) ? r.endsAt : undefined,
     largeText: str(r.largeText, 128),
     smallImage: https(str(r.smallImage, 512)),
+    icon: https(str(r.icon, 512)),
     smallText: str(r.smallText, 128),
     buttons: cleanButtons(r.buttons),
   };

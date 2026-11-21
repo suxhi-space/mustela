@@ -49,12 +49,13 @@ export function friendsFirst(others: Person[], first?: Person): Person[] {
   return [...(first ? [first] : []), ...rest.filter((p) => rel(p) === "friend"), ...rest.filter((p) => rel(p) !== "friend")];
 }
 
-/** The app they're playing or listening to, as a small icon beside their name (voice lists, like Discord's). */
+/** The app they're playing or listening to, as a small icon beside their name (voice lists, like Discord's): the app's
+ * own icon, not the song's art (older apps and servers don't send one; then the picture they do send). */
 export function ActivityIcon(props: { person: Person }) {
   const info = createProfileInfo(() => props.person.id);
   const a = () => info()?.activity ?? null;
   return (
-    <Show when={a()?.image}>{(src) => (
+    <Show when={a()?.icon ?? a()?.image}>{(src) => (
       <img class="act-ic" src={src()} alt="" title={`${{ listening: "Listening to", watching: "Watching", streaming: "Streaming", competing: "Competing in" }[a()!.kind as string] ?? "Playing"} ${a()!.name}`} loading="lazy" />
     )}</Show>
   );

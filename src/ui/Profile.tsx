@@ -4,7 +4,7 @@ import { MOBILE_UI } from "./target";
 import { dragToClose } from "./sheetDrag";
 import { useBack } from "./back";
 import type { Activity } from "../lib/cloud";
-import { activity, elapsed, verb } from "./activity";
+import { activity, elapsed, orderActivities, verb } from "./activity";
 import { currentServer, openChannel, openProfileEditor, profileView, setProfileView } from "./nav";
 import { attempt, openMenu, toast } from "./menu";
 import { userMenu } from "./menus";
@@ -37,7 +37,7 @@ const PRESENCE_LABEL: Record<string, string> = { online: "Online", idle: "Idle",
 function activitiesOf(self: boolean, info: ProfileInfo | undefined): Activity[] {
   const local = self ? activity.list() : [];
   if (local.length) return local;
-  return info?.activities?.length ? info.activities : info?.activity ? [info.activity] : [];
+  return orderActivities(info?.activities?.length ? info.activities : info?.activity ? [info.activity] : []);
 }
 
 export function ProfileCard(props: { person: Person; profile?: ProfileConfig | null; bio?: string; banner?: string; children?: JSX.Element; showRating?: boolean; marked?: boolean; compact?: boolean; noActivity?: boolean }) {
@@ -52,9 +52,11 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
     // Headings ("About me", "Listening to…") in their accent, made readable against both ends of the card's background
     // (green on pink was hard to read). Buttons use their accent with text picked for contrast, never the app's theme.
     const label = readable(readable(t.accent, bg, 4.5), bg2, 4.5);
+    const btn = mix(t.accent, bg, 0.25);
     return { "--pc-bg": hex(bg), "--pc-bg2": hex(bg2), "--pc-fg": hex(fg), "--pc-accent": hex(t.accent),
       "--pc-sub": hex(mix(fg, bg, contrast(fg, bg) > 8 ? 0.35 : 0.2)), "--pc-label": hex(label),
-      "--pc-btn": hex(t.accent), "--pc-on-btn": hex(textOn(t.accent)) } as Record<string, string>;
+      // The button: their accent, eased a quarter toward the card so it belongs to it rather than glaring.
+      "--pc-btn": hex(btn), "--pc-on-btn": hex(textOn(btn)) } as Record<string, string>;
   });
   const bannerUrl = () => props.banner ?? info()?.bannerUrl;
   const bio = () => props.bio ?? info()?.bio;
@@ -117,7 +119,17 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
         </Show>
         {/* The full profile shows voice and activity in its Activity tab, so its card leaves them out (noActivity). */}
         <Show when={!props.noActivity && voice()}>{(v) => <VoiceBox person={props.person} v={v()} />}</Show>
-        <Show when={!props.noActivity}><For each={acts()}>{(a) => <ActivityCard a={a} />}</For></Show>
+        {/* Computers, like Discord: the first activity, drawn as a stack when there are more; clicking it (not its
+            buttons) opens the full profile, which lists them all. Phones: the sheet is the full profile, so all of them. */}
+        <Show when={!props.noActivity && acts().length}>
+          <Show when={!MOBILE_UI && acts().length > 1} fallback={<For each={acts()}>{(a) => <ActivityCard a={a} />}</For>}>
+            <div class="pa-stack" role="button" tabIndex={0} title={`${acts().length} activities: open the profile to see them all`}
+              onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) setProfileView({ person: props.person, full: true, x: 0, y: 0 }); }}
+              onKeyDown={(e) => { if (e.key === "Enter") setProfileView({ person: props.person, full: true, x: 0, y: 0 }); }}>
+              <ActivityCard a={acts()[0]!} more={acts().length - 1} />
+            </div>
+          </Show>
+        </Show>
         <Show when={props.showRating && profile()}>
           <section class="pc-section">
             <h3 class="label">Performance</h3>
@@ -244,12 +256,13 @@ function ServerSection(props: { person: Person; serverId: string }) {
 }
 
 /** "Playing …" with art, details and a running timer. */
-export function ActivityCard(props: { a: Activity; compact?: boolean }) {
+export function ActivityCard(props: { a: Activity; compact?: boolean; /** More activities behind this one (a stacked card): shown as "+N" in its corner */ more?: number }) {
   const [now, setNow] = createSignal(Date.now());
   const t = setInterval(() => setNow(Date.now()), 1000);
   onCleanup(() => clearInterval(t));
   return (
     <section class="pc-section pc-activity" classList={{ compact: !!props.compact }}>
+      <Show when={props.more}><span class="pa-more" aria-hidden="true">+{props.more}</span></Show>
       {/* Like Discord: "Listening to YouTube Music" on top, then the song (or the game's details) in bold. */}
       <h3 class="label">{verb(props.a.kind)} {props.a.details ? props.a.name : ""}</h3>
       <div class="pa-row">

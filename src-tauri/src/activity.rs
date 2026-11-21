@@ -256,6 +256,8 @@ async fn to_activity<R: Runtime>(app: &AppHandle<R>, client_id: &str, a: &Value)
     let looked_up = if game.is_none() { app_info(app, client_id).await } else { (None, None) };
     let name = game.map(|g| g.name.clone()).or_else(|| a.get("name").and_then(|n| n.as_str()).map(String::from)).or(looked_up.0).unwrap_or_else(|| "Something".into());
     let start = a.pointer("/timestamps/start").and_then(|t| t.as_u64()).map(|t| if t < 1_000_000_000_000 { t * 1000 } else { t });
+    // The app's own icon (a game's, or a Rich Presence app's like YouTube Music), apart from the song's or game's art.
+    let app_icon = game.and_then(|g| g.icon.clone()).or_else(|| looked_up.1.clone());
     let mut image = None;
     if let Some(k) = a.pointer("/assets/large_image").and_then(|k| k.as_str()) { image = asset_url(app, client_id, k).await; }
     if image.is_none() { image = game.and_then(|g| g.icon.clone()).or(looked_up.1); }
@@ -276,7 +278,7 @@ async fn to_activity<R: Runtime>(app: &AppHandle<R>, client_id: &str, a: &Value)
         "kind": kind, "name": name,
         "details": text("/details"),
         "state": text("/state"),
-        "startedAt": start, "endsAt": end, "image": image, "appId": client_id,
+        "startedAt": start, "endsAt": end, "image": image, "icon": app_icon, "appId": client_id,
         "largeText": text("/assets/large_text"), "smallImage": small, "smallText": text("/assets/small_text"),
         "buttons": if buttons.is_empty() { Value::Null } else { Value::Array(buttons) },
     }))

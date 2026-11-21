@@ -20,6 +20,21 @@ const [rpcs, setRpcs] = createSignal<{ key: number; app: string | null; activity
 const [status, setStatus] = createSignal<{ rpc: "off" | "listening" | "busy" | "unsupported"; detect: "off" | "on" | "unsupported" }>({ rpc: "unsupported", detect: "unsupported" });
 
 export const desktopActivity = () => inTauri() && platform !== "android";
+/** When each activity (by app, or by name) was first seen this session, so a song change doesn't move it. */
+const firstSeen = new Map<string, number>();
+const RANK: Record<string, number> = { playing: 0, streaming: 1, watching: 2, listening: 3 };
+/**
+ * Activities in a steady order, like Discord: Playing, then Streaming, Watching, Listening; within each, the one that
+ * started first. (Ordering by "updated last" made two activities swap places every time one of them updated.)
+ */
+export function orderActivities(list: Activity[]): Activity[] {
+  const key = (a: Activity) => a.appId || a.name;
+  const now = Date.now();
+  for (const a of list) if (!firstSeen.has(key(a))) firstSeen.set(key(a), now);
+  return list.map((a, i) => ({ a, i })).sort((x, y) =>
+    (RANK[x.a.kind] ?? 9) - (RANK[y.a.kind] ?? 9) || firstSeen.get(key(x.a))! - firstSeen.get(key(y.a))! || x.i - y.i).map((x) => x.a);
+}
+
 export const activity = {
   games, status,
   /** The newest Rich Presence (Settings shows which app it's from). */
@@ -33,9 +48,9 @@ export const activity = {
     if (device().activity.rpc) for (const r of rpcs()) if (!hidden.has(r.activity.name)) out.push(r.activity);
     if (device().activity.detect) for (const g of games()) {
       if (hidden.has(g.name) || out.some((a) => a.name === g.name || (a.appId && a.appId === g.id))) continue;
-      out.push({ kind: g.kind ?? "playing", name: g.name, startedAt: g.startedAt, image: g.icon, appId: g.id.startsWith("custom:") ? undefined : g.id });
+      out.push({ kind: g.kind ?? "playing", name: g.name, startedAt: g.startedAt, image: g.icon, icon: g.icon, appId: g.id.startsWith("custom:") ? undefined : g.id });
     }
-    return out.slice(0, 5);
+    return orderActivities(out).slice(0, 5);
   })),
   /** The first of them (where there's room for one). */
   current: () => activity.list()[0] ?? null,
