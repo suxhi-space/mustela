@@ -142,9 +142,11 @@ function MeCard(props: { onClose(): void }) {
   // your main profile (pick a server inside the editor).
   const editTarget = () => (MOBILE_UI ? undefined : currentServer() ?? undefined);
   // Your picture or name: on computers your full profile (Edit profile is right there on the card already); on
-  // phones and tablets the editor, as before.
+  // phones and tablets the editor, as before. The activity stack (computers) opens the full profile too, and like
+  // the picture it closes this card first, so the two don't sit on top of each other.
   const edit = (e: MouseEvent) => {
-    if (!(e.target as HTMLElement).closest(".pc-avatar, .pc-name")) return;
+    const t = e.target as HTMLElement;
+    if (!t.closest(".pc-avatar, .pc-name, .pa-stack") || (t.closest(".pa-stack") && t.closest("a, button"))) return;
     props.onClose();
     if (MOBILE_UI) openProfileEditor(editTarget());
     else setProfileView({ person: me(), full: true, x: 0, y: 0 });

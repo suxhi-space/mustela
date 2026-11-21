@@ -133,6 +133,14 @@ To skip the questions:
 ./build.sh --platform android --debug
 ```
 
+To build just one file, it also asks (or take the option):
+
+| You want | Option |
+|---|---|
+| Windows for ARM laptops | `--arch arm64` |
+| Only the Windows `.exe` or `.msi` | `--bundles nsis` / `--bundles msi` |
+| Only the Linux `.AppImage`, `.deb` or `.rpm` | `--bundles appimage` / `--bundles deb` / `--bundles rpm` (or several: `deb,rpm`) |
+
 | Platform | Build on | You get |
 |---|---|---|
 | Windows | Windows 10/11 | `.exe` installer and `.msi` |
@@ -161,8 +169,10 @@ Windows, macOS and the AppImage update themselves; `.deb` and `.rpm` open the do
 
 Windows on ARM (Snapdragon laptops) and Linux on ARM (Raspberry Pi 5, Asahi Linux) have their own downloads, with
 `arm64` (or `aarch64`) in the name; Mustela's updates pick the right one by themselves. To build them yourself:
-`node scripts/build.mjs --platform windows --arch arm64` works from a normal x64 Windows PC (with Visual Studio's
-"ARM64 build tools"); Linux for ARM is built on an ARM machine. The release workflow builds both.
+`node scripts/build.mjs --platform windows --arch arm64` works from a normal x64 Windows PC. In Visual Studio Installer
+> Modify > Individual components, tick "MSVC v143 - VS 2022 C++ ARM64/ARM64EC build tools (Latest)" and "C++ Clang
+Compiler for Windows" (or install LLVM with `winget install LLVM.LLVM`); the script finds Visual Studio's clang by
+itself. Linux for ARM is built on an ARM machine. The release workflow builds both.
 
 ### Signed updates
 

@@ -8,13 +8,14 @@
  * Platforms: windows, macos, linux, android, web
  * Options:
  *   --version 1.2.3    the version to stamp on this build (asked if not given)
- *   --arch x64|arm64   which chip (Windows and Linux): see chosenArch
+ *   --arch x64|arm64   which chip (Windows and Linux): see chosenArch. From the menu, Windows and Linux also ask
+ *                      which chip and which installers, so you can build just one
  *   --server URL       Mustela's own server, offered in Settings (default: the last one used, or DEFAULT_SERVER; none for none)
  *   --repo owner/repo  the GitHub repository the app checks for updates (default suxhi-space/mustela; a github.com link
  *                      works too; "none" turns it off)
  *   --package a.b.c    Android only: the app's package name (asked if not given; default app.mustela.client)
  *   --debug            debug build (faster to compile, slower to run)
- *   --bundles a,b      desktop installer types (default per platform, see below)
+ *   --bundles a,b      desktop installer types (default per platform, see below), e.g. --bundles rpm or nsis
  *   --skip-install     don't run npm install
  *   --skip-icons       don't regenerate icons from icons/app-icon.png
  *   --yes              never ask questions (CI)
@@ -503,22 +504,55 @@ function macGlassIcon() {
  */
 function chosenArch(platform) {
   const host = process.arch === "arm64" ? "arm64" : "x64";
-  const want = (opt("arch") ?? process.env.MUSTELA_ARCH ?? host).toLowerCase().replace("aarch64", "arm64").replace("amd64", "x64").replace("x86_64", "x64");
+  const want = (opt("arch") ?? PICKED.arch ?? process.env.MUSTELA_ARCH ?? host).toLowerCase().replace("aarch64", "arm64").replace("amd64", "x64").replace("x86_64", "x64");
   if (!["x64", "arm64"].includes(want)) fail(`Unknown chip "${want}".`, "Use --arch x64 or --arch arm64.");
   if (platform === "linux" && want !== host) fail(`Linux for ${want} has to be built on a ${want} computer.`, "Build it on that kind of machine, or let GitHub's release workflow build it (it has ARM machines).");
   return { want, cross: want !== host };
 }
+/** What the menu picked (no --arch / --bundles given): one chip, one kind of installer, or all of them. */
+const PICKED = { arch: undefined, bundles: undefined };
+async function menu(question, options, def = 1) {
+  console.log(`\n${question}\n`);
+  options.forEach((o, i) => console.log(`  ${bold(String(i + 1))}) ${o[0].padEnd(24)} ${dim(o[1] ?? "")}`));
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const a = (await rl.question(`\nNumber [${def}]: `)).trim() || String(def);
+  rl.close();
+  const i = Number(a) - 1;
+  if (!(i >= 0 && i < options.length)) fail(`"${a}" isn't one of the options.`);
+  return i;
+}
+/** After picking Windows or Linux from the menu: which chip and which installers, so you can build just one. */
+async function pickVariant(platform) {
+  if (YES || !process.stdin.isTTY) return;
+  if (platform === "windows") {
+    if (!opt("arch")) {
+      const host = process.arch === "arm64" ? 1 : 0;
+      PICKED.arch = ["x64", "arm64"][await menu("Which Windows?", [["x64", "most PCs"], ["ARM (arm64)", "Snapdragon and other ARM laptops"]], host + 1)];
+    }
+    if (!opt("bundles")) PICKED.bundles = ["nsis,msi", "nsis", "msi"][await menu("Which installer?", [["Both", ".exe and .msi"], [".exe", "the one Mustela's updater uses"], [".msi", "for managed PCs"]])];
+  }
+  if (platform === "linux" && !opt("bundles")) {
+    PICKED.bundles = ["appimage,deb,rpm", "appimage", "deb", "rpm"][await menu(`Which Linux package? (for ${process.arch === "arm64" ? "ARM" : "x64"}, this computer's chip)`,
+      [["All", "AppImage, .deb and .rpm"], ["AppImage", "runs on most distros"], [".deb", "Debian, Ubuntu, Mint"], [".rpm", "Fedora, openSUSE"]])];
+  }
+}
 const WIN_TARGET = { x64: "x86_64-pc-windows-msvc", arm64: "aarch64-pc-windows-msvc" };
 
-function buildDesktop(platform) {
+async function buildDesktop(platform) {
   const p = PLATFORMS[platform];
-  const bundles = opt("bundles") ?? p.bundles;
+  let bundles = opt("bundles") ?? PICKED.bundles ?? p.bundles;
+  // RPM versions can't contain "-" ("0.1.8-build2"): the .rpm is made in a second, short step with the version
+  // spelled so both RPM and Tauri (semver) accept it: "0.1.8+build2". The app inside is the same build (its version
+  // and updates come from Cargo.toml); the file is still named Mustela_0.1.8-build2_….rpm.
+  const rpmVersion = platform === "linux" && /(^|,)rpm(,|$)/.test(bundles) && VERSION.includes("-") ? VERSION.replace("-", "+").replace(/-/g, ".") : null;
+  if (rpmVersion) bundles = bundles.split(",").filter((b) => b !== "rpm").join(",") || "deb";
   const a = ["tauri", "build", "--bundles", bundles];
   if (platform === "macos") a.push("--target", "universal-apple-darwin");
   const arch = platform === "macos" ? null : chosenArch(platform);
   let targetDir = platform === "macos" ? "universal-apple-darwin" : "";
   if (platform === "windows" && arch?.cross) {
     tc.ensureRustTargets([WIN_TARGET[arch.want]]);
+    if (arch.want === "arm64") await tc.ensureClangForArm();
     a.push("--target", WIN_TARGET[arch.want]);
     targetDir = WIN_TARGET[arch.want];
   }
@@ -537,6 +571,12 @@ function buildDesktop(platform) {
   // AppImage tooling needs FUSE unless told to unpack itself; this works everywhere.
   const env = { ...releaseEnv(), ...(platform === "linux" ? { APPIMAGE_EXTRACT_AND_RUN: "1", NO_STRIP: "true" } : {}) };
   must(npx(a, { env }), "The build", "Scroll up for the first error. Most often it's a missing system library (see https://tauri.app/start/prerequisites/).");
+  if (rpmVersion) {
+    step(`Making the .rpm (version ${rpmVersion}: RPM doesn't allow "-")`);
+    const r = a.map((x) => (x === bundles ? "rpm" : x));
+    r.push("--config", JSON.stringify({ version: rpmVersion }));
+    must(npx(r, { env }), "The .rpm", "Scroll up for the first error.");
+  }
   const base = join(TAURI, "target", targetDir, DEBUG ? "debug" : "release", "bundle");
   if (platform === "macos") {
     // The disk-image script leaves an uncompressed rw.*.dmg beside the app. It shares the
@@ -779,6 +819,7 @@ function buildWeb() {
 
 /* ------------------------------------------------------------------ main */
 const platform = await choosePlatform();
+await pickVariant(platform);
 if (!canBuild(platform)) {
   fail(`${PLATFORMS[platform].label} apps can't be built on ${HOST}.`,
     `Tauri builds desktop apps on their own OS. Options:\n` +
@@ -802,7 +843,7 @@ if (platform !== "server") install();
 if (platform !== "android" && platform !== "web" && platform !== "server") await icons();
 
 const t0 = Date.now();
-const files = platform === "server" ? buildServer() : platform === "web" ? buildWeb() : platform === "android" ? await buildAndroid() : buildDesktop(platform);
+const files = platform === "server" ? buildServer() : platform === "web" ? buildWeb() : platform === "android" ? await buildAndroid() : await buildDesktop(platform);
 const mins = ((Date.now() - t0) / 60000).toFixed(1);
 
 // Signed updates: a .sig beside each release file, when this project has an update key and this computer has its

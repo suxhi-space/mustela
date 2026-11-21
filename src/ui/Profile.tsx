@@ -125,7 +125,7 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
           <Show when={!MOBILE_UI && acts().length > 1} fallback={<For each={acts()}>{(a) => <ActivityCard a={a} />}</For>}>
             <div class="pa-stack" role="button" tabIndex={0} title={`${acts().length} activities: open the profile to see them all`}
               onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) setProfileView({ person: props.person, full: true, x: 0, y: 0 }); }}
-              onKeyDown={(e) => { if (e.key === "Enter") setProfileView({ person: props.person, full: true, x: 0, y: 0 }); }}>
+              onKeyDown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLElement).click(); }}>
               <ActivityCard a={acts()[0]!} more={acts().length - 1} />
             </div>
           </Show>

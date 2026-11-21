@@ -215,6 +215,29 @@ export async function ensureMsvc() {
   if (r.ok && !/host: .*msvc/.test(r.out)) { run("rustup", ["default", "stable-msvc"]); }
 }
 
+/**
+ * Building for ARM Windows from an x64 PC needs clang (the "ring" crypto library compiles its ARM code with it).
+ * Visual Studio ships one ("C++ Clang Compiler for Windows"); this finds it (or a separate LLVM install) and puts it
+ * on PATH for the build, or says exactly what to install.
+ */
+export async function ensureClangForArm() {
+  if (has("clang", "--version").ok) { ok("clang (for ARM)"); return; }
+  const vswhere = join(process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe");
+  const roots = existsSync(vswhere) ? run(vswhere, ["-products", "*", "-property", "installationPath"], { quiet: true }).out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : [];
+  const dirs = [
+    ...roots.flatMap((r) => [join(r, "VC", "Tools", "Llvm", "x64", "bin"), join(r, "VC", "Tools", "Llvm", "ARM64", "bin"), join(r, "VC", "Tools", "Llvm", "bin")]),
+    join(process.env.ProgramFiles ?? "C:\\Program Files", "LLVM", "bin"),
+  ];
+  const dir = dirs.find((d) => existsSync(join(d, "clang.exe")));
+  if (dir) {
+    process.env.PATH = `${dir};${process.env.PATH ?? ""}`;
+    ok(`clang (for ARM): ${dir}`);
+    return;
+  }
+  fail("Building for ARM Windows needs clang, which isn't installed.",
+    "Open Visual Studio Installer > Modify > Individual components, tick \"C++ Clang Compiler for Windows\" (and \"MSBuild support for LLVM (clang-cl) toolset\"), click Modify, then run the build again.\nOr install LLVM: winget install LLVM.LLVM");
+}
+
 /* ------------------------------------------------------------------ Java */
 function javaMajor(bin) {
   const r = run(bin, ["-version"], { quiet: true });
