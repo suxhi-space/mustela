@@ -83,6 +83,8 @@ const PROTOCOL = "v1";
 const clean = (u: string) => u.trim().replace(/\/+$/, "");
 const TIMEOUT = 6000;
 
+export { OFFICIAL_SERVER } from "./officialServer";
+
 export function validServerUrl(u: string): string | null {
   try {
     const url = new URL(clean(u));
@@ -106,8 +108,15 @@ async function call<T>(url: string, init: RequestInit = {}): Promise<T> {
   } finally { clearTimeout(t); }
 }
 
+type RawProfile = { profile?: unknown; activity?: Activity | null; updatedAt?: number; images?: unknown };
+type Waiter = { resolve(v: RawProfile | null): void; reject(e: unknown): void };
+
 export class Cloud {
   private servers: string[] = [];
+  /** Profile requests waiting to go to each server together (servers 1.4+ take up to 100 at once). */
+  private queued = new Map<string, Map<string, Waiter[]>>();
+  /** Servers older than 1.4: one request per person. */
+  private oneByOne = new Set<string>();
   private cache = new Map<string, Promise<CloudProfile | null>>();
 
   /** `api` is the Stoat API base, `token`/`userId` the signed-in session. */
@@ -115,7 +124,7 @@ export class Cloud {
 
   setServers(list: string[]) {
     const next = list.map(clean);
-    if (next.join() !== this.servers.join()) { this.servers = next; this.cache.clear(); }
+    if (next.join() !== this.servers.join()) { this.servers = next; this.cache.clear(); this.oneByOne.clear(); }
   }
   get list() { return this.servers; }
 
@@ -218,15 +227,47 @@ export class Cloud {
     return this.eachLinked((s, k) => call(`${s}/${PROTOCOL}/activity`, { method: "PUT", headers: { authorization: `Bearer ${k}` }, body: JSON.stringify({ activity }) }));
   }
 
+  /** Signed in where we're linked, so private profiles we're allowed to see come back too. */
+  private auth(s: string): Record<string, string> { const k = this.keyFor(s); return k ? { authorization: `Bearer ${k}` } : {}; }
+
+  /** One person's profile on one server, or null. Requests made within a moment of each other go out as one. */
+  private fromServer(s: string, userId: string): Promise<RawProfile | null> {
+    if (this.oneByOne.has(s)) return this.single(s, userId);
+    return new Promise((resolve, reject) => {
+      let q = this.queued.get(s);
+      if (!q) { q = new Map(); this.queued.set(s, q); setTimeout(() => void this.flush(s), 30); }
+      q.set(userId, [...(q.get(userId) ?? []), { resolve, reject }]);
+      if (q.size >= 100) void this.flush(s);
+    });
+  }
+  private single(s: string, userId: string): Promise<RawProfile | null> {
+    return call<RawProfile>(`${s}/${PROTOCOL}/profile/${encodeURIComponent(userId)}`, { headers: this.auth(s) }).catch((e: Error) => {
+      if (/No profile here/.test(e.message)) return null;
+      throw e;
+    });
+  }
+  private async flush(s: string) {
+    const q = this.queued.get(s);
+    if (!q) return;
+    this.queued.delete(s);
+    try {
+      const r = await call<{ profiles?: Record<string, RawProfile> }>(`${s}/${PROTOCOL}/profiles`, { method: "POST", headers: this.auth(s), body: JSON.stringify({ ids: [...q.keys()] }) });
+      for (const [id, ws] of q) for (const w of ws) w.resolve(r.profiles?.[id] ?? null);
+    } catch (e) {
+      if (!/^Not found\.?$/.test((e as Error).message)) { for (const ws of q.values()) for (const w of ws) w.reject(e); return; }
+      // An older server: ask for each person on their own from now on.
+      this.oneByOne.add(s);
+      for (const [id, ws] of q) this.single(s, id).then((v) => ws.forEach((w) => w.resolve(v)), (err) => ws.forEach((w) => w.reject(err)));
+    }
+  }
+
   /** The newest copy of someone's profile across your servers, or null. Cached for a minute. */
   fetchProfile(userId: string, fresh = false): Promise<CloudProfile | null> {
     if (!this.servers.length) return Promise.resolve(null);
     if (fresh) this.cache.delete(userId);
     let p = this.cache.get(userId);
     if (!p) {
-      // Signed in where we're linked, so private profiles we're allowed to see come back too.
-      const auth = (s: string): RequestInit => { const k = this.keyFor(s); return k ? { headers: { authorization: `Bearer ${k}` } } : {}; };
-      p = Promise.allSettled(this.servers.map((s) => call<{ profile?: unknown; activity?: Activity | null; updatedAt?: number; images?: unknown }>(`${s}/${PROTOCOL}/profile/${encodeURIComponent(userId)}`, auth(s)).then((v) => ({ v, s }))))
+      p = Promise.allSettled(this.servers.map((s) => this.fromServer(s, userId).then((v) => { if (!v) throw new Error("none"); return { v, s }; })))
         .then((rs) => {
           let best: CloudProfile | null = null;
           for (const r of rs) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Updates the Mustela server to the newest code from GitHub and restarts it (your data stays).
-#   ./update.sh
+#   bash update.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 git -C ../.. pull --ff-only

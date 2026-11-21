@@ -51,6 +51,12 @@ test("link, publish, read, activity", async () => {
     assert.equal(got.activity.image, undefined); // only https images
     assert.deepEqual(got.activity.buttons, [{ label: "Join", url: "https://example.com/j" }, { label: "Three", url: "https://x.y" }]);
 
+    // 1.4: many at once; people with nothing here are simply left out
+    const many = await (await fetch(`${base}/profiles`, { method: "POST", body: JSON.stringify({ ids: [UID, STRANGER, "not-an-id", UID] }) })).json();
+    assert.deepEqual(Object.keys(many.profiles), [UID]);
+    assert.equal(many.profiles[UID].activity.name, "Celeste");
+    assert.equal((await fetch(`${base}/profiles`, { method: "POST", body: "{}" })).status, 400);
+
     assert.equal((await fetch(`${base}/link`, { method: "DELETE", headers: { authorization: `Bearer ${key}` } })).status, 204);
     assert.equal((await fetch(`${base}/profile`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: "{}" })).status, 401);
   } finally { proc.kill(); stoat.close(); }

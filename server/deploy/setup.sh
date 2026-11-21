@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # One-time setup on a fresh Ubuntu server (Oracle Cloud's free one, or any other):
 #   installs Docker, opens the web ports, starts the Mustela server with HTTPS, and adds a daily backup.
-# Run from this folder:  sudo ./setup.sh servers.example.com
+# Run from this folder:  sudo bash setup.sh servers.example.com
 set -euo pipefail
 DOMAIN="${1:-}"
-[ -n "$DOMAIN" ] || { echo "Usage: sudo ./setup.sh your.domain"; exit 1; }
+[ -n "$DOMAIN" ] || { echo "Usage: sudo bash setup.sh your.domain"; exit 1; }
 [ "$(id -u)" = 0 ] || { echo "Run it with sudo."; exit 1; }
 cd "$(dirname "$0")"
 
@@ -33,8 +33,9 @@ docker compose up -d --build
 
 echo "== Daily backup (data folder, last 14 days, in ./backups)"
 mkdir -p backups
-CRON="17 4 * * * cd $(pwd) && tar czf backups/data-\$(date +\%F).tgz data && ls -1t backups/*.tgz | tail -n +15 | xargs -r rm --"
-( crontab -l 2>/dev/null | grep -v "mustela-backup" ; echo "$CRON # mustela-backup" ) | crontab -
+CRON="17 4 * * * cd $(pwd) && mkdir -p backups && tar czf backups/data-\$(date +\%F).tgz data && ls -1t backups/*.tgz | tail -n +15 | xargs -r rm --"
+# (|| true: grep finds nothing to keep on a fresh server, which mustn't stop the script)
+( crontab -l 2>/dev/null | grep -v "mustela-backup" || true; echo "$CRON # mustela-backup" ) | crontab -
 
 echo
 echo "Done. In a minute, https://$DOMAIN/v1/health should answer."

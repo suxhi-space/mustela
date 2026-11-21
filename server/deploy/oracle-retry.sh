@@ -58,7 +58,7 @@ while :; do
       echo "Done. Public IP: $IP"
       echo "1. Add the DNS record: A  servers  $IP"
       echo "2. Log in from here:   ssh mustela"
-      echo "3. Then follow the guide from step 4 (git clone ... and sudo ./setup.sh servers.yourdomain.com)"
+      echo "3. Then follow the guide from step 4 (git clone ... and sudo bash setup.sh servers.yourdomain.com)"
       exit 0
     fi
     if grep -qi "capacity" <<<"$out"; then echo "$(date +%H:%M) try $tries: $AD is full";

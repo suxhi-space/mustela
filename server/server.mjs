@@ -33,8 +33,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 const MAX_ALLOW = 5000;
+const MAX_BATCH = 100;
 const PROTOCOL = "v1";
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -185,6 +186,20 @@ async function whoOwns(api, token) {
   } finally { clearTimeout(t); }
 }
 
+/**
+ * Someone's profile as one viewer may see it, or null. A private profile is only for linked viewers on the owner's
+ * list (and the owner); to anyone else it looks exactly like there's no profile at all.
+ */
+function profileFor(uid, viewer) {
+  let u = db.users[uid];
+  let act = activity.get(uid);
+  if (u && !canSee(u, uid, viewer)) { u = undefined; act = undefined; }
+  if (!u && !act) return null;
+  // images: which servers have a banner here, and when it last changed (for cache-busting links).
+  const images = u?.images ? Object.fromEntries(Object.entries(u.images).map(([k, v]) => [k, v.at])) : undefined;
+  return { profile: u?.profile ?? null, updatedAt: u?.updatedAt ?? 0, activity: act && act.expires > Date.now() ? act.a : null, ...(images ? { images } : {}) };
+}
+
 const routes = {
   "GET /health": async () => [200, { name: NAME, version: VERSION, protocol: PROTOCOL, instances: APIS }],
 
@@ -226,6 +241,17 @@ const routes = {
     db.users[who.uid] = { profile: body.profile, updatedAt: Date.now(), ...(audience ? { audience } : {}), ...(db.users[who.uid]?.images ? { images: db.users[who.uid].images } : {}) };
     save();
     return [204];
+  },
+
+  // 1.4: many profiles in one request (a member list, a busy chat), so a server for many people stays light.
+  "POST /profiles": async (req) => {
+    const body = await readBody(req);
+    const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((x) => typeof x === "string" && ID_RE.test(x)))].slice(0, MAX_BATCH) : null;
+    if (!ids) return [400, { error: "Missing ids." }];
+    const viewer = userFor(req)?.uid;
+    const profiles = {};
+    for (const id of ids) { const p = profileFor(id, viewer); if (p) profiles[id] = p; }
+    return [200, { profiles }];
   },
 
   "PUT /activity": async (req) => {
@@ -295,15 +321,8 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && prof) {
       const uid = decodeURIComponent(prof[1]);
       if (!ID_RE.test(uid)) return send(res, 400, { error: "That isn't a user id." });
-      let u = db.users[uid];
-      let act = activity.get(uid);
-      // A private profile is only for linked viewers on the owner's list (and the owner);
-      // to anyone else it looks exactly like there's no profile at all.
-      if (u && !canSee(u, uid, userFor(req)?.uid)) { u = undefined; act = undefined; }
-      if (!u && !act) return send(res, 404, { error: "No profile here." });
-      // images: which servers have a banner here, and when it last changed (for cache-busting links).
-      const images = u?.images ? Object.fromEntries(Object.entries(u.images).map(([k, v]) => [k, v.at])) : undefined;
-      return send(res, 200, { profile: u?.profile ?? null, updatedAt: u?.updatedAt ?? 0, activity: act && act.expires > Date.now() ? act.a : null, ...(images ? { images } : {}) });
+      const p = profileFor(uid, userFor(req)?.uid);
+      return p ? send(res, 200, p) : send(res, 404, { error: "No profile here." });
     }
     const h = routes[`${req.method} ${rest}`];
     if (!h) return send(res, 404, { error: "Not found." });

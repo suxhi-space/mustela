@@ -69,7 +69,7 @@ git clone https://github.com/suxhi-space/mustela.git
 cd mustela/server/deploy
 ```
 ```
-sudo ./setup.sh servers.yourdomain.com
+sudo bash setup.sh servers.yourdomain.com
 ```
 
 It installs Docker, opens the ports inside the machine, starts the server with HTTPS (a free certificate that renews by
@@ -79,7 +79,7 @@ itself), restarts it after reboots, and keeps a daily backup of its data (the la
 
 Open `https://servers.yourdomain.com/v1/health` in a browser. It should show something like
 `{"name":"Mustela server","version":"1.3.0",...}`. (If the page doesn't load yet, the DNS record may need a few more
-minutes; run `sudo ./setup.sh servers.yourdomain.com` again once it works, so the certificate is made.)
+minutes; run `sudo bash setup.sh servers.yourdomain.com` again once it works, so the certificate is made.)
 
 Then in Mustela: **Settings > Sync & servers**, put `https://servers.yourdomain.com` in the box, and **Add server**.
 
@@ -91,12 +91,12 @@ No capacity problems, ready in a minute. Any small Ubuntu 24.04 server with 1 GB
    backups needed (the setup keeps its own). For logging in, add an SSH key or use the root password it shows you.
 2. Copy its IP address and add the DNS record from step 3 (A, `servers`, the IP).
 3. Log in: `ssh root@THE_IP` (type `yes` the first time, then the password if it asks).
-4. Same three lines as step 4 (`git clone ...`, `cd mustela/server/deploy`, `sudo ./setup.sh servers.yourdomain.com`),
+4. Same three lines as step 4 (`git clone ...`, `cd mustela/server/deploy`, `sudo bash setup.sh servers.yourdomain.com`),
    then check it as in step 5. The setup opens the web ports by itself.
 
 ## Later
 
-- **Update the server** (after a Mustela release changes it): log in, then `cd mustela/server/deploy && ./update.sh`
+- **Update the server** (after a Mustela release changes it): log in, then `cd mustela/server/deploy && bash update.sh`
 - **See what it's doing:** `cd mustela/server/deploy && sudo docker compose logs --tail 50 mustela`
 - **Restart it:** `cd mustela/server/deploy && sudo docker compose restart`
 - **Backups** are in `mustela/server/deploy/backups`. To restore one: `sudo docker compose down`, then

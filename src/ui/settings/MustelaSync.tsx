@@ -1,14 +1,11 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 import { activeAccount } from "../../lib/session/book";
-import { validServerUrl } from "../../lib/cloud";
+import { OFFICIAL_SERVER as OFFICIAL, validServerUrl } from "../../lib/cloud";
 import { parseRemote } from "../../lib/sync/settings";
 import { Group, Row, Seg, Switch } from "../controls";
 import { Icon } from "../icons";
 import { attempt, confirmDialog, toast } from "../menu";
 import { backend, book, ext, settings, syncState, updateExt, updateSettings } from "../store";
-
-/** Mustela's own server, if this build has one (scripts/build.mjs asks for it). Off until someone picks it. */
-const OFFICIAL = validServerUrl(String(import.meta.env.VITE_MUSTELA_SERVER ?? "")) ?? "";
 
 const SYNC_TEXT = { local: "Saved on this device", syncing: "Syncing…", synced: "Synced to your Stoat account", error: "Sync paused. It retries on your next change." } as const;
 

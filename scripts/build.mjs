@@ -42,7 +42,7 @@ const DEFAULT_REPO = "suxhi-space/mustela";
 /** "owner/repo" whose GitHub releases the app checks for updates; empty means update checks are off. */
 let UPDATE_REPO = "";
 /** Mustela's own server (profiles and activity), offered as a choice in Settings. Set it here once it's running. */
-const DEFAULT_SERVER = "";
+const DEFAULT_SERVER = "https://mustela.suxhi.space";
 let OFFICIAL_SERVER = "";
 const IS_WIN = process.platform === "win32";
 const HOST = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";

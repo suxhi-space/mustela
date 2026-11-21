@@ -55,7 +55,7 @@ git clone https://github.com/suxhi-space/mustela.git
 cd mustela/server/deploy
 ```
 ```
-sudo ./setup.sh servers.yourdomain.com
+sudo bash setup.sh servers.yourdomain.com
 ```
 
 It installs Docker, opens the web ports, starts the server with HTTPS (a free certificate that renews by itself),
@@ -66,7 +66,7 @@ restarts it after reboots, and keeps a daily backup of its data (the last 14 day
 1. In a browser, open `https://servers.yourdomain.com/v1/health`. It should show a short line like
    `{"name":"Mustela server","version":"1.3.0",...}`.
    - Doesn't load yet? The DNS record may need a few more minutes. Then run the setup line again
-     (`sudo ./setup.sh servers.yourdomain.com`) so the certificate gets made.
+     (`sudo bash setup.sh servers.yourdomain.com`) so the certificate gets made.
 2. In Mustela: **Settings > Sync & servers**, put `https://servers.yourdomain.com` in the server box > **Add server** >
    **Link**.
 3. Have a friend do the same. You'll see each other's decorations and what you're playing.
@@ -77,7 +77,7 @@ All from the `mustela/server/deploy` folder after logging in (`ssh root@THE_IP`,
 
 | To | Run |
 |---|---|
-| Update the server (after a Mustela release changes it) | `./update.sh` |
+| Update the server (after a Mustela release changes it) | `bash update.sh` |
 | See what it's doing | `sudo docker compose logs --tail 50 mustela` |
 | Restart it | `sudo docker compose restart` |
 | Restore a backup | `sudo docker compose down`, then `sudo tar xzf backups/data-DATE.tgz`, then `sudo docker compose up -d` |

@@ -50,7 +50,7 @@ export interface MustelaSettings {
   locale: { time: "auto" | "12" | "24"; date: "auto" | "us" | "eu" | "iso" };
   /** Mustela servers to publish to and read profiles from */
   /** Mustela servers to publish to and read profiles from; `banner` also hides the profile in your Stoat banner */
-  cloud: { servers: string[]; banner: boolean };
+  cloud: { servers: string[]; banner: boolean; /** Built-in servers already added once (removing one keeps it out). */ offered?: string[] };
   /** What I publish and what I see on myself. */
   profile: ProfileConfig;
   /** Don't animate other people's profiles rated worse than this. */
@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS: MustelaSettings = {
   favGifs: [],
   sounds: [],
   locale: { time: "auto", date: "auto" },
-  cloud: { servers: [], banner: true },
+  cloud: { servers: [], banner: true, offered: [] },
   profile: DEFAULT_PROFILE,
   maxRating: "heavy",
   pins: { groups: [DEFAULT_PIN_GROUP], items: [] },
@@ -127,7 +127,7 @@ export function sanitize(raw: unknown): MustelaSettings {
       time: loc.time === "12" || loc.time === "24" ? loc.time : "auto",
       date: loc.date === "us" || loc.date === "eu" || loc.date === "iso" ? loc.date : "auto",
     },
-    cloud: { servers, banner: r.cloud?.banner !== false },
+    cloud: { servers, banner: r.cloud?.banner !== false, offered: Array.isArray(r.cloud?.offered) ? (r.cloud.offered as unknown[]).filter((x): x is string => typeof x === "string" && x.length < 300).slice(0, 8) : [] },
     profile,
     maxRating: RATING_ORDER.includes(r.maxRating) ? r.maxRating : d.maxRating,
     pins: sanitizePins(r.pins),

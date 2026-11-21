@@ -1,3 +1,4 @@
+import { OFFICIAL_SERVER } from "../lib/officialServer";
 import { setTimePrefs } from "../lib/time";
 import { MOBILE_UI } from "./target";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
@@ -151,6 +152,16 @@ function persistSettings(_s?: MustelaSettings) {
 
 function applyLimits(s: MustelaSettings) { budget.setLimits({ maxRating: s.maxRating, budget: 260 }); }
 
+/**
+ * Mustela's own server is in everyone's list once, for seeing other people's extras (reading needs no sign-in).
+ * Sharing your own still waits for "Link". Someone who removes it keeps it removed, on every device.
+ */
+function offerOfficialServer() {
+  const u = OFFICIAL_SERVER, c = settings().cloud;
+  if (!u || (c.offered ?? []).includes(u)) return;
+  updateSettings((s) => ({ ...s, cloud: { ...s.cloud, servers: s.cloud.servers.includes(u) ? s.cloud.servers : [...s.cloud.servers, u].slice(0, 8), offered: [...(s.cloud.offered ?? []), u] } }));
+}
+
 export function updateSettings(fn: (s: MustelaSettings) => MustelaSettings) {
   const now = Date.now();
   const next = sanitize({ ...fn(settings()), updatedAt: now });
@@ -294,7 +305,7 @@ function adopt(acc: Account, b: ChatBackend) {
   const pullAll = () => {
     void syncDoc(b, EXT_KEY).catch(() => {});
     void (async () => {
-      try { await syncDoc(b, SYNC_KEY); if (backend() === b) setSyncState("synced"); }
+      try { await syncDoc(b, SYNC_KEY); if (backend() === b) { setSyncState("synced"); if (acc.kind !== "demo") offerOfficialServer(); } }
       catch { if (backend() === b) setSyncState("error"); }
     })();
   };

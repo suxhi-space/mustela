@@ -166,22 +166,46 @@ fn popout_window(app: &tauri::AppHandle, features: tauri::webview::NewWindowFeat
     }
     popout_log(app, "request: Mustela window");
     if app.get_webview_window("call").is_some() { popout_log(app, "refused: already open"); return NewWindowResponse::Deny; }
+    // While the window is being made, a note every 2 s: if it hangs, the log shows for how long and that the rest of
+    // Mustela (this thread) is stuck with it.
+    let building = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    {
+        let (app, building) = (app.clone(), building.clone());
+        std::thread::spawn(move || {
+            for i in 1..=15 {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                if !building.load(std::sync::atomic::Ordering::SeqCst) { return; }
+                popout_log(&app, &format!("still building after {}s", i * 2));
+            }
+        });
+    }
     let b = WebviewWindowBuilder::new(app, "call", WebviewUrl::External("about:blank".parse().expect("valid url")))
         .window_features(features)
-        .title("Mustela call")
-        .inner_size(800.0, 500.0)
-        .min_inner_size(360.0, 240.0)
-        .background_color(tauri::window::Color(17, 18, 22, 255))
-        .disable_drag_drop_handler();
-    // Like Discord's: a normal resizable window with a thin title bar of our own (the page puts the system frame back
-    // when "System's" title bar is chosen).
+        .title("Mustela call");
+    // Windows: made exactly like Tauri's own example (title and size only) and styled once it exists; the fuller
+    // version below froze there. Mac and Linux keep the version that works for them.
+    #[cfg(not(windows))]
+    let b = b.inner_size(800.0, 500.0).min_inner_size(360.0, 240.0).background_color(tauri::window::Color(17, 18, 22, 255)).disable_drag_drop_handler();
     #[cfg(target_os = "macos")]
     let b = b.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     let b = b.decorations(false);
-    popout_log(app, "building");
-    match b.build() {
-        Ok(w) => { popout_log(app, "built"); NewWindowResponse::Create { window: w } }
+    popout_log(app, "building (plain window)");
+    let made = b.build();
+    building.store(false, std::sync::atomic::Ordering::SeqCst);
+    match made {
+        Ok(w) => {
+            popout_log(app, "built");
+            #[cfg(windows)]
+            {
+                let _ = w.set_min_size(Some(tauri::LogicalSize::new(360.0, 240.0)));
+                if w.inner_size().map(|s| s.width < 360 || s.height < 240).unwrap_or(true) { let _ = w.set_size(tauri::LogicalSize::new(800.0, 500.0)); }
+                // A thin title bar of our own (the page puts the system frame back when "System's" title bar is chosen).
+                let _ = w.set_decorations(false);
+                popout_log(app, "styled");
+            }
+            NewWindowResponse::Create { window: w }
+        }
         Err(e) => { popout_log(app, &format!("failed: {e}")); NewWindowResponse::Deny }
     }
 }
