@@ -13,6 +13,7 @@ import { UEmoji } from "./UEmoji";
 import { SheetTop, useExprSheet } from "./ExprSheet";
 import { savedGif, syncFavGifs } from "../../lib/gifStore";
 import { toast } from "../menu";
+import { currentServer } from "../nav";
 
 const PUA_OF: Record<string, string> = { "fluent-flat": "\uE0E2", mutant: "\uE0E3", noto: "\uE0E4", twemoji: "\uE0E6" };
 
@@ -127,6 +128,10 @@ export function EmojiPicker() {
         return [...m.values()].sort((x, y) => (rank.indexOf(x.id) + 1 || 1e9) - (rank.indexOf(y.id) + 1 || 1e9));
       });
       const byKey = (k: string) => (isCustomKey(k) ? custom().find((e) => e.id === k) : undefined);
+      // A server can turn off emoji from other servers ("Use external emojis", Stoat 0.16): those are greyed out there.
+      const here = currentServer();
+      const noExternal = (() => { const i = here ? backend()?.serverInfo(here) : null; return !!i && i.perms.externalEmoji === false; })();
+      const blocked = (k: string) => { const e = noExternal ? byKey(k) : undefined; return !!e && e.serverId !== here; };
       const favs = createMemo(() => ext().favEmoji.filter((k) => !isCustomKey(k) || byKey(k)));
       const frequent = createMemo(() => Object.entries(recentCounts()).sort((x, y) => y[1] - x[1]).map(([k]) => k).filter((k) => !isCustomKey(k) || byKey(k)).slice(0, 24));
       const results = createMemo(() => {
@@ -145,7 +150,10 @@ export function EmojiPicker() {
       onMount(() => { if (!MOBILE_UI && !phone) input.focus(); warmLikelyEmoji(); });
       // Phones, picking into the message box: the card stays for more (like Discord), back at half height if it was pulled up.
       const pick = (p: EmojiPick) => { noteUse(p.key); req.onPick(p); if (sheet && req.stay) sheet.collapse(); else setPicker(null); };
-      const pickKey = (k: string) => { const e = byKey(k); if (e) pick({ text: `:${e.id}:`, key: e.id }); else pickUnicode(k); };
+      const pickKey = (k: string) => {
+        if (blocked(k)) { toast("This server doesn't allow emoji from other servers.", true); return; }
+        const e = byKey(k); if (e) pick({ text: `:${e.id}:`, key: e.id }); else pickUnicode(k);
+      };
       // Like Stoat: the text carries your pack so other Stoat users see the same art. Reactions stay plain.
       const pickUnicode = (c: string) => pick({ text: `${PUA_OF[settings().emojiPack] ?? ""}${c}`, key: c });
       const esc = (e: KeyboardEvent) => e.key === "Escape" && setPicker(null);
@@ -164,7 +172,7 @@ export function EmojiPicker() {
           if (MOBILE_UI || phone) { navigator.vibrate?.(15); toast(was ? `${p.title} removed from favorites` : `${p.title} added to favorites`); }
         };
         return (
-          <button title={p.title} classList={{ fav: ext().favEmoji.includes(p.k) }}
+          <button title={blocked(p.k) ? `${p.title} (not allowed in this server)` : p.title} classList={{ fav: ext().favEmoji.includes(p.k), off: blocked(p.k) }} aria-disabled={blocked(p.k) || undefined}
             onMouseEnter={() => setHover({ key: p.k, name: p.title, render: p.render })} onFocus={() => setHover({ key: p.k, name: p.title, render: p.render })}
             onClick={() => { if (held) { held = false; return; } pickKey(p.k); }}
             onContextMenu={(e) => { e.preventDefault(); if (touch) { if (sx !== null || t) hold(); return; } toggleFavEmoji(p.k); }}

@@ -2,7 +2,7 @@ import { startupMark } from "../../ui/perfLog";
 import { ulidBefore } from "../ulid";
 import type { ServerLooks } from "../profile/servers";
 import { Client } from "stoat.js";
-import type { VoicePresence, AccountApi, BotRow, MfaProof,
+import type { VoicePresence, AccountApi, BotRow, MfaProof, InviteOptions,
   Attachment, ChannelInfo, ChatBackend, ChatEvent, Embed, Friends, MemberGroup, Msg, Person, ProfileInfo, Reaction,
   BanRow, CategoryInfo, ChannelDetails, ChannelRules, CustomEmoji, DiscoverState, Override, ServerDetails, WebhookRow, ServerFolder, GifCategory, InviteRow, NotifyLevel, Role, ServerInfo, GifResult, InviteInfo, MeUpdate, SendOptions, Space, StoredSession, VoiceEngine, VoiceHandle, VoicePrefs, SearchSort,
 } from "./types";
@@ -237,7 +237,10 @@ export class StoatBackend implements ChatBackend {
         if (remove.length) data.remove = remove;
         await (c().bots.get(id) ?? (await c().bots.fetch(id))).edit(data);
       }, "save the bot"),
-      deleteBot: (id) => w(async () => (c().bots.get(id) ?? (await c().bots.fetch(id))).delete(), "delete the bot"),
+      deleteBot: (id, p) => w(async () => {
+        const bot = c().bots.get(id) ?? (await c().bots.fetch(id));
+        if (p) await (await ticket(p)).deleteBot(bot); else await bot.delete();
+      }, "delete the bot"),
     };
   })();
 
@@ -676,7 +679,7 @@ export class StoatBackend implements ChatBackend {
     const has = (p: string) => { try { return !!s.havePermission(p); } catch { return false; } };
     return {
       id, name: s.name, description: s.description, iconUrl: s.iconURL, bannerUrl: s.bannerURL, ownerId: s.ownerId, isOwner: s.ownerId === this.sess.user_id,
-      perms: { manageServer: has("ManageServer"), manageRoles: has("ManageRole"), manageChannels: has("ManageChannel"), manageEmoji: has("ManageCustomisation"),
+      perms: { externalEmoji: has("UseExternalEmojis"), manageServer: has("ManageServer"), manageRoles: has("ManageRole"), manageChannels: has("ManageChannel"), manageEmoji: has("ManageCustomisation"),
         kick: has("KickMembers"), ban: has("BanMembers"), invite: has("InviteOthers"), manageMessages: has("ManageMessages"),
         muteMembers: has("MuteMembers"), deafenMembers: has("DeafenMembers"), moveMembers: has("MoveMembers") },
     };
@@ -722,9 +725,19 @@ export class StoatBackend implements ChatBackend {
   invites(id: string) {
     return this.wrap(async () => ((await this.server(id).fetchInvites()) as any[]).map((i) => ({
       code: i.id ?? i._id ?? i.code, channelName: this.client.channels.get(i.channelId)?.name, creator: i.creatorId ? this.person(i.creatorId) : undefined,
+      uses: typeof i.uses === "number" ? i.uses : undefined, maxUses: typeof i.maxUses === "number" ? i.maxUses : undefined, expires: i.expires instanceof Date ? i.expires : undefined,
     })), "load invites");
   }
-  createInvite(cid: string) { return this.wrap(async () => { const inv: any = await this.client.channels.get(cid)!.createInvite(); return inv.id ?? inv._id; }, "create an invite"); }
+  createInvite(cid: string, opts?: InviteOptions) {
+    return this.wrap(async () => {
+      // No limits: no body at all, so servers older than 0.16 (which don't know the options) still accept it.
+      const data = opts && (opts.maxUses || opts.expiresIn)
+        ? { ...(opts.maxUses ? { max_uses: opts.maxUses } : {}), ...(opts.expiresIn ? { expires: new Date(Date.now() + opts.expiresIn * 1000).toISOString() } : {}) }
+        : undefined;
+      const inv: any = await (this.client.channels.get(cid)! as any).createInvite(data);
+      return inv.id ?? inv._id;
+    }, "create an invite");
+  }
   deleteInvite(code: string) { return this.wrap(async () => void (await (this.client.api as any).delete(`/invites/${encodeURIComponent(code)}`)), "delete the invite"); }
   bans(id: string) {
     return this.wrap(async () => ((await this.server(id).fetchBans()) as any[]).map((b) => ({ person: personOf(b.user, b.id?.user ?? b.userId ?? "?"), reason: b.reason ?? undefined })), "load bans");
@@ -830,7 +843,13 @@ export class StoatBackend implements ChatBackend {
     }
   }
   requestDiscover(sid: string) { return this.wrap(async () => void (await this.server(sid).requestDiscover()), "send the Discover request"); }
-  deleteServer(sid: string) { return this.wrap(async () => void (await this.server(sid).delete()), "delete the server"); }
+  deleteServer(sid: string, proof?: MfaProof) {
+    return this.wrap(async () => {
+      const s = this.server(sid);
+      if (proof) await (await this.client.account.mfa()).createTicket(proof).then((t) => t.deleteServer(s));
+      else await s.delete();
+    }, "delete the server");
+  }
   async memberSince(sid: string, uid: string) {
     const m: any = this.member(sid, uid) ?? (await this.client.servers.get(sid)?.fetchMember(uid).catch(() => null));
     const j = m?.joinedAt ?? m?.joined_at;

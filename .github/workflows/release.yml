@@ -74,6 +74,11 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Signed updates (optional): the contents of update-key.pem. Each file then gets a .sig. See README "Signed updates".
+          MUSTELA_UPDATE_KEY: ${{ secrets.MUSTELA_UPDATE_KEY }}
+          # Code signing with certificates (Windows: MUSTELA_WINDOWS_SIGN_COMMAND; macOS: APPLE_SIGNING_IDENTITY, APPLE_ID,
+          # APPLE_PASSWORD, APPLE_TEAM_ID) goes here once there are certificates. Not set while empty, on purpose: an
+          # empty Apple identity would make the macOS build try to sign with nothing.
       - uses: actions/upload-artifact@v4
         with:
           name: mustela-${{ matrix.platform }}

@@ -140,7 +140,7 @@ export class DemoBackend implements ChatBackend {
       bots: async () => bots.map((x) => ({ ...x })),
       createBot: async (name) => { const b: BotRow = { id: `b${Date.now()}`, name, public: false, token: Math.random().toString(36).slice(2).repeat(3), createdAt: new Date() }; bots = [...bots, b]; return b; },
       editBot: async (id, p) => { bots = bots.map((x) => (x.id !== id ? x : { ...x, name: p.name ?? x.name, public: p.public ?? x.public, interactionsUrl: p.interactionsUrl === null ? undefined : p.interactionsUrl ?? x.interactionsUrl, token: p.resetToken ? Math.random().toString(36).slice(2).repeat(3) : x.token })); },
-      deleteBot: async (id) => { bots = bots.filter((x) => x.id !== id); },
+      deleteBot: async (id, _proof) => { bots = bots.filter((x) => x.id !== id); },
     };
   })();
 
@@ -384,7 +384,7 @@ export class DemoBackend implements ChatBackend {
   async renameEmoji() { throw new Error("Renaming emoji needs a real Stoat account."); }
   async deleteEmoji() { throw new Error("Deleting emoji needs a real Stoat account."); }
   async invites() { return [...this.inviteList.map((i) => ({ ...i, creator: P("u1") }))]; }
-  async createInvite() { const code = Math.random().toString(36).slice(2, 10); this.inviteList.push({ code, channelName: "general" }); return code; }
+  async createInvite(_cid: string, opts?: { maxUses?: number; expiresIn?: number }) { const code = Math.random().toString(36).slice(2, 10); this.inviteList.push({ code, channelName: "general", uses: 0, maxUses: opts?.maxUses, expires: opts?.expiresIn ? new Date(Date.now() + opts.expiresIn * 1000) : undefined }); return code; }
   async deleteInvite(code: string) { this.inviteList = this.inviteList.filter((i) => i.code !== code); }
   async bans() { return [...this.banList]; }
   async unban(_s: string, uid: string) { this.banList = this.banList.filter((b) => b.person.id !== uid); }

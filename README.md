@@ -93,7 +93,7 @@ Grab the latest build from [Releases](../../releases/latest).
 |---|---|
 | Windows 10/11 | `.exe` installer |
 | macOS (Apple Silicon and Intel) | `.dmg` |
-| Linux | `.AppImage` |
+| Linux | `.AppImage` (most distros), `.deb` (Ubuntu, Debian, Mint), `.rpm` (Fedora, openSUSE) |
 | Android | `.apk` |
 
 The builds aren't code-signed, since that needs paid certificates. On macOS, right-click the app and choose **Open**
@@ -137,7 +137,7 @@ To skip the questions:
 |---|---|---|
 | Windows | Windows 10/11 | `.exe` installer and `.msi` |
 | macOS | a Mac | Universal `.app` and `.dmg` |
-| Linux | Linux | `.AppImage` and `.deb` |
+| Linux | Linux | `.AppImage`, `.deb` and `.rpm` |
 | Android | any of the above | signed `.apk` and `.aab` |
 | Web | anywhere | a static site in `release/web` |
 
@@ -155,7 +155,35 @@ repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `AND
 
 Installed copies check the repository's published releases and read the version from the file names
 (`Mustela_0.1.3-build6_windows_x64.exe`), not from the tag, so keep the file names the build script gives you.
-Windows and the AppImage update themselves; macOS and `.deb` open the download; phones open the release page.
+Windows, macOS and the AppImage update themselves; `.deb` and `.rpm` open the download; Android installs it after you confirm.
+
+### Signed updates
+
+Installed copies can check that an update really comes from you, not just from GitHub. Set it up once:
+
+```bash
+node scripts/sign.mjs --new-key
+```
+
+That makes the update key: the private half goes to `~/.mustela/update-signing/update-key.pem` (keep it secret), the
+public half to `src-tauri/update-key.pub` (commit it). From then on every build trusts that key, the build script puts a
+`.sig` file beside each release file, and Mustela only installs an update whose signature matches. Upload the `.sig`
+files with the release.
+
+- Copy `update-key.pem` to every computer you build releases on (same folder). For the GitHub release workflow, put its
+  contents in a repository secret named `MUSTELA_UPDATE_KEY`.
+- Files built somewhere without the key (someone else's build): sign them before uploading with
+  `node scripts/sign.mjs <files>`, and check with `node scripts/sign.mjs --check <files>`.
+- **Back the key up.** If it's lost, installed copies can't update themselves any more: people would have to download
+  the next version by hand.
+- **Forks and your own builds:** a build that updates from Mustela's releases trusts Mustela's key (and gets Mustela's
+  signed updates). A build that updates from your own fork's releases only uses a key if you make one for your fork
+  (delete `src-tauri/update-key.pub`, then `node scripts/sign.mjs --new-key`); without one it installs your updates
+  checked by GitHub's checksum only. The build says which at the start ("Signed updates" or "Signed updates off").
+
+Code signing with a certificate is separate and optional. On Windows, set `MUSTELA_WINDOWS_SIGN_COMMAND` (run for each
+file, `%1` is its path; SignPath Foundation signs open-source projects for free). On macOS, Tauri's
+`APPLE_SIGNING_IDENTITY` (plus `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID` to notarize; Apple's developer program).
 
 ### Change the icon
 
@@ -246,6 +274,7 @@ open an issue when something breaks.
 
 Known limits:
 - On Linux, sign-in stays in the app's own storage when no keyring (GNOME Keyring, KWallet) is running. Everywhere else it's in the system keychain.
+- The Linux downloads need a 2024-or-newer distro (Ubuntu 24.04, Fedora 40, Linux Mint 22, Debian 13, current Arch). Older ones (Mint 21, Ubuntu 22.04, Debian 12) will be covered by a Flatpak.
 - Linux window blur only shows if your desktop blurs windows (KDE can).
 - Stoat's search only matches words, so the media, links and files tabs look through recent history.
 - Screen share is 720p, or 1080p if your Stoat account allows it. 60 fps waits on Stoat.

@@ -5,7 +5,7 @@ import { doubleTapEmoji, isCustomKey, isFav, noteUse, toggleFav, topReactions } 
 import { composer } from "./chat/Composer";
 import { For } from "solid-js";
 import type { ChannelInfo, Msg, NotifyLevel, Person, Space } from "../lib/backend/types";
-import { attempt, closeMenu, confirmDialog, copy, heldElement, openMenu, promptDialog, toast, type MenuItem } from "./menu";
+import { attempt, closeMenu, confirmDialog, copy, formDialog, heldElement, openMenu, promptDialog, toast, type MenuItem } from "./menu";
 import { openChannel, setChannelSettings, setProfileOpen, setServerSettings } from "./nav";
 import { openEmojiPicker } from "./chat/overlays";
 import { editFriendNick, friendNick } from "./nicks";
@@ -54,12 +54,26 @@ function notifyItems(kind: "server" | "channel", id: string, direct = false): Me
   };
 }
 
-export async function inviteTo(channelId: string) {
+export async function inviteTo(channelId: string, opts?: { maxUses?: number; expiresIn?: number }, note = "") {
   await attempt(async () => {
-    const code = await b().createInvite(channelId);
+    const code = await b().createInvite(channelId, opts);
     const base = b().linkFor(channelId).replace(/\/(server|channel)\/.*$/, "");
-    await copy(`${base}/invite/${code}`, "Invite link copied");
+    await copy(`${base}/invite/${code}`, `Invite link copied${note}`);
   });
+}
+
+const EXPIRY = [["0", "Never"], ["1800", "30 minutes"], ["3600", "1 hour"], ["21600", "6 hours"], ["43200", "12 hours"], ["86400", "1 day"], ["604800", "7 days"]] as const;
+const USES = [["0", "No limit"], ["1", "1 use"], ["5", "5 uses"], ["10", "10 uses"], ["25", "25 uses"], ["50", "50 uses"], ["100", "100 uses"]] as const;
+/** An invite that expires or stops after some joins (Stoat 0.16; older servers make a normal invite). */
+export async function inviteWithLimits(channelId: string) {
+  const v = await formDialog("Invite with limits", [
+    { key: "e", label: "Expire after", value: "86400", options: EXPIRY.map(([v, label]) => ({ v, label })) },
+    { key: "u", label: "Max uses", value: "0", options: USES.map(([v, label]) => ({ v, label })) },
+  ], "Copy invite link");
+  if (!v) return;
+  const expiresIn = Number(v.e) || undefined, maxUses = Number(v.u) || undefined;
+  const parts = [expiresIn ? `expires in ${EXPIRY.find(([x]) => x === v.e)![1]}` : "", maxUses ? `${maxUses} use${maxUses > 1 ? "s" : ""}` : ""].filter(Boolean);
+  await inviteTo(channelId, { expiresIn, maxUses }, parts.length ? ` (${parts.join(", ")})` : "");
 }
 
 /* ---------------------------------------------------------------- servers */
@@ -82,7 +96,7 @@ export function serverMenu(e: MouseEvent, s: Space, extra: MenuItem[] = []) {
     muteItems("server", s.id),
     notifyItems("server", s.id),
     { sep: true },
-    ...(firstText && (info?.perms.invite ?? true) ? [{ label: "Create invite", icon: "user-plus", onSelect: () => inviteTo(firstText.id) } as MenuItem] : []),
+    ...(firstText && (info?.perms.invite ?? true) ? [{ label: "Create invite", icon: "user-plus", onSelect: () => inviteTo(firstText.id) } as MenuItem, { label: "Invite with limits…", icon: "clock", onSelect: () => inviteWithLimits(firstText.id) } as MenuItem] : []),
     { label: "Your profile in this server", icon: "user", onSelect: () => setServerSettings({ id: s.id, tab: "identity" }) },
     ...(canAdminServer(info) ? [{ label: "Server settings", icon: "gear", onSelect: () => setServerSettings({ id: s.id }) } as MenuItem] : []),
     ...(info?.perms.manageChannels ? createItems(s.id) : []),
@@ -165,7 +179,7 @@ export function channelMenu(e: MouseEvent, c: ChannelInfo, serverId?: string) {
   else items.push(...channelPinItems(c), { sep: true });
   // Same order as Stoat: read, invite, then notifications, then managing.
   if (c.unread || c.mentions) items.push({ label: "Mark as read", icon: "check-all", onSelect: () => b().markRead({ channel: c.id }) });
-  if (!direct && (info?.perms.invite ?? false)) items.push({ label: "Create invite", icon: "user-plus", onSelect: () => inviteTo(c.id) });
+  if (!direct && (info?.perms.invite ?? false)) items.push({ label: "Create invite", icon: "user-plus", onSelect: () => inviteTo(c.id) }, { label: "Invite with limits…", icon: "clock", onSelect: () => inviteWithLimits(c.id) });
   items.push({ sep: true }, muteItems("channel", c.id, c.kind === "dm" ? "conversation" : c.kind === "group" ? "group" : "channel"), notifyItems("channel", c.id, direct));
   if (serverId && info?.perms.manageChannels) {
     items.push(

@@ -14,6 +14,9 @@ use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 pub const REPO: Option<&str> = option_env!("MUSTELA_UPDATE_REPO");
+/// The public half of the project's update key (base64 of a raw Ed25519 key), from src-tauri/update-key.pub at build
+/// time (scripts/build.mjs). When it's set, an update is only installed if its `.sig` file matches (scripts/sign.mjs).
+pub const UPDATE_KEY: Option<&str> = option_env!("MUSTELA_UPDATE_PUBKEY");
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_BYTES: u64 = 400 * 1024 * 1024;
 const DOWNLOAD_HOSTS: [&str; 3] = ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"];
@@ -25,7 +28,7 @@ pub fn repo() -> Option<&'static str> {
 /// How this copy was installed, which decides which file to fetch and what Install does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Kind { WindowsNsis, MacosDmg, LinuxAppimage, LinuxDeb, Android, Ios, Other }
+pub enum Kind { WindowsNsis, MacosDmg, LinuxAppimage, LinuxDeb, LinuxRpm, Flatpak, Android, Ios, Other }
 
 impl Kind {
     pub fn current() -> Kind {
@@ -33,12 +36,42 @@ impl Kind {
         else if cfg!(target_os = "macos") { Kind::MacosDmg }
         else if cfg!(target_os = "android") { Kind::Android }
         else if cfg!(target_os = "ios") { Kind::Ios }
-        else if cfg!(target_os = "linux") {
-            if std::env::var_os("APPIMAGE").is_some() { Kind::LinuxAppimage } else { Kind::LinuxDeb }
-        } else { Kind::Other }
+        else if cfg!(target_os = "linux") { linux_kind() } else { Kind::Other }
     }
-    /// Installed in place by Mustela itself. Everything else opens the file or the release page.
+    /// Installed in place by Mustela itself. Everything else opens the file or the release page (and a Flatpak is
+    /// updated by its app store, so it's offered nothing).
     pub fn self_installs(self) -> bool { matches!(self, Kind::WindowsNsis | Kind::LinuxAppimage | Kind::MacosDmg | Kind::Android) }
+}
+
+/// The update key this build trusts, if it was built with one.
+pub fn signing_key() -> Option<[u8; 32]> {
+    use base64::Engine;
+    let raw = base64::engine::general_purpose::STANDARD.decode(UPDATE_KEY?.trim()).ok()?;
+    raw.try_into().ok()
+}
+
+/// Whether `sig_b64` (a `.sig` file's text) is a valid Ed25519 signature of `data` by `key`.
+pub fn verify_signature(data: &[u8], sig_b64: &str, key: &[u8; 32]) -> bool {
+    use base64::Engine;
+    let Ok(sig) = base64::engine::general_purpose::STANDARD.decode(sig_b64.trim()) else { return false };
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, key).verify(data, &sig).is_ok()
+}
+
+/// How this Linux copy was installed: the AppImage and Flatpak say so themselves; otherwise whichever package manager
+/// owns the running program (an .rpm on Fedora/openSUSE, a .deb on Ubuntu/Debian/Mint). Worked out once.
+fn linux_kind() -> Kind {
+    static KIND: std::sync::OnceLock<Kind> = std::sync::OnceLock::new();
+    *KIND.get_or_init(|| {
+        if std::env::var_os("FLATPAK_ID").is_some() { return Kind::Flatpak; }
+        if std::env::var_os("APPIMAGE").is_some() { return Kind::LinuxAppimage; }
+        let exe = std::env::current_exe().ok();
+        let owns = |tool: &str, args: &[&str]| exe.as_ref().is_some_and(|e| {
+            std::process::Command::new(tool).args(args).arg(e).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+                .status().is_ok_and(|s| s.success())
+        });
+        if owns("rpm", &["-qf"]) { Kind::LinuxRpm }
+        else { Kind::LinuxDeb } // dpkg, or nothing found: the .deb, as before
+    })
 }
 
 /// Picks this platform's file from a release. Names follow scripts/build.mjs:
@@ -55,8 +88,9 @@ pub fn pick_asset<'a>(kind: Kind, arch: &str, assets: &'a [Asset]) -> Option<&'a
         Kind::MacosDmg => ("macos", &[".dmg"]),
         Kind::LinuxAppimage => ("linux", &[".appimage"]),
         Kind::LinuxDeb => ("linux", &[".deb"]),
+        Kind::LinuxRpm => ("linux", &[".rpm"]),
         Kind::Android => ("android", &[".apk"]),
-        Kind::Ios | Kind::Other => return None,
+        Kind::Flatpak | Kind::Ios | Kind::Other => return None,
     };
     assets.iter().find(|a| {
         let n = lower(a);
@@ -121,6 +155,9 @@ pub struct Asset {
     /// "sha256:<hex>", filled in by GitHub for release assets.
     #[serde(default)]
     pub digest: Option<String>,
+    /// The `<name>.sig` file beside it in the same release (signed updates).
+    #[serde(skip)]
+    pub sig_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -193,14 +230,19 @@ pub async fn check() -> Result<Option<(UpdateInfo, Option<Asset>)>, String> {
     let kind = Kind::current();
     let Some((rel, version, asset)) = best(&list, kind, std::env::consts::ARCH) else { return Ok(None) };
     if !is_newer(&version, VERSION) { return Ok(None); }
-    let asset = asset.cloned();
+    let asset = asset.cloned().map(|mut a| {
+        let sig = format!("{}.sig", a.name);
+        a.sig_url = rel.assets.iter().find(|x| x.name == sig).map(|x| x.browser_download_url.clone());
+        a
+    });
     let info = UpdateInfo {
         version,
         notes: rel.body.clone().unwrap_or_default().chars().take(4000).collect(),
         page: if rel.html_url.starts_with(&format!("https://github.com/{repo}/")) { rel.html_url.clone() } else { format!("https://github.com/{repo}/releases/latest") },
         file: asset.as_ref().map(|a| a.name.clone()),
         size: asset.as_ref().map_or(0, |a| a.size),
-        self_installs: kind.self_installs() && asset.as_ref().is_some_and(|a| a.digest.is_some()),
+        // With an update key, only a signed file is installed (an unsigned one is left to the release page).
+        self_installs: kind.self_installs() && asset.as_ref().is_some_and(|a| a.digest.is_some() && (signing_key().is_none() || a.sig_url.is_some())),
     };
     Ok(Some((info, asset)))
 }
@@ -228,13 +270,23 @@ pub async fn download(asset: &Asset, dest: &std::path::Path, mut progress: impl 
     }
     let got: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
     if got != want { return Err("The download didn't match GitHub's checksum, so it was thrown away.".into()); }
+    if let Some(key) = signing_key() {
+        let url = asset.sig_url.as_deref().ok_or("This update isn't signed, so it won't be installed. Get it from the release page.")?;
+        if !url.starts_with(&format!("https://github.com/{repo}/releases/download/")) { return Err("That signature isn't from this app's releases.".into()); }
+        let r = client()?.get(url).timeout(Duration::from_secs(30)).send().await.map_err(|_| "Couldn't get the update's signature.".to_string())?;
+        if !r.status().is_success() { return Err("Couldn't get the update's signature.".into()); }
+        let sig = r.bytes().await.map_err(|_| "Couldn't get the update's signature.".to_string())?;
+        if sig.len() > 1024 || !verify_signature(&buf, &String::from_utf8_lossy(&sig), &key) {
+            return Err("The update's signature didn't match, so it was thrown away.".into());
+        }
+    }
     std::fs::write(dest, &buf).map_err(|e| format!("Couldn't save the update: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn a(n: &str) -> Asset { Asset { name: n.into(), size: 1, browser_download_url: String::new(), digest: None } }
+    fn a(n: &str) -> Asset { Asset { name: n.into(), size: 1, browser_download_url: String::new(), digest: None, sig_url: None } }
 
     #[test]
     fn versions() {
@@ -282,10 +334,21 @@ mod tests {
     }
 
     #[test]
+    fn signatures_from_the_signing_script_verify() {
+        use base64::Engine;
+        // Made by scripts/sign.mjs with a throwaway key: the Node side and this side must agree.
+        let key: [u8; 32] = base64::engine::general_purpose::STANDARD.decode("ZVSFWYi4xb4JRzhxISRpNZ1QHpGTapS7lAqFgsY9u3c=").unwrap().try_into().unwrap();
+        let sig = "e6OVw0mdFCGJZI8TYakCc5F3ovHs3BXJvyIgYhBMJCoVymyfVizMIqKcG4IGd6Qlx4N+tI5vXdfmaCGXCyGlCA==\n";
+        assert!(verify_signature(b"hello\n", sig, &key));
+        assert!(!verify_signature(b"hello\ntampered\n", sig, &key));
+        assert!(!verify_signature(b"hello\n", "not base64!", &key));
+    }
+
+    #[test]
     fn picks_the_right_file() {
         let list = vec![
             a("Mustela_0.2.0_windows_x64.msi"), a("Mustela_0.2.0_windows_x64.exe"), a("Mustela_0.2.0_macos_universal.dmg"),
-            a("Mustela_0.2.0_linux_amd64.deb"), a("Mustela_0.2.0_linux_amd64.AppImage"), a("Mustela_0.2.0_linux_aarch64.AppImage"),
+            a("Mustela_0.2.0_linux_amd64.deb"), a("Mustela_0.2.0_linux_x86_64.rpm"), a("Mustela_0.2.0_linux_amd64.AppImage"), a("Mustela_0.2.0_linux_aarch64.AppImage"),
             a("Mustela_0.2.0_android.apk"), a("Mustela_0.2.0_android.aab"),
         ];
         assert_eq!(pick_asset(Kind::WindowsNsis, "x86_64", &list).unwrap().name, "Mustela_0.2.0_windows_x64.exe");
@@ -293,6 +356,8 @@ mod tests {
         assert_eq!(pick_asset(Kind::LinuxAppimage, "aarch64", &list).unwrap().name, "Mustela_0.2.0_linux_aarch64.AppImage");
         assert_eq!(pick_asset(Kind::LinuxAppimage, "x86_64", &list).unwrap().name, "Mustela_0.2.0_linux_amd64.AppImage");
         assert_eq!(pick_asset(Kind::LinuxDeb, "x86_64", &list).unwrap().name, "Mustela_0.2.0_linux_amd64.deb");
+        assert_eq!(pick_asset(Kind::LinuxRpm, "x86_64", &list).unwrap().name, "Mustela_0.2.0_linux_x86_64.rpm");
+        assert!(pick_asset(Kind::Flatpak, "x86_64", &list).is_none());
         assert_eq!(pick_asset(Kind::Android, "aarch64", &list).unwrap().name, "Mustela_0.2.0_android.apk");
         assert!(pick_asset(Kind::Ios, "aarch64", &list).is_none());
     }

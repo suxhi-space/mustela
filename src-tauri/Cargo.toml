@@ -1,6 +1,6 @@
 [package]
 name = "mustela"
-version = "0.1.7-build2"
+version = "0.1.8-build1"
 description = "A compact chat client for Stoat"
 edition = "2021"
 
@@ -25,6 +25,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { version = "1", features = ["net"] }
 serde_json = "1"
 sha2 = "0.10"
+# Signed updates (src/updater.rs): Ed25519 signature check, with the same ring and base64 the networking code already uses.
+ring = "0.17"
+base64 = "0.22"
 futures-util = "0.3"
 
 # Desktop only: game detection and the Rich Presence socket (src/activity.rs).
@@ -62,6 +65,9 @@ livekit-datatrack = "=0.1.13"
 livekit-net = "=0.1.2"
 cpal = "0.18"
 futures-util = "0.3"
+# Screen share sound from one app (src/pw_audio.rs). The same version xcap uses, so they share one copy.
+pipewire = "0.10"
+libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Screen share sound from one app (or everything but Mustela): Windows process loopback capture.
@@ -72,9 +78,19 @@ windows = { version = "0.62", features = [
   "Foundation", "Graphics", "Graphics_Capture", "Graphics_DirectX", "Graphics_DirectX_Direct3D11",
   "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dxgi", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",
   "Win32_Graphics_Dxgi_Common", "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture",
-  # The call pop-out's own title bar (src/popout_win.rs).
-  "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Screen share sound from one app, or everything but Mustela (src/sck_audio.rs): ScreenCaptureKit, macOS 13+.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSError", "NSString", "NSObject", "NSEnumerator"] }
+objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "libc", "objc2-core-media", "objc2-core-foundation", "objc2-core-graphics", "SCStream", "SCShareableContent"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMSampleBuffer", "CMBlockBuffer", "objc2-core-audio-types"] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+block2 = "0.6"
+dispatch2 = "0.3"
+libc = "0.2"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 window-vibrancy = "0.6"

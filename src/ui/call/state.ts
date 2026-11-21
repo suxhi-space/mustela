@@ -4,7 +4,7 @@ import { inTauri } from "../../lib/platform";
 import { playSfx } from "../../lib/sfx";
 import { backend, device, platform, ext, updateDevice } from "../store";
 import { pickScreen } from "./ScreenPicker";
-import { openMenu } from "../menu";
+import { openMenu, toast } from "../menu";
 
 /**
  * The one call this window is in. It lives here, not in a component, so the
@@ -253,6 +253,7 @@ export async function toggleCall(k: "mic" | "cam" | "screen" | "deaf") {
           const native = await startNativeCapture(choice.source, choice.quality, choice.audio);
           native.onEnded(() => { setOn(h.state?.() ?? { ...on(), screen: false }); setTick((t) => t + 1); });
           try { await h.setScreen(true, { quality: choice.quality, native }); } catch (e) { native.stop(); throw e; }
+          if (choice.audio !== "off" && !native.audio) toast(`Sharing without sound${native.soundError ? `: ${native.soundError.replace(/\.$/, "")}` : ""}.`, true);
         }
       } else if (k === "mic") {
         // Windows can briefly report the microphone busy ("Could not start audio source"): try once more.

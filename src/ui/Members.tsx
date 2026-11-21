@@ -19,7 +19,7 @@ export function MemberRow(props: { person: Person; onOpen(p: Person): void; serv
   const [size, sizeRef] = createSize();
   const anim = createAnim(profile, "plate", () => true); // a member list row
   return (
-    <button class="member" classList={{ off: !props.person.online }} onClick={() => props.onOpen(props.person)}
+    <button class="member" classList={{ off: !props.person.online, plated: !!profile()?.plate.preset }} onClick={() => props.onOpen(props.person)}
       onContextMenu={(e) => userMenu(e, props.person, props.serverId)}
       ref={(el) => { ref(el); sizeRef(el); }}>
       <Show when={profile()?.plate.preset && size().w > 0}>

@@ -8,6 +8,7 @@ import { backend, device, platform, updateDevice } from "../store";
 import { QUALITIES, qualityHint } from "../call/ScreenPicker";
 import { bgPaused } from "../bgStill";
 import { createLiveLevel, levelOf } from "../call/micLevel";
+import { popoutKind, setPopoutKind } from "../call/popout";
 
 export async function devices() {
   try {
@@ -51,6 +52,7 @@ function createMicTest() {
 
 /** Stoat's "Voice & Video" plus Mustela's input sensitivity. The soundboard has its own page (Soundboard.tsx). */
 export function VoiceVideo() {
+  const [popKind, setPopKind] = createSignal<"mustela" | "system">(popoutKind());
   const [list, { refetch }] = createResource(devices);
   const v = () => device().voice;
   const set = (p: Partial<VoicePrefs>) => { updateDevice({ voice: { ...v(), ...p } }); applyVoicePrefs(); };
@@ -125,6 +127,15 @@ export function VoiceVideo() {
         <Row icon="music" label="Soundboard volume"><Slider label="Soundboard volume" min={0} max={100} value={v().soundboardVolume} suffix="%" onChange={(soundboardVolume) => set({ soundboardVolume })} /></Row>
         <Row label="Soundboard settings" hint="Your entry sound, and each sound's emoji, name and volume" chevron onClick={() => openSettings("soundboard")} />
       </Group>
+
+      <Show when={platform === "windows" && inTauri()}>
+        <Group title="Windows">
+          <Row label="Call pop-out" hint="Mustela's window (with Mustela's title bar) is still being fixed on Windows and can freeze Mustela. If it does, it goes back to Windows' pop-up by itself.">
+            <Seg label="Call pop-out" value={popKind()} onChange={(k) => { setPopoutKind(k); setPopKind(k); }}
+              options={[{ v: "system", label: "Windows' pop-up" }, { v: "mustela", label: "Mustela's window (experimental)" }]} />
+          </Row>
+        </Group>
+      </Show>
 
       <Show when={platform === "android" && inTauri()}>
         <Group title="Android" hint="Calls keep going when you leave the app or lock your phone, with a notification to come back or leave. In a call, the volume keys set call volume.">

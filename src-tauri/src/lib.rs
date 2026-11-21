@@ -13,12 +13,14 @@ mod screen;
 mod notify;
 #[cfg(desktop)]
 mod vault;
-#[cfg(windows)]
-mod popout_win;
 #[cfg(target_os = "windows")]
 mod wgc_capture;
 #[cfg(target_os = "linux")]
 mod call_linux;
+#[cfg(target_os = "linux")]
+mod pw_audio;
+#[cfg(target_os = "macos")]
+mod sck_audio;
 
 /// Phones have no game detection or Rich Presence socket.
 #[cfg(not(desktop))]
@@ -34,7 +36,7 @@ use tauri::ipc::Response;
 use tauri::{Emitter, Manager};
 #[cfg(desktop)]
 use tauri::WebviewWindowBuilder;
-#[cfg(all(desktop, not(windows)))]
+#[cfg(desktop)]
 use tauri::WebviewUrl;
 
 /// What the window can do on this platform, so the UI only offers real choices.
@@ -130,33 +132,57 @@ async fn fetch_audio(url: String) -> Result<Response, String> {
 /// The pop-out call window, made when the main window calls `window.open` (see
 /// src/ui/call/popout.tsx). The main window draws the call into it, so the call itself never
 /// moves: popping out or back in doesn't reconnect. Anything else asking for a window is refused.
+///
+/// Windows: making the window here froze both windows with older wry. wry 0.55 (#1660) runs this handler on the main
+/// thread, after the request, which is what Create needs, so Windows tries it again: a real Mustela window, with
+/// Mustela's title bar and icon and no address bar. The page asks for it with `popout_mode(true)`; if an attempt ever
+/// froze, the page notices on the next start and asks for WebView2's own pop-up instead (`popout_mode(false)`). Each
+/// step is written to popout.log in Mustela's log folder, so a freeze can be traced.
+#[cfg(desktop)]
+static POPOUT_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(!cfg!(windows));
+
+#[cfg(desktop)]
+#[tauri::command]
+fn popout_mode(native: bool) { POPOUT_NATIVE.store(native, std::sync::atomic::Ordering::SeqCst); }
+
+#[cfg(desktop)]
+fn popout_log(app: &tauri::AppHandle, step: &str) {
+    use std::io::Write;
+    let Ok(dir) = app.path().app_log_dir() else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("popout.log")) {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        let _ = writeln!(f, "{t} {step}");
+        let _ = f.sync_all(); // written before the next step, so a freeze still leaves the trail
+    }
+}
+
 #[cfg(desktop)]
 fn popout_window(app: &tauri::AppHandle, features: tauri::webview::NewWindowFeatures) -> tauri::webview::NewWindowResponse<tauri::Wry> {
     use tauri::webview::NewWindowResponse;
-    // Windows: WebView2 opens the pop-out itself, the way its own pop-ups work. Making a Tauri
-    // window from inside this request froze both windows there. The main window hands the
-    // pop-out its styles and fonts, so it needs nothing from the app's own pages.
-    #[cfg(windows)]
-    { let _ = (app, features); NewWindowResponse::Allow }
-    #[cfg(not(windows))]
-    {
-        if app.get_webview_window("call").is_some() { return NewWindowResponse::Deny; }
-        let b = WebviewWindowBuilder::new(app, "call", WebviewUrl::External("about:blank".parse().expect("valid url")))
-            .window_features(features)
-            .title("Mustela call")
-            .inner_size(800.0, 500.0)
-            .min_inner_size(360.0, 240.0)
-            .background_color(tauri::window::Color(17, 18, 22, 255))
-            .disable_drag_drop_handler();
-        // Like Discord's: a normal resizable window with a thin title bar of our own.
-        #[cfg(target_os = "macos")]
-        let b = b.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
-        #[cfg(not(target_os = "macos"))]
-        let b = b.decorations(false);
-        match b.build() {
-            Ok(w) => NewWindowResponse::Create { window: w },
-            Err(_) => NewWindowResponse::Deny,
-        }
+    if !POPOUT_NATIVE.load(std::sync::atomic::Ordering::SeqCst) {
+        popout_log(app, "request: system pop-up");
+        return NewWindowResponse::Allow; // WebView2's own pop-up (Windows fallback)
+    }
+    popout_log(app, "request: Mustela window");
+    if app.get_webview_window("call").is_some() { popout_log(app, "refused: already open"); return NewWindowResponse::Deny; }
+    let b = WebviewWindowBuilder::new(app, "call", WebviewUrl::External("about:blank".parse().expect("valid url")))
+        .window_features(features)
+        .title("Mustela call")
+        .inner_size(800.0, 500.0)
+        .min_inner_size(360.0, 240.0)
+        .background_color(tauri::window::Color(17, 18, 22, 255))
+        .disable_drag_drop_handler();
+    // Like Discord's: a normal resizable window with a thin title bar of our own (the page puts the system frame back
+    // when "System's" title bar is chosen).
+    #[cfg(target_os = "macos")]
+    let b = b.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
+    #[cfg(not(target_os = "macos"))]
+    let b = b.decorations(false);
+    popout_log(app, "building");
+    match b.build() {
+        Ok(w) => { popout_log(app, "built"); NewWindowResponse::Create { window: w } }
+        Err(e) => { popout_log(app, &format!("failed: {e}")); NewWindowResponse::Deny }
     }
 }
 
@@ -463,14 +489,11 @@ fn screen_ack(state: tauri::State<screen::ScreenState>) { screen::ack(&state) }
 #[tauri::command]
 fn screen_stop(state: tauri::State<screen::ScreenState>) { screen::stop(&state) }
 
-/// Windows: one app's sound (pid), or everything but Mustela (pid 0), for a screen share.
+/// One app's sound (pid), or everything but Mustela (pid 0), for a screen share.
 #[cfg(desktop)]
 #[tauri::command]
 async fn screen_audio(app: tauri::AppHandle, pid: u32, channel: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    { tauri::async_runtime::spawn_blocking(move || screen::start_audio(&app.state::<screen::ScreenState>(), pid, channel)).await.map_err(|e| e.to_string())? }
-    #[cfg(not(target_os = "windows"))]
-    { let _ = (app, pid, channel); Err("Sharing an app's sound works on Windows for now.".into()) }
+    tauri::async_runtime::spawn_blocking(move || screen::start_audio(&app.state::<screen::ScreenState>(), pid, channel)).await.map_err(|e| e.to_string())?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -575,7 +598,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![gif_store::warm_gifs, emoji_store::emoji_store_size, emoji_store::clear_emoji_store, material_support, set_material, fetch_image, preview::link_preview, close_popout, activity_config, fetch_audio, update_config, check_update, install_update,
+        .invoke_handler(tauri::generate_handler![gif_store::warm_gifs, emoji_store::emoji_store_size, emoji_store::clear_emoji_store, material_support, set_material, fetch_image, preview::link_preview, close_popout, #[cfg(desktop)] popout_mode, activity_config, fetch_audio, update_config, check_update, install_update,
             #[cfg(desktop)] screen_sources, #[cfg(desktop)] screen_permission, #[cfg(desktop)] screen_permission_request, #[cfg(desktop)] relaunch, #[cfg(desktop)] screen_start, #[cfg(desktop)] screen_ack, #[cfg(desktop)] screen_stop, #[cfg(desktop)] screen_audio,
             #[cfg(target_os = "linux")] call_linux::voice_start_call, #[cfg(target_os = "linux")] call_linux::voice_set_mic,
             #[cfg(target_os = "linux")] call_linux::voice_set_deaf, #[cfg(target_os = "linux")] call_linux::voice_end_call,
@@ -583,7 +606,7 @@ pub fn run() {
             #[cfg(desktop)] notify::notify_rich, #[cfg(desktop)] set_start_open, #[cfg(desktop)] open_discover, #[cfg(desktop)] discover_embed, #[cfg(desktop)] save_image, #[cfg(desktop)] device_name, #[cfg(desktop)] start_open,
             #[cfg(desktop)] desktop::tray_state, #[cfg(desktop)] desktop::tray_image, #[cfg(desktop)] desktop::set_close_to_tray,
             #[cfg(desktop)] desktop::appimage_status, #[cfg(desktop)] desktop::appimage_install, #[cfg(desktop)] desktop::relaunch_installed,
-            #[cfg(desktop)] vault::vault_available, #[cfg(desktop)] vault::vault_get, #[cfg(desktop)] vault::vault_set, #[cfg(desktop)] vault::vault_delete, #[cfg(windows)] popout_win::popout_frame])
+            #[cfg(desktop)] vault::vault_available, #[cfg(desktop)] vault::vault_get, #[cfg(desktop)] vault::vault_set, #[cfg(desktop)] vault::vault_delete])
         .run(tauri::generate_context!())
         .expect("error while running Mustela");
 }

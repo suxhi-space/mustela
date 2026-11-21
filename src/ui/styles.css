@@ -222,6 +222,11 @@ small, .small { font-size: 12.5px; }
 .orb.on { box-shadow: 0 0 0 2px var(--world), 0 0 0 4px var(--pri), 0 3px 0 var(--lip-dark); }
 .orb.home.on { background: var(--pri); color: var(--on-pri); }
 .orb.add { color: var(--online); }
+/* A waiting update (computers): green, like Discord's. */
+.tb-tool.tb-update, .orb.rail-update { color: var(--online); }
+.tb-tool.tb-update:hover { color: #fff; background: var(--online); }
+.orb.rail-update:hover { background: var(--online); color: #fff; }
+.tb-tool.tb-update:disabled, .orb.rail-update:disabled { opacity: .6; cursor: progress; }
 .orb.add:hover { background: var(--online); color: #fff; }
 .orb::after { content: ""; position: absolute; left: calc(-1 * (var(--rail) - 48px) / 2 - 2px); top: 50%; width: 5px; height: 0; border-radius: 0 4px 4px 0; background: var(--fg); transform: translateY(-50%); transition: height .15s; }
 .orb.unread::after { height: 9px; }
@@ -465,6 +470,15 @@ a.em-title:hover { text-decoration: underline; }
 .member { position: relative; width: 100%; display: flex; align-items: center; gap: 10px; min-height: calc(var(--row) + 6px); padding: 3px 8px; border-radius: 12px; overflow: visible; }
 .member:hover { background: color-mix(in srgb, var(--fg) 7%, transparent); }
 .member.off { opacity: .5; }
+/* Light mode: offline people faded less, or pale names all but disappeared. */
+:root[data-mode="light"] .member.off { opacity: .7; }
+/* On a nameplate: a soft cushion in the panel's colour right behind the letters, so any name colour reads on any
+   plate (a light green name on a green plate). Glowing name styles keep their own halo. */
+:is(.member, .userpanel).plated :is(.member-text, .up-text) { text-shadow: 0 0 3px color-mix(in srgb, var(--s1) 85%, transparent), 0 0 8px color-mix(in srgb, var(--s1) 55%, transparent); }
+/* Light mode: a wide light blur makes the letters look fuzzy, so just a thin edge. */
+:root[data-mode="light"] :is(.member, .userpanel).plated :is(.member-text, .up-text) { text-shadow: 0 0 2px color-mix(in srgb, var(--s1) 75%, transparent); }
+/* Gradient and rainbow names are see-through text over a colour fill: a shadow shows through and washes them out. */
+:is(.member, .userpanel).plated :is([style*="background-clip"], .n-rainbow) { text-shadow: none; }
 .member > *:not(.plate) { position: relative; z-index: 1; }
 .member .plate { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; z-index: 0; opacity: .85; border-radius: inherit; overflow: hidden; }
 :root[data-mode="light"] .member .plate { opacity: .32; }
@@ -577,6 +591,8 @@ a.em-title:hover { text-decoration: underline; }
 .emoji-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(8, 1fr); padding: 6px; align-content: start; }
 .emoji-grid button { aspect-ratio: 1; font-size: 22px; border-radius: 9px; display: grid; place-items: center; }
 .emoji-grid button:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); }
+/* Emoji from another server where this server doesn't allow them ("Use external emojis") */
+.emoji-grid button.off { opacity: .35; filter: grayscale(1); cursor: not-allowed; }
 .emoji-grid .empty { grid-column: 1 / -1; }
 /* pictures shown big (Gallery.tsx): black, full screen, bars float on top and hide with a tap */
 .gallery-view { position: fixed; inset: 0; z-index: 90; background: #000; color: #fff; overflow: hidden; user-select: none; -webkit-user-select: none; }
@@ -644,6 +660,11 @@ a.em-title:hover { text-decoration: underline; }
 .pc-bio.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .pc-more { color: var(--pc-label); }
 .pc-actions { margin-top: 10px; display: flex; gap: 8px; position: relative; z-index: 6; }
+/* On someone's themed card the buttons are in their colours, not the app theme's (yours) */
+.pcard.themed .pc-actions .btn.primary { background: var(--pc-btn); background-image: none; color: var(--pc-on-btn); }
+.pcard.themed .pc-actions .btn.primary:hover { background: color-mix(in srgb, var(--pc-btn) 86%, var(--pc-on-btn)); }
+.pcard.themed .pc-actions .btn:not(.primary) { background: color-mix(in srgb, var(--pc-fg) 14%, transparent); color: var(--pc-fg); }
+.pcard.themed .pc-actions .btn:not(.primary):hover { background: color-mix(in srgb, var(--pc-fg) 22%, transparent); }
 .pc-note { color: var(--pc-sub); }
 .pcard .fx, .pcard canvas.fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 /* frames trace the edge, under the text, so they never sit on top of what's written */
@@ -1357,16 +1378,6 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .popout .cstage { flex: 1; }
 .pop-bar { height: 28px; flex: none; display: flex; align-items: center; gap: 7px; padding-left: 10px; color: #aab1b8; font-size: 12px; font-weight: 750; user-select: none; -webkit-user-select: none; background: #0d0e10; }
 :root[data-platform="mac"] .pop-bar { padding-left: 78px; }
-/* Windows, frame taken off (src/ui/call/CallWindow.tsx): a hairline edge, and grab strips to resize from. */
-.popout.bare { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09); }
-.pop-edge { position: fixed; z-index: 60; }
-.pop-edge.n, .pop-edge.s { left: 8px; right: 8px; height: 5px; cursor: ns-resize; }
-.pop-edge.n { top: 0; } .pop-edge.s { bottom: 0; }
-.pop-edge.e, .pop-edge.w { top: 8px; bottom: 8px; width: 5px; cursor: ew-resize; }
-.pop-edge.e { right: 0; } .pop-edge.w { left: 0; }
-.pop-edge.ne, .pop-edge.nw, .pop-edge.se, .pop-edge.sw { width: 10px; height: 10px; }
-.pop-edge.ne { top: 0; right: 0; cursor: nesw-resize; } .pop-edge.sw { bottom: 0; left: 0; cursor: nesw-resize; }
-.pop-edge.nw { top: 0; left: 0; cursor: nwse-resize; } .pop-edge.se { bottom: 0; right: 0; cursor: nwse-resize; }
 .pop-title { color: #e9ecef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pop-bar .tb-win { height: 28px; }
 :root[data-platform="mac"] .pop-bar .tb-win { display: none; }
@@ -2787,7 +2798,10 @@ button.em-player { padding: 0; border: 0; background: none; cursor: pointer; }
    measurement, which went stale when the box moved, leaving the bar floating mid-chat). */
 .composer-wrap { z-index: 21; }
 /* Desktop: a bar a little narrower than the message box, its bottom tucked behind the box (or the reply or attachment bar on top of it). */
-.composer-wrap > .older-bar { position: absolute; left: 26px; right: 26px; bottom: calc(100% - 14px); transform: none; z-index: -1;
+/* Layered at 0 with the box and the bars on it at 1, never at a negative level: macOS's (and Linux's) WebKit draws
+   pictures, spoilers and decorated avatars from the chat over anything placed "behind" (z-index -1). */
+.composer-wrap > :is(.reply-bar, .pending-files, .upload-bar, .composer-err, .composer) { position: relative; z-index: 1; }
+.composer-wrap > .older-bar { position: absolute; left: 26px; right: 26px; bottom: calc(100% - 14px); transform: none; z-index: 0;
   justify-content: space-between; white-space: nowrap; padding: 5px 6px 19px 14px; border-radius: 14px 14px 0 0; font-size: 13px;
   box-shadow: 0 -8px 22px -12px rgba(0, 0, 0, .55); animation: ob-up .16s ease-out; }
 .composer-wrap > .older-bar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

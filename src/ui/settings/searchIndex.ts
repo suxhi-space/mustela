@@ -45,6 +45,8 @@ export const SETTING_LABELS: Record<string, string[]> = {
     "Soundboard",
     "Soundboard volume",
     "Soundboard settings",
+    "Windows",
+    "Call pop-out",
     "Android",
     "When you leave the app in a call"
   ],

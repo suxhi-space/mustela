@@ -3,7 +3,7 @@ import type { BotRow } from "../../lib/backend/types";
 import { Avatar } from "../Avatar";
 import { Group, Row, Switch } from "../controls";
 import { Icon } from "../icons";
-import { attempt, confirmDialog, copy, promptDialog } from "../menu";
+import { attempt, confirmDialog, confirmIdentity, copy, promptDialog } from "../menu";
 import { backend } from "../store";
 
 /** Stoat's "My Bots": create bots, copy tokens, make them public, delete them. */
@@ -56,7 +56,7 @@ function BotDetail(props: { bot: BotRow; onChange(): void }) {
       </Row>
       <Row icon="pencil" label="Rename" onClick={async () => { const n = await promptDialog("Rename bot", "Bot username", "Rename", props.bot.name, { max: 32 }); if (n?.trim()) await edit({ name: n.trim() }, "Renamed"); }} chevron />
       <Row icon="link" label="Copy invite link" onClick={() => void copy(`https://stoat.chat/bot/${props.bot.id}`, "Invite link copied")} chevron />
-      <Row icon="trash" label="Delete bot" danger onClick={async () => { if (await confirmDialog(`Delete ${props.bot.name}?`, "It leaves every server it's in. This can't be undone.", "Delete bot", true)) await attempt(() => acc().deleteBot(props.bot.id).then(props.onChange), "Bot deleted"); }} />
+      <Row icon="trash" label="Delete bot" danger onClick={async () => { if (!(await confirmDialog(`Delete ${props.bot.name}?`, "It leaves every server it's in. This can't be undone.", "Delete bot", true))) return; const p = await confirmIdentity(backend(), "Confirm it's you", "Stoat asks for this before a bot is deleted.", "Delete bot"); if (p) await attempt(() => acc().deleteBot(props.bot.id, p).then(props.onChange), "Bot deleted"); }} />
     </div>
   );
 }

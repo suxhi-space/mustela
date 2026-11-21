@@ -1,6 +1,8 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { badgeNum } from "./badge";
 import { MOBILE_UI } from "./target";
+import { hasTitleBar } from "./TitleBar";
+import { UpdateButton } from "./updates";
 import type { ServerFolder, Space } from "../lib/backend/types";
 import { Icon } from "./icons";
 import { openColorPickerHere } from "./ColorPicker";
@@ -217,6 +219,8 @@ export function Rail(props: { spaces: Space[]; current?: string; onOpen(id: stri
         }}</Show>
       )}</For>
       <button class="orb add" title="Add a server" aria-label="Add a server" onClick={props.onAdd}><Icon name="plus" size={22} /></button>
+      {/* With the system's title bar there's no Mustela bar for the update button: it waits here instead. */}
+      <Show when={!MOBILE_UI && !hasTitleBar()}><UpdateButton place="rail" /></Show>
     </>
   );
 }

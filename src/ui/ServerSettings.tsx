@@ -7,7 +7,7 @@ import { Avatar } from "./Avatar";
 import { ColorInput, Group, Row, Select, Switch } from "./controls";
 import { FlagEditor, OverrideEditor } from "./Permissions";
 import { Icon } from "./icons";
-import { attempt, confirmDialog, copy, openMenu, promptDialog } from "./menu";
+import { attempt, confirmDialog, confirmIdentity, copy, openMenu, promptDialog } from "./menu";
 import { createCategory, createChannel } from "./menus";
 import { setChannelSettings, setServerSettings, type ServerTab } from "./nav";
 import { backend } from "./store";
@@ -454,7 +454,8 @@ function Invites(props: { info: ServerInfo }) {
       <Show when={list() !== null} fallback={<p class="group-hint">Only people who can manage the server can see its invites.</p>}>
         <Group title="Invites" count={list()?.length ?? 0}>
           <For each={list() ?? []} fallback={<Row label={<span class="muted">No invites yet. Right-click the server and choose Create invite.</span>} />}>{(i) => (
-            <Row label={<code class="ss-code">{i.code}</code>} hint={[i.creator ? `By ${i.creator.name}` : "", i.channelName ? `#${i.channelName}` : ""].filter(Boolean).join(", ")}>
+            <Row label={<code class="ss-code">{i.code}</code>} hint={[i.creator ? `By ${i.creator.name}` : "", i.channelName ? `#${i.channelName}` : "",
+              i.maxUses ? `${i.uses ?? 0} of ${i.maxUses} uses` : i.uses ? `${i.uses} uses` : "", i.expires ? `expires ${i.expires.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}` : ""].filter(Boolean).join(", ")}>
               <button class="btn small" onClick={() => void copy(`${base()}/invite/${i.code}`, "Invite link copied")}><Icon name="copy" size={14} />Copy link</button>
               <Show when={props.info.perms.manageServer}>
                 <button class="icon-btn danger" aria-label={`Revoke ${i.code}`} title="Revoke" onClick={() => void attempt(() => b().deleteInvite(i.code), "Invite revoked").then(refetch)}><Icon name="trash" size={16} /></button>
@@ -524,7 +525,9 @@ export function ServerSettings(props: { id: string; tab?: ServerTab }) {
                 const typed = await promptDialog(`Delete ${i().name}?`, `Type the server name to confirm`, "Delete server", "", { danger: true, body: "Every channel and message is deleted for everyone. This can't be undone.", max: 64 });
                 if (typed === null) return;
                 if (typed.trim() !== i().name) { await confirmDialog("The name didn't match", "Nothing was deleted.", "OK"); return; }
-                await attempt(() => b().deleteServer(i().id), "Server deleted").then(close);
+                const p = await confirmIdentity(b(), "Confirm it's you", `Stoat asks for this before a server is deleted.`, "Delete server");
+                if (!p) return;
+                await attempt(() => b().deleteServer(i().id, p), "Server deleted").then(close);
               }}><Icon name="trash" size={18} />Delete server</button>
             </Show>
             <Show when={!i().isOwner}>

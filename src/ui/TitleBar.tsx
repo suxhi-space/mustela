@@ -5,6 +5,7 @@ import { inboxBadge, inboxOpen, location, setInboxOpen, settingsOpen } from "./n
 import { phase } from "./store";
 import { platform } from "./store";
 import logo from "../../icons/app-icon.svg";
+import { UpdateButton } from "./updates";
 
 /**
  * A thin title bar like Discord's: where you are in the middle, the inbox on
@@ -48,6 +49,7 @@ export function TitleBar() {
         </Show>
       </span>
       <span class="tb-right">
+        <UpdateButton place="titlebar" />
         <Show when={phase() === "ready"}>
           <button class="tb-tool" classList={{ on: inboxOpen() }} aria-label="Inbox" title="Inbox" onClick={() => setInboxOpen(!inboxOpen())}>
             <Icon name="inbox" size={16} />

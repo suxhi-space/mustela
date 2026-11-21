@@ -25,7 +25,7 @@ export function ScreenPickerHost(props: { hidden?: boolean }) {
 
 /**
  * Like Discord's "Go Live": screens and app windows with live previews, quality, and (on
- * Windows) sound from just that app, or from everything except Mustela.
+ * Windows, Linux and macOS) sound from just that app, or from everything except Mustela.
  */
 function ScreenPicker(props: { done(c: ScreenChoice | null): void }) {
   useBack(() => props.done(null));
@@ -46,19 +46,20 @@ function ScreenPicker(props: { done(c: ScreenChoice | null): void }) {
   const allowed = () => backend()?.screenQualities() ?? ["720p30"];
   const quality = () => (allowed().includes(device().voice.screenQuality) ? device().voice.screenQuality : allowed()[allowed().length - 1]!);
   const setQuality = (screenQuality: VoicePrefs["screenQuality"]) => updateDevice({ voice: { ...device().voice, screenQuality } });
-  const windows = platform === "windows";
-  const [audio, setAudio] = createSignal<ScreenChoice["audio"]>(windows ? "app" : "off");
+  // Sharing sound: Windows (process loopback), Linux (PipeWire) and macOS 13+ (ScreenCaptureKit).
+  const withSound = platform === "windows" || platform === "linux" || platform === "mac";
+  const [audio, setAudio] = createSignal<ScreenChoice["audio"]>(withSound ? "app" : "off");
+  // "This app" needs to know the app's process: whole screens never do, and some Linux windows (Wayland) don't say.
+  const appSound = (s?: ScreenSource) => (s ? s.id.startsWith("window:") && s.pid > 0 : tab() === "apps");
   const list = () => (sources() ?? []).filter((s) => (tab() === "screens" ? s.id.startsWith("screen:") : s.id.startsWith("window:")));
   const chosen = () => sources()?.find((s) => s.id === pick());
-  const soundOptions = () => {
-    // Whole screens share everything you hear, so "This app" only makes sense for app windows.
-    const isScreen = chosen() ? chosen()!.id.startsWith("screen:") : tab() === "screens";
-    return [{ v: "off" as const, label: "No sound" }, ...(isScreen ? [] : [{ v: "app" as const, label: "This app" }]), { v: "system" as const, label: "Everything but Mustela" }];
-  };
+  const soundOptions = () => [{ v: "off" as const, label: "No sound" }, ...(appSound(chosen()) ? [{ v: "app" as const, label: "This app" }] : []), { v: "system" as const, label: "Everything but Mustela" }];
+  // Where "This app" can't be picked, it means everything you hear.
+  const sound = () => (audio() === "app" && !appSound(chosen()) ? "system" : audio());
   const go = () => {
     const c = chosen();
     if (!c) return;
-    const a = !windows ? "off" : c.id.startsWith("screen:") && audio() === "app" ? "system" : audio();
+    const a = withSound ? sound() : "off";
     props.done({ source: c, quality: quality(), audio: a });
   };
 
@@ -97,9 +98,9 @@ function ScreenPicker(props: { done(c: ScreenChoice | null): void }) {
             <Seg label="Quality" value={quality()} onChange={setQuality} options={QUALITIES.map((o) => ({ ...o, disabled: !allowed().includes(o.v) }))} />
           </label>
           <p class="muted small">{qualityHint()}</p>
-          <Show when={windows} fallback={<p class="muted small">Sharing sound works on Windows for now.</p>}>
+          <Show when={withSound}>
             <label class="sp-opt"><span>Sound</span>
-              <Seg label="Sound" value={(chosen() ? chosen()!.id.startsWith("screen:") : tab() === "screens") && audio() === "app" ? "system" : audio()} onChange={setAudio} options={soundOptions()} />
+              <Seg label="Sound" value={sound()} onChange={setAudio} options={soundOptions()} />
             </label>
           </Show>
         </div>

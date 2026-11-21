@@ -58,7 +58,7 @@ export interface CustomEmoji { id: string; name: string; url: string; animated?:
 
 export interface VoicePresence { channelId: string; channelName: string; serverId?: string; serverName?: string; screen: boolean }
 export type NotifyLevel = "all" | "mention" | "none";
-export interface ServerPerms { manageServer: boolean; manageRoles: boolean; manageChannels: boolean; manageEmoji: boolean; kick: boolean; ban: boolean; invite: boolean; manageMessages: boolean;
+export interface ServerPerms { /** "Use external emojis" (Stoat 0.16): emoji from other servers in messages and reactions */ externalEmoji?: boolean; manageServer: boolean; manageRoles: boolean; manageChannels: boolean; manageEmoji: boolean; kick: boolean; ban: boolean; invite: boolean; manageMessages: boolean;
   /** Voice moderation: server mute, server deafen, move someone to another voice channel. */
   muteMembers?: boolean; deafenMembers?: boolean; moveMembers?: boolean }
 export interface CategoryInfo { id: string; title: string; channels: string[] }
@@ -98,7 +98,9 @@ export interface ChannelRules {
 }
 export interface ServerInfo { id: string; name: string; description?: string; iconUrl?: string; bannerUrl?: string; ownerId: string; isOwner: boolean; perms: ServerPerms }
 export interface Role { id: string; name: string; colour?: string; hoist: boolean; rank: number; iconUrl?: string }
-export interface InviteRow { code: string; channelName?: string; creator?: Person }
+export interface InviteRow { code: string; channelName?: string; creator?: Person; uses?: number; maxUses?: number; expires?: Date }
+/** Limits on a new invite (Stoat 0.16): it stops working after `maxUses` joins or once `expiresIn` seconds have passed. */
+export interface InviteOptions { maxUses?: number; expiresIn?: number }
 export interface BanRow { person: Person; reason?: string }
 
 export interface Embed {
@@ -359,7 +361,8 @@ export interface AccountApi {
   bots(): Promise<BotRow[]>;
   createBot(name: string): Promise<BotRow>;
   editBot(id: string, p: { name?: string; public?: boolean; interactionsUrl?: string | null; resetToken?: boolean }): Promise<void>;
-  deleteBot(id: string): Promise<void>;
+  /** `proof`: Stoat 0.17 wants a password / 2FA confirmation (an MFA ticket) to delete a bot. */
+  deleteBot(id: string, proof?: MfaProof): Promise<void>;
 }
 
 export interface ChatBackend {
@@ -437,7 +440,7 @@ export interface ChatBackend {
   /** New name for a server emoji (Manage Customisation). */
   renameEmoji(emojiId: string, name: string): Promise<void>;
   invites(serverId: string): Promise<InviteRow[]>;
-  createInvite(channelId: string): Promise<string>;
+  createInvite(channelId: string, opts?: InviteOptions): Promise<string>;
   deleteInvite(code: string): Promise<void>;
   bans(serverId: string): Promise<BanRow[]>;
   unban(serverId: string, userId: string): Promise<void>;
@@ -467,7 +470,8 @@ export interface ChatBackend {
   discoverState(serverId: string): Promise<DiscoverState>;
   requestDiscover(serverId: string): Promise<void>;
   /** Owner only: deletes the server for everyone */
-  deleteServer(serverId: string): Promise<void>;
+  /** `proof`: Stoat 0.17 wants a password / 2FA confirmation (an MFA ticket) to delete a server you own. */
+  deleteServer(serverId: string, proof?: MfaProof): Promise<void>;
   /** When someone joined a server, for "Member since" */
   memberSince(serverId: string, userId: string): Promise<Date | undefined>;
   deleteChannel(channelId: string): Promise<void>;

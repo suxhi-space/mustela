@@ -4,6 +4,7 @@ import { Group, Row, Switch } from "./controls";
 import { Icon } from "./icons";
 import { toast } from "./menu";
 import { device, updateDevice } from "./store";
+import { MOBILE_UI } from "./target";
 
 /** What the Rust side (src-tauri/src/updater.rs) says about this build. */
 export interface UpdateConfig { version: string; repo: string | null; kind: string }
@@ -52,7 +53,7 @@ export async function openReleasePage() {
 export async function installUpdate(quiet = false) {
   const u = available();
   if (!u) return;
-  if (!u.file || !["windows-nsis", "linux-appimage", "macos-dmg", "linux-deb", "android"].includes(config()?.kind ?? "")) return openReleasePage();
+  if (!u.file || !["windows-nsis", "linux-appimage", "macos-dmg", "linux-deb", "linux-rpm", "android"].includes(config()?.kind ?? "")) return openReleasePage();
   const { listen } = await import("@tauri-apps/api/event");
   const off = await listen<[number, number]>("mustela:update-progress", (e) => setProgress(e.payload[1] ? e.payload[0] / e.payload[1] : null));
   setProgress(0);
@@ -104,12 +105,32 @@ export function UpdateSplash() {
   );
 }
 
-const skipped = () => { try { return localStorage.getItem(SKIP_KEY); } catch { return null; } };
+/** Phones and tablets have no "Skip this version" (and ignore a skip saved by an older Mustela): an update is
+ * only ever put off until next time. */
+const skipped = () => { if (MOBILE_UI) return null; try { return localStorage.getItem(SKIP_KEY); } catch { return null; } };
 
-/** A small card in the corner when a new version is out, like the AppImage prompt. */
+/**
+ * Computers: no card. An update Mustela can install itself is installed at start-up (UpdateSplash); one that's left
+ * waiting (a .deb or .rpm, auto-update failed, or found with "Check" in Settings) shows as a small green download button,
+ * in the title bar, or at the bottom of the server list with the system's title bar. Like Discord's.
+ */
+export function UpdateButton(props: { place: "titlebar" | "rail" }) {
+  const label = () => progress() !== null ? `Downloading Mustela ${available()!.version}…`
+    : `Mustela ${available()!.version} is ready: ${available()!.selfInstalls ? "install it" : "download it"}`;
+  return (
+    <Show when={!MOBILE_UI && !updating() && available()}>
+      <button class={props.place === "titlebar" ? "tb-tool tb-update" : "orb rail-update"} aria-label={label()} title={label()}
+        disabled={progress() !== null} onClick={() => void installUpdate()}>
+        <Icon name="download" size={props.place === "titlebar" ? 16 : 22} />
+      </button>
+    </Show>
+  );
+}
+
+/** Phones and tablets: a small card when a new version is out (Android asks you to confirm the install). */
 export function UpdatePrompt() {
   const [hidden, setHidden] = createSignal(false);
-  const show = () => !hidden() && !updating() && !!available() && skipped() !== available()!.version;
+  const show = () => MOBILE_UI && !hidden() && !updating() && !!available() && skipped() !== available()!.version;
   const skip = () => { try { localStorage.setItem(SKIP_KEY, available()!.version); } catch { /* private storage */ } setHidden(true); };
   return (
     <Show when={show()}>
@@ -121,7 +142,7 @@ export function UpdatePrompt() {
           : "Install it now and Mustela restarts on the new version. Your settings stay as they are."}</p>
         <Show when={progress() !== null}><progress class="up-progress" value={progress() ?? 0} max={1} /></Show>
         <div class="row end">
-          <button class="btn ghost" onClick={skip}>Skip this version</button>
+          <Show when={!MOBILE_UI}><button class="btn ghost" onClick={skip}>Skip this version</button></Show>
           <button class="btn" onClick={() => setHidden(true)}>Later</button>
           <button class="btn primary" disabled={progress() !== null} onClick={() => void installUpdate()}>
             {progress() !== null ? "Downloading…" : available()!.selfInstalls ? "Install" : "Download"}

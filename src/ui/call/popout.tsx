@@ -1,6 +1,7 @@
 import { DelegatedEvents, delegateEvents, render } from "solid-js/web";
 import { inTauri } from "../../lib/platform";
-import { installGlobalContextMenu } from "../menu";
+import { platform } from "../store";
+import { installGlobalContextMenu, toast } from "../menu";
 import { CallWindow } from "./CallWindow";
 import { setPopped } from "./state";
 
@@ -9,8 +10,8 @@ import { setPopped } from "./state";
  * window.open and draws the call into it. The call (LiveKit, microphone, screen share) never
  * leaves this window, so popping out and back in doesn't reconnect, and nobody sees you leave.
  *
- * On desktop the shell makes the new window frameless (src-tauri/src/lib.rs, popout_window);
- * in a browser it's an ordinary pop-up.
+ * On desktop the shell makes the new window as a Mustela window (src-tauri/src/lib.rs, popout_window; Windows can fall
+ * back to WebView2's own pop-up, see popoutKind); in a browser it's an ordinary pop-up.
  */
 let win: Window | null = null;
 let dispose: (() => void) | null = null;
@@ -97,10 +98,29 @@ function cleanup() {
   setPopped(false);
 }
 
+/**
+ * Windows: the pop-out is WebView2's own pop-up by default. Mustela's own window (src-tauri/src/lib.rs, popout_window)
+ * still freezes on Windows, so it's an experimental choice in Settings > Voice & Video. Each try is noted first and
+ * cleared once the window has worked for a few seconds: a note still there on the next try means the last one froze,
+ * and it goes back to WebView2's pop-up.
+ */
+const TRYING = "mustela:popout-trying", NATIVE = "mustela:popout-native";
+const store = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k: string, v: string | null) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* storage off */ } } };
+export const popoutKind = () => (platform !== "windows" || store.get(NATIVE) ? "mustela" : "system");
+export function setPopoutKind(k: "mustela" | "system") { store.set(NATIVE, k === "mustela" ? "1" : null); store.set(TRYING, null); }
+
 export async function showPopout() {
   if (win && !win.closed) { win.focus(); return; }
+  if (platform === "windows" && inTauri()) {
+    if (store.get(TRYING)) { setPopoutKind("system"); toast("The call window froze Mustela last time, so it opens as a Windows pop-up for now. You can switch back in Settings > Voice & Video."); }
+    try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("popout_mode", { native: popoutKind() === "mustela" }); } catch { /* older shell */ }
+    if (popoutKind() === "mustela") store.set(TRYING, "1");
+  }
   const w = window.open("about:blank", "mustela-call", "popup,width=800,height=500");
-  if (!w) throw new Error("The call window was blocked.");
+  // Still running a few seconds later (with the call drawn in it): this try didn't freeze.
+  if (store.get(TRYING)) setTimeout(() => store.set(TRYING, null), 4000);
+  if (!w) { store.set(TRYING, null); throw new Error("The call window was blocked."); }
   win = w;
   setPopped(true);
   try { mount(w); } catch { /* the window isn't ready yet: the check below draws it */ }

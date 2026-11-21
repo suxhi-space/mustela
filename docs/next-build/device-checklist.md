@@ -1,3 +1,38 @@
+# 0.1.8-build1: what to check on a real device
+
+Checked here: Linux screen-share sound against a real PipeWire (the app's sound, its child processes, another app left
+out, silence while quiet), the share picker, the update button, light-mode names and profile cards, invite limits,
+unit tests, the Rust code compiling for Linux, Windows, macOS and Android, and the four-size sweep with no errors.
+These need the real thing.
+
+## Windows
+- [ ] Pop a call out: a Mustela window with Mustela's title bar, "Mustela call" as its title, Mustela's icon in the taskbar, no address bar
+- [ ] With "System's" title bar (Settings > Performance): the pop-out has the Windows frame
+- [ ] Neither window freezes. If it ever does: close Mustela, open it again, and it says it switched to Windows' pop-up (send `popout.log` from Mustela's log folder)
+- [ ] Screen share with sound still works as before (This app / Everything but Mustela)
+
+## Mac
+- [ ] The "viewing older messages" bar: scroll a spoiler, a picture and decorated avatars under it; nothing is drawn over the bar
+- [ ] Screen share sound (macOS 13+): share a window playing a video with **This app**, then **Everything but Mustela**; the other person hears it, nobody hears the call echo back, and it stays in time with the picture
+- [ ] A browser window (Chrome/Safari) with This app: its sound comes through (it plays from helper processes)
+- [ ] The update button in the title bar when an update is waiting (Settings > Updates > Check)
+
+## Linux
+- [ ] Screen share sound: Firefox or Chrome with **This app**, a music player, a game; then **Everything but Mustela** (nobody hears the call echo back)
+- [ ] With EasyEffects running, and without
+- [ ] On Wayland: windows whose app isn't known only offer No sound / Everything
+- [ ] The .rpm on Fedora: installs, and Settings > Updates offers the .rpm (not the .deb)
+
+## Stoat features (any system)
+- [ ] Server menu > Invite with limits: an invite that expires in 30 minutes and allows 1 use; the invite list shows both
+- [ ] Delete a test bot and a test server: Mustela asks for your password (or 2FA) first
+- [ ] In a server that blocks other servers' emoji: they're greyed out in the picker and for reactions
+
+## Phones
+- [ ] The update card has only Update and Later
+
+---
+
 # 0.1.7-build2: what to check on a real device
 
 Checked here: the keychain move and the theme-wipe fix (simulated in the app), the pop-out title bar (simulated

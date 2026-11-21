@@ -1,3 +1,4 @@
+import { readable } from "../lib/profile/nameStyle";
 import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";
 import { MOBILE_UI } from "./target";
 import { dragToClose } from "./sheetDrag";
@@ -39,9 +40,13 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
   const theme = createMemo(() => {
     const t = profile()?.theme;
     if (!t) return null;
-    const bg = t.primary, fg = textOn(bg);
-    return { "--pc-bg": hex(bg), "--pc-bg2": hex(mix(bg, t.accent, 0.55)), "--pc-fg": hex(fg), "--pc-accent": hex(t.accent),
-      "--pc-sub": hex(mix(fg, bg, contrast(fg, bg) > 8 ? 0.35 : 0.2)) } as Record<string, string>;
+    const bg = t.primary, fg = textOn(bg), bg2 = mix(bg, t.accent, 0.55);
+    // Headings ("About me", "Listening to…") in their accent, made readable against both ends of the card's background
+    // (green on pink was hard to read). Buttons use their accent with text picked for contrast, never the app's theme.
+    const label = readable(readable(t.accent, bg, 4.5), bg2, 4.5);
+    return { "--pc-bg": hex(bg), "--pc-bg2": hex(bg2), "--pc-fg": hex(fg), "--pc-accent": hex(t.accent),
+      "--pc-sub": hex(mix(fg, bg, contrast(fg, bg) > 8 ? 0.35 : 0.2)), "--pc-label": hex(label),
+      "--pc-btn": hex(t.accent), "--pc-on-btn": hex(textOn(t.accent)) } as Record<string, string>;
   });
   const bannerUrl = () => props.banner ?? info()?.bannerUrl;
   const bio = () => props.bio ?? info()?.bio;

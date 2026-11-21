@@ -228,7 +228,9 @@ export async function attempt(f: () => Promise<unknown>, done?: string) {
 
 /* ============================================================ dialogs (no browser alert/confirm: they block the app) */
 
-export interface Field { key: string; label: string; type?: "text" | "password" | "email" | "url"; value?: string; placeholder?: string; max?: number; hint?: string; autocomplete?: string }
+export interface Field { key: string; label: string; type?: "text" | "password" | "email" | "url"; value?: string; placeholder?: string; max?: number; hint?: string; autocomplete?: string;
+  /** A dropdown instead of a text box */
+  options?: { v: string; label: string }[] }
 type Ask = {
   title: string; body?: string; confirm: string; danger?: boolean; fields: Field[];
   /** Alternative field sets, picked with tabs (used for "password / authenticator / recovery code") */
@@ -245,6 +247,13 @@ export const promptDialog = (title: string, label: string, confirm: string, valu
 /** Several inputs at once. Resolves to the values by key, or null if cancelled. */
 export const formDialog = (title: string, fields: Field[], confirm: string, opts: { body?: string; danger?: boolean; validate?(v: Record<string, string>): string | null } = {}) =>
   new Promise<Record<string, string> | null>((resolve) => setAsk({ title, confirm, fields, ...opts, resolve: (v) => resolve(v === false ? null : v) }));
+/** Stoat asks you to confirm it's you (password, or the 2FA code when the authenticator is on) before the most
+ * destructive actions: deleting your account, a server you own or a bot. */
+export async function confirmIdentity(b: { account: { mfa(): Promise<{ authenticator: boolean }> } } | null | undefined, title: string, body: string, confirm: string) {
+  const totp = b ? await b.account.mfa().then((m) => m.authenticator).catch(() => false) : false;
+  return proofDialog(title, body, confirm, { danger: true, totp });
+}
+
 /** Asks for proof before a protected account change: password, or an authenticator / recovery code. */
 export const proofDialog = (title: string, body: string, confirm: string, opts: { danger?: boolean; totp?: boolean } = {}) =>
   new Promise<{ password: string } | { totp_code: string } | { recovery_code: string } | null>((resolve) => {
@@ -288,8 +297,14 @@ export function Dialogs() {
             </Show>
             <For each={fields()}>{(f, i) => (
               <label class="field">{f.label}
-                <input type={f.type ?? "text"} value={val(f)} maxLength={f.max ?? 200} placeholder={f.placeholder} autocomplete={f.autocomplete ?? "off"}
-                  onInput={(e) => { setVals({ ...vals(), [f.key]: e.currentTarget.value }); setErr(""); }} autofocus={i() === 0} />
+                <Show when={f.options} fallback={
+                  <input type={f.type ?? "text"} value={val(f)} maxLength={f.max ?? 200} placeholder={f.placeholder} autocomplete={f.autocomplete ?? "off"}
+                    onInput={(e) => { setVals({ ...vals(), [f.key]: e.currentTarget.value }); setErr(""); }} autofocus={i() === 0} />
+                }>
+                  <select class="select" value={val(f)} onChange={(e) => setVals({ ...vals(), [f.key]: e.currentTarget.value })} autofocus={i() === 0}>
+                    <For each={f.options}>{(o) => <option value={o.v}>{o.label}</option>}</For>
+                  </select>
+                </Show>
                 <Show when={f.hint}><small class="field-hint">{f.hint}</small></Show>
               </label>
             )}</For>

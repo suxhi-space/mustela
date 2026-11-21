@@ -13,7 +13,9 @@ import type { ChannelRules, Attachment, Embed, Msg, Person, Reaction } from "../
 import { fmtStamp, fmtTime } from "../../lib/time";
 import { Avatar, NameText } from "../Avatar";
 import { Icon } from "../icons";
-import { backend, device } from "../store";
+import { backend, device, surfaceInt } from "../store";
+import { hex, parseHex } from "../../lib/color";
+import { readable } from "../../lib/profile/nameStyle";
 import { inTauri } from "../../lib/platform";
 import { Markdown, PlainLine, type MdCtx } from "./Markdown";
 import { justReacted, markReacted, reactBurst } from "./reactFx";
@@ -28,8 +30,14 @@ const time = (d: Date) => fmtTime(d);
 const stamp = (d: Date) => fmtStamp(d);
 const size = (n?: number) => (n === undefined ? "" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 /** Stoat role colours can be plain colours or CSS gradients. */
-export const roleStyle = (c?: string): Record<string, string> =>
-  !c || /url\(|image\(|var\(|expression|[;{}<>]/i.test(c) ? {} : /gradient\(/.test(c) ? { "background-image": c, "-webkit-background-clip": "text", "background-clip": "text", color: "transparent" } : { color: c };
+export const roleStyle = (c?: string): Record<string, string> => {
+  if (!c || /url\(|image\(|var\(|expression|[;{}<>]/i.test(c)) return {};
+  if (/gradient\(/.test(c)) return { "background-image": c, "-webkit-background-clip": "text", "background-clip": "text", color: "transparent" };
+  // A plain colour is shown readable on this screen (a pale pink role in light mode becomes a deeper pink), the same
+  // check as name styles; colours that aren't #hex are left as they are.
+  const n = parseHex(c);
+  return { color: n === null ? c : hex(readable(n, surfaceInt(), 4.5)) };
+};
 const isCustom = (e: string) => /^[0-9A-Z]{26}$/.test(e);
 
 /** System messages: an icon by kind, and people as chips with their picture (tap for their card, like Stoat). */

@@ -26,6 +26,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import * as tc from "./toolchain.mjs";
+import { ownsKey, privateKey, publicKey, signFiles } from "./sign.mjs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
@@ -81,7 +82,7 @@ const must = (r, what, fix) => { if (!r.ok) fail(`${what} failed.`, fix); };
 const PLATFORMS = {
   windows: { label: "Windows", host: "windows", note: "NSIS installer (.exe) and MSI", bundles: "nsis,msi" },
   macos: { label: "macOS (Universal)", host: "macos", note: "Apple Silicon + Intel .app and .dmg", bundles: "app,dmg" },
-  linux: { label: "Linux", host: "linux", note: "AppImage and .deb", bundles: "appimage,deb" },
+  linux: { label: "Linux", host: "linux", note: "AppImage, .deb and .rpm", bundles: "appimage,deb,rpm" },
   android: { label: "Android", host: "any", note: "Installable .apk (and .aab for Play Store)" },
   web: { label: "Web", host: "any", note: "Static site in dist/ (demo + Stoat login in a browser)" },
   server: { label: "Sync server", host: "any", note: "Package the self-hostable profile/activity server (Node or Docker)" },
@@ -162,6 +163,10 @@ async function askRelease() {
   try { writeFileSync(BUILD_PREFS, JSON.stringify({ ...prefs, repo: parsed, ...(ANDROID_PACKAGE ? { androidId: ANDROID_PACKAGE } : {}) }, null, 2) + "\n"); } catch {}
   ok(`Version ${version}`);
   ok(UPDATE_REPO ? `Updates from github.com/${UPDATE_REPO}/releases` : "Update checks off");
+  if (UPDATE_REPO && publicKey()) {
+    if (!trustsKey()) console.log(dim("  Signed updates off: these are your own releases and this computer has no update key of its own (make one with node scripts/sign.mjs --new-key)."));
+    else ok(ownsKey() ? "Signed updates (this computer signs the files)" : "Signed updates (sign the files before uploading: node scripts/sign.mjs <files>)");
+  }
   if (ANDROID_PACKAGE) ok(`Android package ${ANDROID_PACKAGE} (version code ${androidVersionCode(version)})`);
 }
 
@@ -210,7 +215,15 @@ function msiVersion(v) {
 }
 
 /** Passed to every build: Rust reads them at compile time, the interface through Vite. */
-const releaseEnv = () => ({ MUSTELA_UPDATE_REPO: UPDATE_REPO, VITE_MUSTELA_UPDATE_REPO: UPDATE_REPO });
+// Signed updates: builds trust the project's update key (src-tauri/update-key.pub, see scripts/sign.mjs).
+/**
+ * The update key goes into the app only when its updates will be signed with it: builds that update from Mustela's own
+ * releases (signed by Mustela), or from anywhere if this computer holds the key (a fork that made its own with
+ * `node scripts/sign.mjs --new-key`). A fork updating from its own releases without a key of its own builds without
+ * one, so its updates still install (checked by GitHub's checksum only), instead of waiting for Mustela's signature.
+ */
+const trustsKey = () => !!publicKey() && (UPDATE_REPO.toLowerCase() === DEFAULT_REPO || ownsKey());
+const releaseEnv = () => ({ MUSTELA_UPDATE_REPO: UPDATE_REPO, VITE_MUSTELA_UPDATE_REPO: UPDATE_REPO, ...(trustsKey() ? { MUSTELA_UPDATE_PUBKEY: publicKey() } : {}) });
 
 /* ------------------------------------------------------------------ prerequisite checks */
 function checkNode() {
@@ -468,6 +481,14 @@ function buildDesktop(platform) {
   if (platform === "macos") a.push("--target", "universal-apple-darwin");
   if (platform === "macos" && !flag("skip-icons")) { const conf = macGlassIcon(); if (conf) a.push("--config", conf); }
   if (DEBUG) a.push("--debug");
+  // Code signing with a certificate, when one is set up (otherwise unsigned, as before):
+  //  - Windows: MUSTELA_WINDOWS_SIGN_COMMAND, run for each file with %1 as its path (e.g. SignPath's or signtool's command)
+  //  - macOS: Tauri's own APPLE_SIGNING_IDENTITY (+ APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID to notarize)
+  if (platform === "windows" && process.env.MUSTELA_WINDOWS_SIGN_COMMAND) {
+    a.push("--config", JSON.stringify({ bundle: { windows: { signCommand: process.env.MUSTELA_WINDOWS_SIGN_COMMAND } } }));
+    ok("Windows code signing: on (MUSTELA_WINDOWS_SIGN_COMMAND)");
+  }
+  if (platform === "macos" && process.env.APPLE_SIGNING_IDENTITY) ok(`macOS code signing: ${process.env.APPLE_SIGNING_IDENTITY}${process.env.APPLE_ID ? " + notarizing" : ""}`);
   step(`Building Mustela for ${p.label}${DEBUG ? " (debug)" : ""}`);
   // AppImage tooling needs FUSE unless told to unpack itself; this works everywhere.
   const env = { ...releaseEnv(), ...(platform === "linux" ? { APPIMAGE_EXTRACT_AND_RUN: "1", NO_STRIP: "true" } : {}) };
@@ -740,10 +761,21 @@ const t0 = Date.now();
 const files = platform === "server" ? buildServer() : platform === "web" ? buildWeb() : platform === "android" ? await buildAndroid() : buildDesktop(platform);
 const mins = ((Date.now() - t0) / 60000).toFixed(1);
 
+// Signed updates: a .sig beside each release file, when this project has an update key and this computer has its
+// private half. Without the private half the files are left unsigned: sign them before uploading.
+let unsigned = false;
+if (trustsKey() && platform !== "server" && platform !== "web" && files.length) {
+  let key = null;
+  try { key = privateKey(); } catch (e) { warn(e.message); }
+  if (key) { try { files.push(...signFiles(files)); } catch (e) { warn(e.message); unsigned = true; } }
+  else unsigned = true;
+}
+
 console.log(`\n${green("✓")} ${bold(`Mustela ${VERSION} for ${PLATFORMS[platform].label} is ready`)} ${dim(`(${mins} min)`)}\n`);
 if (!files.length) warn("The build finished but no output files were found. Look in src-tauri/target/*/bundle.");
 for (const f of files) console.log(`  ${relative(ROOT, f)}`);
 if (platform === "android" && !DEBUG) console.log(dim("\n  Install on a phone: copy the .apk over and open it, or run  adb install <file>.apk"));
-if (platform === "macos") console.log(dim("\n  Not notarized: on first launch, right-click the app > Open. See README > macOS."));
-if (platform === "windows") console.log(dim("\n  Not code-signed: Windows SmartScreen may warn on first run (More info > Run anyway)."));
+if (platform === "macos" && !process.env.APPLE_ID) console.log(dim("\n  Not notarized: on first launch, right-click the app > Open. See README > macOS."));
+if (platform === "windows" && !process.env.MUSTELA_WINDOWS_SIGN_COMMAND) console.log(dim("\n  Not code-signed: Windows SmartScreen may warn on first run (More info > Run anyway)."));
+if (unsigned) warn("These files aren't signed for updates. Before uploading them, run:  node scripts/sign.mjs " + files.map((f) => relative(ROOT, f)).join(" ") + "\n  (installed copies of this version only install signed updates)");
 console.log();

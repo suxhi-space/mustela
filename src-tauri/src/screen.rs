@@ -34,7 +34,6 @@ pub struct ScreenState {
     /// Frames sent and not yet drawn, for the share running now. Each share gets its own counter, so a
     /// frame from the last share that arrives after it stopped (and is never drawn) can't hold up the next one.
     inflight: Mutex<Arc<AtomicU32>>,
-    #[cfg(target_os = "windows")]
     audio: Mutex<Option<Arc<AtomicBool>>>,
 }
 
@@ -254,8 +253,19 @@ pub fn ack(state: &ScreenState) {
 
 pub fn stop(state: &ScreenState) {
     if let Some(r) = state.video.lock().unwrap().take() { r.store(false, Ordering::Relaxed); }
-    #[cfg(target_os = "windows")]
     if let Some(r) = state.audio.lock().unwrap().take() { r.store(false, Ordering::Relaxed); }
+}
+
+/// Linux (PipeWire, src/pw_audio.rs) and macOS (ScreenCaptureKit, src/sck_audio.rs): the same as on Windows.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn start_audio(state: &ScreenState, pid: u32, channel: Channel<InvokeResponseBody>) -> Result<(), String> {
+    if let Some(r) = state.audio.lock().unwrap().take() { r.store(false, Ordering::Relaxed); }
+    let running = Arc::new(AtomicBool::new(true));
+    *state.audio.lock().unwrap() = Some(running.clone());
+    #[cfg(target_os = "linux")]
+    return crate::pw_audio::start(pid, running, channel);
+    #[cfg(target_os = "macos")]
+    return crate::sck_audio::start_with(pid, running, move |chunk| channel.send(InvokeResponseBody::Raw(chunk)).is_ok());
 }
 
 /// Windows: the sound of one app (`pid`, with its child processes), or of everything except

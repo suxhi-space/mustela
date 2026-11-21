@@ -5,7 +5,7 @@
  * other screen share, so Stoat's apps see a normal stream.
  */
 export interface ScreenSource { id: string; name: string; app: string; pid: number; width: number; height: number; thumb?: string; primary: boolean }
-export interface NativeCapture { video: MediaStreamTrack; audio?: MediaStreamTrack; stop(): void; onEnded(cb: () => void): void }
+export interface NativeCapture { video: MediaStreamTrack; audio?: MediaStreamTrack; stop(): void; onEnded(cb: () => void): void; /** Why the sound asked for couldn't be shared. */ soundError?: string }
 
 const SIZES = { "720p30": [1280, 720, 30], "1080p30": [1920, 1080, 30], "1080p60": [1920, 1080, 60] } as const;
 
@@ -87,8 +87,10 @@ export async function startNativeCapture(src: ScreenSource, quality: keyof typeo
     throw new Error(src.id.startsWith("window:") ? "No picture came from that window. Make sure it's open (not minimised), or share its screen instead." : "No picture came from that screen.");
   }
 
-  /* ---- sound (Windows): 48 kHz stereo float chunks into a small player ---- */
-  let audioTrack: MediaStreamTrack | undefined, actx: AudioContext | undefined;
+  /* ---- sound (Windows, Linux, macOS): 48 kHz stereo float chunks into a small player ---- */
+  let audioTrack: MediaStreamTrack | undefined, actx: AudioContext | undefined, soundError: string | undefined;
+  // "This app" for a window whose process isn't known would mean everything: leave the sound out instead.
+  if (audio === "app" && !src.pid) audio = "off";
   if (audio !== "off") {
     try {
       actx = new AudioContext({ sampleRate: 48000 });
@@ -100,9 +102,10 @@ export async function startNativeCapture(src: ScreenSource, quality: keyof typeo
       pcm.onmessage = (buf) => { if (!stopped && buf && (buf as ArrayBuffer).byteLength) node.port.postMessage(buf, [buf as ArrayBuffer]); };
       await invoke("screen_audio", { pid: audio === "app" ? src.pid : 0, channel: pcm });
       audioTrack = dest.stream.getAudioTracks()[0];
-    } catch {
+    } catch (e) {
       void actx?.close().catch(() => {});
       actx = undefined; audioTrack = undefined; // the picture still goes out without sound
+      soundError = typeof e === "string" ? e : e instanceof Error ? e.message : undefined;
     }
   }
 
@@ -114,7 +117,7 @@ export async function startNativeCapture(src: ScreenSource, quality: keyof typeo
     audioTrack?.stop();
     void actx?.close().catch(() => {});
   }
-  return { video, audio: audioTrack, stop, onEnded: (cb) => void ended.add(cb) };
+  return { video, audio: audioTrack, stop, onEnded: (cb) => void ended.add(cb), soundError };
 }
 
 /**

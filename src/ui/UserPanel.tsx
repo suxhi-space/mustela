@@ -100,7 +100,7 @@ export function UserPanel() {
   };
   const sub = () => me().status || LABEL[me().online ? me().presence ?? "online" : "invisible"];
   return (
-    <div class="userpanel" ref={sizeRef}>
+    <div class="userpanel" classList={{ plated: !!profile()?.plate.preset }} ref={sizeRef}>
       <Show when={profile()?.plate.preset && size().w > 0}>
         <PlateCanvas slot={() => profile()!.plate} w={size().w} h={size().h} animate={anim()} />
       </Show>
