@@ -474,11 +474,8 @@ a.em-title:hover { text-decoration: underline; }
 :root[data-mode="light"] .member.off { opacity: .7; }
 /* On a nameplate: a soft cushion in the panel's colour right behind the letters, so any name colour reads on any
    plate (a light green name on a green plate). Glowing name styles keep their own halo. */
-:is(.member, .userpanel).plated :is(.member-text, .up-text) { text-shadow: 0 0 3px color-mix(in srgb, var(--s1) 85%, transparent), 0 0 8px color-mix(in srgb, var(--s1) 55%, transparent); }
-/* Light mode: a wide light blur makes the letters look fuzzy, so just a thin edge. */
-:root[data-mode="light"] :is(.member, .userpanel).plated :is(.member-text, .up-text) { text-shadow: 0 0 2px color-mix(in srgb, var(--s1) 75%, transparent); }
+/* Names on nameplates: no cushion behind the letters (it showed as a grey haze); the name colours are made readable instead. */
 /* Gradient and rainbow names are see-through text over a colour fill: a shadow shows through and washes them out. */
-:is(.member, .userpanel).plated :is([style*="background-clip"], .n-rainbow) { text-shadow: none; }
 .member > *:not(.plate) { position: relative; z-index: 1; }
 .member .plate { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; z-index: 0; opacity: .85; border-radius: inherit; overflow: hidden; }
 :root[data-mode="light"] .member .plate { opacity: .32; }
@@ -1454,7 +1451,10 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .me-row { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: 9px; border: 0; background: none; color: var(--pc-fg); font-weight: 750; text-align: left; }
 .me-row span:not(.pdot) { flex: 1; }
 .me-row:hover { background: color-mix(in srgb, var(--pc-fg) 9%, transparent); }
-.me-status .status-edit { margin: 2px 2px 4px; background: color-mix(in srgb, var(--pc-fg) 6%, transparent); box-shadow: none; }
+.me-status .status-edit { margin: 2px 2px 4px; background: color-mix(in srgb, var(--pc-accent, var(--pc-fg)) 14%, transparent); box-shadow: none; color: var(--pc-fg); }
+/* The status box on the card uses the card's text colour, like the rest of the card. */
+.me-status .status-edit :is(input, button, .icon-btn) { color: var(--pc-fg); }
+.me-status .status-edit input::placeholder { color: color-mix(in srgb, var(--pc-fg) 60%, transparent); }
 /* Phones only: from 701px the list sits beside the chat (two panes), so the bars stay under the list, at its width. */
 @media (max-width: 700px) {
   .app[data-view="chat"] .userpanel { display: none; }

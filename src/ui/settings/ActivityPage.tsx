@@ -46,7 +46,7 @@ export function ActivityPage() {
         </Group>
       </Show>
 
-      <Group title="Privacy" hint={noServers() ? "Add a sync server under Sync & servers: that's where activity is shared from." : "Your status and status message stay separate. Activity is shown on your profile and in member lists, to Mustela users."}>
+      <Group title="Privacy" hint={noServers() ? "Add a Mustela server under Sync & servers: that's where activity is shared from." : "Your status and status message stay separate. Activity is shown on your profile and in member lists, to Mustela users."}>
         <Row label="Share my activity"><Switch label="Share my activity" on={a().share} onChange={(share) => set({ share })} /></Row>
       </Group>
 

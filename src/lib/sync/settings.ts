@@ -48,8 +48,8 @@ export interface MustelaSettings {
   sounds: LinkedSound[];
   /** Time and date display */
   locale: { time: "auto" | "12" | "24"; date: "auto" | "us" | "eu" | "iso" };
-  /** Mustela sync servers to publish to and read profiles from */
-  /** Mustela sync servers to publish to and read profiles from; `banner` also hides the profile in your Stoat banner */
+  /** Mustela servers to publish to and read profiles from */
+  /** Mustela servers to publish to and read profiles from; `banner` also hides the profile in your Stoat banner */
   cloud: { servers: string[]; banner: boolean };
   /** What I publish and what I see on myself. */
   profile: ProfileConfig;

@@ -1068,7 +1068,7 @@ export class StoatBackend implements ChatBackend {
   private async readProfile(userId: string, fresh = false): Promise<ProfileInfo> {
     const fromCloud = this.cloud.fetchProfile(userId, fresh).catch(() => null);
     const info = await this.readStoatProfile(userId, fresh);
-    // A sync server's copy wins over the banner strip: it's newer-capable and carries activity.
+    // A Mustela server's copy wins over the banner strip: it's newer-capable and carries activity.
     const c = await fromCloud;
     if (c?.profile) info.config = c.profile;
     if (c) info.activity = c.activity;
@@ -1140,7 +1140,7 @@ export class StoatBackend implements ChatBackend {
     return hd ? ["720p30", "1080p30"] : ["720p30"];
   }
 
-  /** Which sync server each person's server banners live on (the one their profile came from). */
+  /** Which Mustela server each person's server banners live on (the one their profile came from). */
   private bannerSource = new Map<string, string>();
   serverBanner(userId: string, serverId: string, at: number) {
     const src = this.bannerSource.get(userId) ?? (userId === this.sess.user_id ? this.cloud.list.find((s) => this.cloud.linked(s)) : undefined);
@@ -1156,8 +1156,8 @@ export class StoatBackend implements ChatBackend {
     const r = priv
       ? await this.audienceList(priv).then((allow) => this.cloud.publishProfile(all.main, { mode: priv.mode as "friends" | "friends+servers", allow }, looks))
       : await this.cloud.publishProfile(all.main, undefined, looks);
-    if (!r.tried) throw new Error("Server looks are kept on your sync server: link one in Mustela sync first.");
-    if (r.failed === r.tried) throw new Error("None of your sync servers took the change.");
+    if (!r.tried) throw new Error("Server looks are kept on your Mustela server: link one in Settings > Sync & servers first.");
+    if (r.failed === r.tried) throw new Error("None of your Mustela servers took the change.");
     this.forgetMine();
     return at;
   }
@@ -1171,14 +1171,14 @@ export class StoatBackend implements ChatBackend {
       // Private: nothing goes in the public banner. If it already carries a strip, put the picture back without one.
       const r = await cloud;
       await this.clearBannerStrip(banner);
-      if (r.tried && r.failed === r.tried) throw new Error("None of your sync servers could keep your profile private. Update them, or choose Everyone.");
+      if (r.tried && r.failed === r.tried) throw new Error("None of your Mustela servers could keep your profile private. Update them, or choose Everyone.");
       this.forgetMine();
       return;
     }
     if (opts.banner === false) {
       const r = await cloud;
-      if (!r.tried) throw new Error("Link a sync server first, or turn the banner copy back on.");
-      if (r.failed === r.tried) throw new Error("None of your sync servers accepted the profile.");
+      if (!r.tried) throw new Error("Link a Mustela server first, or turn the banner copy back on.");
+      if (r.failed === r.tried) throw new Error("None of your Mustela servers accepted the profile.");
       this.forgetMine();
       return;
     }

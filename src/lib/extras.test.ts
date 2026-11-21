@@ -6,7 +6,7 @@ import { contrast, parseHex } from "./color";
 import { sanitize, DEFAULT_SETTINGS } from "./sync/settings";
 import { EMOJI_RE, emojiName } from "./emoji";
 
-describe("sync server urls", () => {
+describe("Mustela server urls", () => {
   it("accepts https and localhost only", () => {
     expect(validServerUrl("https://sync.example.com/")).toBe("https://sync.example.com");
     expect(validServerUrl("http://localhost:8787")).toBe("http://localhost:8787");

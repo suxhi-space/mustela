@@ -23,8 +23,8 @@ Mustela adds on top.
 - [Download](#download)
 - [Build it yourself](#build-it-yourself)
 - [Develop](#develop)
-- [With or without a sync server](#with-or-without-a-sync-server)
-- [Hosting a sync server](#hosting-a-sync-server)
+- [With or without a Mustela server](#with-or-without-a-sync-server)
+- [Hosting a Mustela server](#hosting-a-mustela-server)
 - [Game activity and Rich Presence](#game-activity-and-rich-presence)
 - [Status](#status)
 - [Credits](#credits)
@@ -207,15 +207,15 @@ src/desktop/    desktop start-up (Windows, macOS, Linux)
 src/mobile/     phones and tablets: start-up, swipes and touch styles (only in the Android build)
 src-tauri/      the desktop side in Rust: windows, screen capture, Linux voice, game detection, Rich Presence, updates
 src-tauri/plugins/mustela-native/   Android: calls, the call bubble, screen share, wallpaper colours (Kotlin)
-server/         the sync server you can host
+server/         the Mustela server you can host
 scripts/        the build script
 ```
 
-## With or without a sync server
+## With or without a Mustela server
 
-Mustela works fully on its own. A sync server only adds the things Stoat has no place for.
+Mustela works fully on its own. A Mustela server only adds the things Stoat has no place for.
 
-| | Without a sync server | With one |
+| | Without a Mustela server | With one |
 |---|---|---|
 | Everything in Stoat, calls, themes, scheduled messages, notifications | ✓ | ✓ |
 | Your settings (colours, themes, profile, favorites, pins) on every device you sign in on | ✓ saved in your Stoat account | ✓ |
@@ -233,11 +233,11 @@ middle of a banner, so it stays out of view there too. The strip is only data, i
 effect is drawn on the viewer's device from a few numbers, nobody can make a profile that lags your phone. This only
 carries a public profile.
 
-**A sync server.** A small server anyone can run (see below). Link it in **Settings > Sync & servers** and Mustela
+**A Mustela server.** A small server anyone can run (see below). Link it in **Settings > Sync & servers** and Mustela
 publishes your profile, your per-server looks and your activity there, and reads other people's from the servers
-you've added. To see someone's private profile or activity, you need a sync server in common with them.
+you've added. To see someone's private profile or activity, you need a Mustela server in common with them.
 
-## Hosting a sync server
+## Hosting a Mustela server
 
 It's in [`server/`](server): one file, no dependencies, Node 20 or newer.
 
@@ -245,10 +245,13 @@ It's in [`server/`](server): one file, no dependencies, Node 20 or newer.
 cd server
 PORT=8787 DATA_DIR=./data node server.mjs
 # or with Docker
-docker build -t mustela-sync server && docker run -p 8787:8787 -v mustela-data:/data mustela-sync
+docker build -t mustela-server server && docker run -p 8787:8787 -v mustela-data:/data mustela-server
 ```
 
 Put it behind HTTPS (Caddy, nginx, a Cloudflare tunnel) and add its address in **Settings > Sync & servers**.
+`server/deploy` has a ready setup (Docker, HTTPS through Caddy, daily backups), and
+[docs/hosting.md](docs/hosting.md) walks through putting it online on a small rented server, step by step
+([docs/hosting-oracle.md](docs/hosting-oracle.md) for Oracle Cloud's free one).
 Settings are environment variables: `PORT`, `HOST`, `DATA_DIR`, `NAME`, `STOAT_APIS` (which Stoat instances can link,
 default `https://stoat.chat/api`) and `TRUST_PROXY=1` behind a reverse proxy.
 

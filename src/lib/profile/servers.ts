@@ -2,13 +2,13 @@ import { sanitizeProfile, type ProfileConfig } from "./model";
 
 /**
  * Your look in one server, over your main profile: decorations and colours, an about-me, and whether a
- * banner of its own is on your sync servers. Anything left out falls back to the main profile.
+ * banner of its own is on your Mustela servers. Anything left out falls back to the main profile.
  * Synced with your settings and published with your profile (older clients ignore it).
  */
 export interface ServerLook { config?: ProfileConfig; bio?: string; banner?: number }
 export type ServerLooks = Record<string, ServerLook>;
 
-// Stoat ids (and the demo's short ones); the sync server checks real ids itself.
+// Stoat ids (and the demo's short ones); the Mustela server checks real ids itself.
 const ID_RE = /^[0-9A-Za-z_-]{1,32}$/;
 export const MAX_SERVER_LOOKS = 50;
 

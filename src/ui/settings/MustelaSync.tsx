@@ -7,6 +7,9 @@ import { Icon } from "../icons";
 import { attempt, confirmDialog, toast } from "../menu";
 import { backend, book, ext, settings, syncState, updateExt, updateSettings } from "../store";
 
+/** Mustela's own server, if this build has one (scripts/build.mjs asks for it). Off until someone picks it. */
+const OFFICIAL = validServerUrl(String(import.meta.env.VITE_MUSTELA_SERVER ?? "")) ?? "";
+
 const SYNC_TEXT = { local: "Saved on this device", syncing: "Syncing…", synced: "Synced to your Stoat account", error: "Sync paused. It retries on your next change." } as const;
 
 /** Mustela's own settings: where your extras are stored and how to back them up. */
@@ -19,12 +22,12 @@ export function MustelaSync() {
   const isDemo = () => activeAccount(book())?.kind === "demo";
   const setCloud = (p: Partial<ReturnType<typeof settings>["cloud"]>) => updateSettings((s) => ({ ...s, cloud: { ...s.cloud, ...p } }));
 
-  async function add() {
-    const u = validServerUrl(url());
+  async function add(picked?: string) {
+    const u = picked ?? validServerUrl(url());
     if (!u) { setErr("Use a full https:// address. Plain http:// only works for a server on this computer (localhost)."); return; }
     if (servers().includes(u)) { setErr("That server is already in the list."); return; }
     const h = await b().cloud.health(u);
-    if (!h.ok) { setErr(h.error ?? "That isn't a Mustela sync server."); return; }
+    if (!h.ok) { setErr(h.error ?? "That isn't a Mustela server."); return; }
     setCloud({ servers: [...servers(), u] });
     setUrl(""); setErr("");
     if (!isDemo() && await confirmDialog(`Link ${h.name ?? "this server"}?`, "To confirm it's you, the server asks Stoat who owns your session once. It doesn't store your session. Only link servers you trust.", "Link")) {
@@ -46,7 +49,7 @@ export function MustelaSync() {
       const f = input.files?.[0]; if (!f) return;
       const parsed = parseRemote(await f.text());
       if (!parsed) { toast("That file isn't a Mustela settings backup.", true); return; }
-      if (await confirmDialog("Replace your settings?", "Your colors, profile, favorite GIFs and sync servers are replaced with the ones in the file.", "Import")) {
+      if (await confirmDialog("Replace your settings?", "Your colors, profile, favorite GIFs and Mustela servers are replaced with the ones in the file.", "Import")) {
         updateSettings(() => parsed); toast("Settings imported");
       }
     };
@@ -56,16 +59,16 @@ export function MustelaSync() {
   return (
     <div class="page">
       <PrivacyGroup />
-      <Group title="Settings sync" hint="Colors, your profile, favorite GIFs, time format and sync servers are saved to your Stoat account, so every Mustela you sign in to matches. Window and sound settings stay on each device.">
+      <Group title="Settings sync" hint="Colors, your profile, favorite GIFs, time format and Mustela servers are saved to your Stoat account, so every Mustela you sign in to matches. Window and sound settings stay on each device.">
         <Row icon="swap" label="Status" hint={SYNC_TEXT[syncState()]} />
       </Group>
 
-      <Group title="Profile servers" hint="Stoat has no place for decorations, frames, effects or what you're playing. Sync servers hold them so other Mustela users can see them. Anyone can run one: see “Hosting a sync server” in the README.">
-        <For each={servers()} fallback={<Row label="No servers yet" hint="Your profile is only carried in your banner (below)." />}>{(s) => {
+      <Group title="Mustela servers" hint="Stoat has no place for decorations, frames, effects or what you're playing. Mustela servers hold them so other Mustela users can see them. Anyone can run one: see “Hosting a Mustela server” in the README.">
+        <For each={servers()} fallback={<Row label="No servers yet" hint={OFFICIAL ? "Use Mustela's server below, or add your own. Until then your profile is only carried in your banner." : "Your profile is only carried in your banner (below)."} />}>{(s) => {
           const [h] = createResource(() => [s, tick()] as const, ([u]) => b().cloud.health(u));
           const linked = () => (tick(), b().cloud.linked(s));
           return (
-            <Row icon="cloud" label={new URL(s).host} hint={h.loading ? "Checking…" : !h()?.ok ? h()?.error ?? "Not reachable" : `${h()?.name ?? "Mustela sync"}${h()?.version ? ` ${h()!.version}` : ""}. ${linked() ? "Linked: publishing your profile" : "Reading only"}`}>
+            <Row icon="cloud" label={s === OFFICIAL ? "Mustela's server" : new URL(s).host} hint={h.loading ? "Checking…" : !h()?.ok ? h()?.error ?? "Not reachable" : `${h()?.name ?? "Mustela server"}${h()?.version ? ` ${h()!.version}` : ""}. ${linked() ? "Linked: publishing your profile" : "Reading only"}`}>
               <span class={`status-dot ${h()?.ok ? (linked() ? "ok" : "warn") : h.loading ? "" : "bad"}`} aria-hidden="true" />
               <Show when={!isDemo()}>
                 <Show when={linked()} fallback={<button class="btn small" onClick={() => void attempt(() => b().cloud.link(s), "Linked").then(() => setTick(tick() + 1))}>Link</button>}>
@@ -76,9 +79,14 @@ export function MustelaSync() {
             </Row>
           );
         }}</For>
+        <Show when={OFFICIAL && !servers().includes(OFFICIAL)}>
+          <Row icon="cloud" label="Mustela's server" hint="Run by Mustela's developer, so you don't need your own. Your profile extras and what you're playing are kept there for other Mustela users.">
+            <button class="btn small primary" onClick={() => void add(OFFICIAL)}>Use</button>
+          </Row>
+        </Show>
         <form class="row add-server" onSubmit={(e) => { e.preventDefault(); void add(); }}>
-          <input class="text-input" type="url" placeholder="https://sync.example.com" value={url()} onInput={(e) => { setUrl(e.currentTarget.value); setErr(""); }} aria-label="Sync server address" />
-          <button class="btn small primary" disabled={!url().trim()}>Add server</button>
+          <input class="text-input" type="url" placeholder="Your own server: https://servers.example.com" value={url()} onInput={(e) => { setUrl(e.currentTarget.value); setErr(""); }} aria-label="Mustela server address" />
+          <button class="btn small" classList={{ primary: !OFFICIAL }} disabled={!url().trim()}>Add server</button>
         </form>
         <Show when={err()}><p class="err pad">{err()}</p></Show>
       </Group>
@@ -97,7 +105,7 @@ export function MustelaSync() {
 
 /**
  * Who can see my Mustela profile (decorations, effects, frames, colours). Anything other than
- * Everyone keeps it out of the public banner and sends it only to sync servers that can keep it
+ * Everyone keeps it out of the public banner and sends it only to Mustela servers that can keep it
  * private, for your friends (and members of the servers you pick).
  */
 function PrivacyGroup() {
@@ -117,7 +125,7 @@ function PrivacyGroup() {
           options={[{ v: "everyone", label: "Everyone" }, { v: "friends", label: "Friends" }, { v: "friends+servers", label: "Friends + servers" }]} />
       </Row>
       <Show when={p().mode !== "everyone"}>
-        <p class="group-hint">While it isn't public, nothing is hidden in your banner, and only sync servers that can keep it private get a copy. Other people need a sync server in common with you to see it.</p>
+        <p class="group-hint">While it isn't public, nothing is hidden in your banner, and only Mustela servers that can keep it private get a copy. Other people need a Mustela server in common with you to see it.</p>
       </Show>
       <Show when={p().mode === "friends+servers"}>
         <div class="row ss-role-pick">

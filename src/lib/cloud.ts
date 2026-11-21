@@ -4,7 +4,7 @@ import { sanitizeServerLooks, type ServerLooks } from "./profile/servers";
 import { forgetToken, readToken, VAULT_MARK, vaultAvailable, writeToken } from "./session/vault";
 
 /**
- * Mustela sync servers ("cloud"): optional, self-hostable servers that hold the
+ * Mustela servers ("cloud"): optional, self-hostable servers that hold the
  * parts of your profile Stoat itself has no place for (decorations, effects,
  * frames, theme) and your live activity ("Playing …").
  *
@@ -39,7 +39,7 @@ export interface Activity {
 
 /**
  * `servers`: their look per server; `images`: servers they have a banner for (with when it changed),
- * stored on `source`, the sync server this copy came from.
+ * stored on `source`, the Mustela server this copy came from.
  */
 export interface CloudProfile { profile: ProfileConfig | null; activity: Activity | null; updatedAt: number; servers?: ServerLooks; images?: Record<string, number>; source?: string }
 export interface Health { ok: boolean; name?: string; version?: string; error?: string }
@@ -47,7 +47,7 @@ export interface Health { ok: boolean; name?: string; version?: string; error?: 
 const KEYS = "mustela.cloud.keys";
 
 /*
- * Write keys for linked sync servers. Like sign-in tokens, they live in the system keychain where there is one
+ * Write keys for linked Mustela servers. Like sign-in tokens, they live in the system keychain where there is one
  * (one entry per server and account); the saved list then holds VAULT_MARK in their place. `held` is the real list
  * for this run.
  */
@@ -145,7 +145,7 @@ export class Cloud {
   /** Proves who you are to the server and keeps the write key it returns. */
   async link(server: string) {
     const token = this.token();
-    if (!token) throw new Error("Sign in with a Stoat account to link a sync server.");
+    if (!token) throw new Error("Sign in with a Stoat account to link a Mustela server.");
     const r = await call<{ key: string; userId: string }>(`${clean(server)}/${PROTOCOL}/link`, { method: "POST", body: JSON.stringify({ api: this.api, token }) });
     if (r.userId !== this.userId()) throw new Error("The server linked a different account.");
     this.saveKey(server, r.key);
@@ -177,20 +177,20 @@ export class Cloud {
     });
   }
 
-  /** A banner for one server (sync servers 1.2+), or null to remove it. Returns when it changed. */
+  /** A banner for one server (Mustela servers 1.2+), or null to remove it. Returns when it changed. */
   async setServerBanner(serverId: string, image: Blob | null): Promise<number> {
     this.cache.delete(this.userId());
     this.images.clear();
     let at = Date.now();
     const r = await this.eachLinked(async (s, k) => {
       const h = await this.health(s);
-      if (!h.ok || !h.version || compareVersions(h.version, "1.2.0") < 0) throw new Error("This sync server is older than 1.2.");
+      if (!h.ok || !h.version || compareVersions(h.version, "1.2.0") < 0) throw new Error("This Mustela server is older than 1.2.");
       const res = await fetch(`${s}/${PROTOCOL}/image/${encodeURIComponent(serverId)}`, { method: image ? "PUT" : "DELETE", headers: { authorization: `Bearer ${k}`, ...(image ? { "content-type": image.type || "image/jpeg" } : {}) }, body: image ?? undefined });
-      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `The sync server answered ${res.status}.`);
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `The Mustela server answered ${res.status}.`);
       if (image) at = ((await res.json().catch(() => ({}))) as { at?: number }).at ?? at;
     });
-    if (!r.tried) throw new Error("Server banners are kept on your sync server: link one in Mustela sync first.");
-    if (r.failed === r.tried) throw new Error("None of your sync servers took the banner. They need version 1.2 or newer.");
+    if (!r.tried) throw new Error("Server banners are kept on your Mustela server: link one in Settings > Sync & servers first.");
+    if (r.failed === r.tried) throw new Error("None of your Mustela servers took the banner. They need version 1.2 or newer.");
     return image ? at : 0;
   }
 

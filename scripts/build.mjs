@@ -8,6 +8,7 @@
  * Platforms: windows, macos, linux, android, web
  * Options:
  *   --version 1.2.3    the version to stamp on this build (asked if not given)
+ *   --server URL       Mustela's own server, offered in Settings (default: the last one used, or DEFAULT_SERVER; none for none)
  *   --repo owner/repo  the GitHub repository the app checks for updates (default suxhi-space/mustela; a github.com link
  *                      works too; "none" turns it off)
  *   --package a.b.c    Android only: the app's package name (asked if not given; default app.mustela.client)
@@ -40,6 +41,9 @@ let VERSION = pkg.version;
 const DEFAULT_REPO = "suxhi-space/mustela";
 /** "owner/repo" whose GitHub releases the app checks for updates; empty means update checks are off. */
 let UPDATE_REPO = "";
+/** Mustela's own server (profiles and activity), offered as a choice in Settings. Set it here once it's running. */
+const DEFAULT_SERVER = "";
+let OFFICIAL_SERVER = "";
 const IS_WIN = process.platform === "win32";
 const HOST = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 
@@ -130,15 +134,21 @@ async function askRelease() {
   try { prefs = JSON.parse(readFileSync(BUILD_PREFS, "utf8")); } catch {}
   let version = opt("version") ?? process.env.MUSTELA_VERSION;
   let repo = opt("repo") ?? process.env.MUSTELA_UPDATE_REPO;
+  let server = opt("server") ?? process.env.MUSTELA_SERVER;
   const interactive = !YES && process.stdin.isTTY;
   let androidId = platform === "android" ? (opt("package") ?? process.env.MUSTELA_ANDROID_ID) : undefined;
-  if (interactive && (version === undefined || repo === undefined || (platform === "android" && androidId === undefined))) {
+  if (interactive && (version === undefined || repo === undefined || server === undefined || (platform === "android" && androidId === undefined))) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     if (version === undefined) version = (await rl.question(`\nVersion for this build [${VERSION}]: `)).trim() || VERSION;
     if (repo === undefined) {
       const def = prefs.repo ?? DEFAULT_REPO;
       console.log(dim("  The app checks this repository's GitHub releases for updates. Type none to turn update checks off."));
       repo = (await rl.question(`GitHub repository or link${def ? ` [${def}]` : ""}: `)).trim() || def;
+    }
+    if (server === undefined) {
+      const def = prefs.server ?? DEFAULT_SERVER;
+      console.log(dim("  Mustela's own server, offered as a choice in Settings > Sync & servers (off until someone picks it). Type none for no built-in server."));
+      server = (await rl.question(`Mustela's server address${def ? ` [${def}]` : " [none]"}: `)).trim() || def;
     }
     if (platform === "android" && androidId === undefined) {
       const def = prefs.androidId ?? DEFAULT_ANDROID_ID;
@@ -157,12 +167,19 @@ async function askRelease() {
   if (!msiVersion(version)) fail(`"${version}" is too big for a Windows installer.`, "The first two numbers can be at most 255 and the third at most 65535.");
   const parsed = parseRepo(repo ?? prefs.repo ?? DEFAULT_REPO);
   if (parsed === null) fail(`"${repo}" isn't a GitHub repository.`, "Use owner/repo or a link like https://github.com/owner/repo/releases/latest");
+  const srv = String(server ?? prefs.server ?? DEFAULT_SERVER).trim();
+  if (srv && !/^(none|off|no)$/i.test(srv)) {
+    const u = (() => { try { return new URL(/^https?:\/\//i.test(srv) ? srv : `https://${srv}`); } catch { return null; } })();
+    if (!u || u.protocol !== "https:") fail(`"${srv}" isn't an https address.`, "Use the server's address, like https://servers.example.com (or none).");
+    OFFICIAL_SERVER = u.origin;
+  } else OFFICIAL_SERVER = "";
   VERSION = version;
   UPDATE_REPO = parsed;
   stampVersion(version);
-  try { writeFileSync(BUILD_PREFS, JSON.stringify({ ...prefs, repo: parsed, ...(ANDROID_PACKAGE ? { androidId: ANDROID_PACKAGE } : {}) }, null, 2) + "\n"); } catch {}
+  try { writeFileSync(BUILD_PREFS, JSON.stringify({ ...prefs, repo: parsed, server: OFFICIAL_SERVER || "none", ...(ANDROID_PACKAGE ? { androidId: ANDROID_PACKAGE } : {}) }, null, 2) + "\n"); } catch {}
   ok(`Version ${version}`);
   ok(UPDATE_REPO ? `Updates from github.com/${UPDATE_REPO}/releases` : "Update checks off");
+  ok(OFFICIAL_SERVER ? `Mustela's server: ${OFFICIAL_SERVER}` : "No built-in Mustela server");
   if (UPDATE_REPO && publicKey()) {
     if (!trustsKey()) console.log(dim("  Signed updates off: these are your own releases and this computer has no update key of its own (make one with node scripts/sign.mjs --new-key)."));
     else ok(ownsKey() ? "Signed updates (this computer signs the files)" : "Signed updates (sign the files before uploading: node scripts/sign.mjs <files>)");
@@ -223,7 +240,7 @@ function msiVersion(v) {
  * one, so its updates still install (checked by GitHub's checksum only), instead of waiting for Mustela's signature.
  */
 const trustsKey = () => !!publicKey() && (UPDATE_REPO.toLowerCase() === DEFAULT_REPO || ownsKey());
-const releaseEnv = () => ({ MUSTELA_UPDATE_REPO: UPDATE_REPO, VITE_MUSTELA_UPDATE_REPO: UPDATE_REPO, ...(trustsKey() ? { MUSTELA_UPDATE_PUBKEY: publicKey() } : {}) });
+const releaseEnv = () => ({ MUSTELA_UPDATE_REPO: UPDATE_REPO, VITE_MUSTELA_UPDATE_REPO: UPDATE_REPO, VITE_MUSTELA_SERVER: OFFICIAL_SERVER, ...(trustsKey() ? { MUSTELA_UPDATE_PUBKEY: publicKey() } : {}) });
 
 /* ------------------------------------------------------------------ prerequisite checks */
 function checkNode() {

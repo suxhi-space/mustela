@@ -13,3 +13,8 @@ src-tauri/tauri.android.conf.json
 
 # Private notes (AI chat briefs, research): kept on this computer, never uploaded
 .notes/
+
+# Mustela server deploy: settings, data and backups stay on the server
+server/deploy/.env
+server/deploy/data/
+server/deploy/backups/

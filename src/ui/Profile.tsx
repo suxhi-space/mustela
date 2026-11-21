@@ -64,7 +64,7 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
     setTallPos(`center ${Math.max(0, Math.min(100, (((picture - band) / 2) / Math.max(1, h - band)) * 100)).toFixed(1)}%`);
   };
 
-  // Activity: yours comes straight from this app; other people's from their sync servers.
+  // Activity: yours comes straight from this app; other people's from their Mustela servers.
   const voice = () => (backend()?.me.id === props.person.id ? null : backend()?.voiceOf(props.person.id) ?? null);
   const act = () => (backend()?.me.id === props.person.id ? activity.current() : info()?.activity) ?? null;
   const [more, setMore] = createSignal(false);
@@ -90,7 +90,7 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
       </div>
       <div class="pc-body">
         <div class="pc-name-row">
-          <h2 class="pc-name"><NameText person={props.person} profile={profile()} /></h2>
+          <h2 class="pc-name"><NameText person={props.person} profile={profile()} surface={profile()?.theme?.primary} /></h2>
           <Show when={props.person.pronouns}><span class="pc-pronouns">{props.person.pronouns}</span></Show>
         </div>
         <div class="pc-meta">

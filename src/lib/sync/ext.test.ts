@@ -19,7 +19,7 @@ describe("newer settings (their own sync key)", () => {
     expect(s.favourites).toEqual([]);
     expect(parseExt("not json")).toBeNull();
   });
-  it("compares sync server versions", () => {
+  it("compares Mustela server versions", () => {
     expect(compareVersions("1.1.0", "1.1.0")).toBe(0);
     expect(compareVersions("1.10.0", "1.9.9")).toBe(1);
     expect(compareVersions("1.0.0", "1.1.0")).toBe(-1);

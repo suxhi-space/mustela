@@ -56,10 +56,11 @@ export function nameCss(n: NameStyle | null, surface: number, fontOnly = false):
   if (fontOnly) return { style, class: "" };
   const c1 = hex(readable(n.c1, surface, NAME_MIN));
   const c2 = hex(readable(n.c2, surface, NAME_MIN));
-  // On a light background a glow in the (darkened) name color only blurs the letters. There the letters stay readable
-  // and the halo uses the color as picked, so a pastel neon still looks like neon.
+  // The letters get a readable shade where needed, but a glow always uses the color as picked: never a darker
+  // version of it behind the name, so a pastel glow still looks like that pastel.
   const light = contrast(0x000000, surface) > contrast(0xffffff, surface);
-  const halo = hex(n.c1);
+  // A halo barely different from the background (a pastel on light mode) only shows as a grey haze: leave it out.
+  const halo = hex(n.c1), faint = light && contrast(n.c1, surface) < 1.6;
   let cls = "";
   switch (nameEffect(n.effect).id) {
     case 1: style.color = c1; break;
@@ -67,9 +68,9 @@ export function nameCss(n: NameStyle | null, surface: number, fontOnly = false):
       style["background-image"] = `linear-gradient(90deg, ${c1}, ${c2})`;
       style["-webkit-background-clip"] = "text"; style["background-clip"] = "text"; style.color = "transparent";
       break;
-    case 3: style.color = c1; style["text-shadow"] = light ? `0 0 7px ${halo}` : `0 0 8px ${c1}99`; break;
+    case 3: style.color = c1; style["text-shadow"] = faint ? "none" : light ? `0 0 7px ${halo}` : `0 0 8px ${halo}99`; break;
     case 4: cls = "n-rainbow"; break;
-    case 5: style.color = c1; style["text-shadow"] = light ? `0 0 2px ${halo}, 0 0 9px ${halo}` : `0 0 3px ${c1}, 0 0 9px ${c1}aa`; break;
+    case 5: style.color = c1; style["text-shadow"] = faint ? "none" : `0 0 2px ${halo}, 0 0 9px ${halo}${light ? "" : "aa"}`; break;
   }
   return { style, class: cls };
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Mustela sync server.
+ * Mustela Mustela server.
  *
  * Holds the parts of a Mustela profile that Stoat has no place for
  * (decorations, effects, frames, nameplates, profile colors, and since 1.2 a
@@ -15,7 +15,7 @@
  *   PORT          port to listen on (default 8787)
  *   HOST          interface (default 0.0.0.0)
  *   DATA_DIR      where data.json lives (default ./data)
- *   NAME          shown to clients (default "Mustela sync")
+ *   NAME          shown to clients (default "Mustela server")
  *   STOAT_APIS    comma-separated Stoat API bases accounts may come from
  *                 (default https://stoat.chat/api). Only these are ever contacted.
  *   TRUST_PROXY   "1" to take the client IP from X-Forwarded-For (behind a reverse proxy)
@@ -39,7 +39,7 @@ const PROTOCOL = "v1";
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
-const NAME = (process.env.NAME ?? "Mustela sync").slice(0, 60);
+const NAME = (process.env.NAME ?? "Mustela server").slice(0, 60);
 const APIS = (process.env.STOAT_APIS ?? "https://stoat.chat/api").split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
 const TRUST_PROXY = process.env.TRUST_PROXY === "1";
 const MAX_BODY = 192 * 1024; // room for an audience list of up to 5000 ids

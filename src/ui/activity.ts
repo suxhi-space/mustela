@@ -11,7 +11,7 @@ import { backend, device, platform } from "./store";
  *  - Rich Presence: games and apps that talk to Discord's local RPC socket
  *    talk to Mustela instead when Discord isn't running.
  * Rich Presence wins when both have something. Shared through your linked
- * sync servers, so other Mustela users see it on your profile.
+ * Mustela servers, so other Mustela users see it on your profile.
  */
 export interface DetectedGame { id: string; name: string; icon?: string; startedAt: number; exe?: string }
 

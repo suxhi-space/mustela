@@ -211,7 +211,7 @@ export interface ProfileInfo {
   config: ProfileConfig | null;
   bannerUrl?: string;
   bio?: string;
-  /** What they're playing/listening to, from a Mustela sync server */
+  /** What they're playing/listening to, from a Mustela server */
   activity?: Activity | null;
   /** Their look per server (over this main one); `bannerAt` is set when that server has a banner of its own */
   servers?: Record<string, { config?: ProfileConfig; bio?: string; bannerAt?: number }>;
@@ -366,7 +366,7 @@ export interface AccountApi {
 }
 
 export interface ChatBackend {
-  /** Mustela sync servers (profiles and activity beyond what Stoat stores) */
+  /** Mustela servers (profiles and activity beyond what Stoat stores) */
   readonly cloud: Cloud;
   /** Stoat account management; absent for accounts that have none (demo has a pretend one). */
   readonly account: AccountApi;
@@ -517,9 +517,9 @@ export interface ChatBackend {
   /** Never throws; resolves to an empty profile on any failure. `fresh` reads it again (opening a card). */
   profileOf(userId: string, fresh?: boolean): Promise<ProfileInfo>;
   /** Publish my profile so other Mustela users can see it. A non-public `privacy` keeps it out of the
-   * banner (removing an old strip) and sends it only to sync servers that can keep it private. */
+   * banner (removing an old strip) and sends it only to Mustela servers that can keep it private. */
   publishProfile(cfg: ProfileConfig, banner?: Blob, opts?: { banner?: boolean; privacy?: ExtSettings["privacy"]; servers?: ServerLooks }): Promise<void>;
-  /** Saves your look for one server to your sync servers. `banner`: a new picture, null to remove it, undefined to keep it. Returns when the banner changed (0 = none). */
+  /** Saves your look for one server to your Mustela servers. `banner`: a new picture, null to remove it, undefined to keep it. Returns when the banner changed (0 = none). */
   saveServerLook(serverId: string, look: { config?: ProfileConfig; bio?: string }, banner: Blob | null | undefined, all: { main: ProfileConfig; looks: ServerLooks; privacy: ExtSettings["privacy"] }): Promise<number | undefined>;
   /** Screen share qualities Stoat allows this account (like its own client: 720p always, 1080p if the server's limit allows; no 60 fps yet) */
   screenQualities(): VoicePrefs["screenQuality"][];

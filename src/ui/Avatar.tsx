@@ -61,11 +61,11 @@ export function Avatar(props: {
 }
 
 /** A display name with the person's chosen font and effect, readable on this viewer's surface. */
-export function NameText(props: { person: Person; profile?: ProfileConfig | null; class?: string; fontOnly?: boolean }) {
+export function NameText(props: { person: Person; profile?: ProfileConfig | null; class?: string; fontOnly?: boolean; /** What it's drawn on, when that isn't the app's background (a profile card in the person's colours). */ surface?: number }) {
   // The ref matters: profiles load once a name has been on screen, so without it other people's
   // name styles only ever appeared inside their profile card.
   const { profile, ref } = createPerson(() => props.person, () => props.profile);
-  const css = createMemo(() => nameCss(profile()?.name ?? null, surfaceInt(), !!props.fontOnly));
+  const css = createMemo(() => nameCss(profile()?.name ?? null, props.surface ?? surfaceInt(), !!props.fontOnly));
   // A nickname you gave this friend shows instead (their own name on hover).
   const nick = () => friendNick(props.person.id);
   return <span ref={ref} class={`name ${props.class ?? ""} ${css().class}`} style={css().style} title={nick() ? props.person.name : undefined}><TextWithEmoji v={nick() ?? props.person.name} /></span>;

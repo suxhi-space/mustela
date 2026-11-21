@@ -32,7 +32,7 @@ export function ProfileEditorHost() {
 /**
  * `server`: start on your profile in that server. A server has your nickname and picture there (Stoat
  * keeps those, so everyone sees them) and your look there: banner, about me, decorations, name style and
- * colours (kept on your sync servers, seen by Mustela users). Anything not changed for a server comes
+ * colours (kept on your Mustela servers, seen by Mustela users). Anything not changed for a server comes
  * from your main profile.
  */
 function ProfileEditor(props: { server?: string; onClose(): void }) {
@@ -55,7 +55,7 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
   /* ---- which profile: "main", or a server id ---- */
   const [scope, setScopeRaw] = createSignal(props.server ?? "main");
   const [servers] = createResource(async () => (await backend()!.spaces()).filter((x) => !x.home).map((x) => ({ id: x.id, name: x.name })));
-  /** A sync server is linked (where a server's own look is kept). */
+  /** A Mustela server is linked (where a server's own look is kept). */
   const synced = () => settings().cloud.servers.length > 0;
   const serverName = () => servers()?.find((x) => x.id === scope())?.name ?? "this server";
   const inServer = () => scope() !== "main";
@@ -124,7 +124,7 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
 
   function reset() { setName(undefined); setPronouns(undefined); setBio(undefined); setAvatar(undefined); setBanner(undefined); setNick(undefined); setSAvatar(undefined); setCfg(structuredClone(baseCfg())); setErr(""); }
 
-  /** Saves this server's look (decorations, colours, about me, banner) with your sync servers. */
+  /** Saves this server's look (decorations, colours, about me, banner) with your Mustela servers. */
   async function saveLook(next: { config?: ProfileConfig; bio?: string }, newBanner: Blob | null | undefined) {
     const sid = scope(), prev = look();
     const at = await backend()!.saveServerLook(sid, next, newBanner, { main: settings().profile, looks: ext().serverLooks, privacy: ext().privacy });
@@ -278,10 +278,10 @@ function ProfileEditor(props: { server?: string; onClose(): void }) {
                     {bannerPicker()}
                   </section>
                 </Show>
-                {/* A server's own banner, about me and look are kept on your sync servers (Stoat has one of each per
+                {/* A server's own banner, about me and look are kept on your Mustela servers (Stoat has one of each per
                     person). Without one linked, only what Stoat keeps per server shows: nickname and picture. */}
                 <Show when={!inServer() || synced()} fallback={
-                  <p class="muted small pe-note pe-sync-note">Link a sync server to give {serverName()} its own banner, about me and look.{" "}
+                  <p class="muted small pe-note pe-sync-note">Link a Mustela server to give {serverName()} its own banner, about me and look.{" "}
                     <button class="link small" onClick={() => { props.onClose(); openSettings("sync"); }}>Open Sync & servers</button></p>
                 }>
                 <section class="pe-sec">

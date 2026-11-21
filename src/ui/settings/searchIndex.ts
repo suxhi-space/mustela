@@ -164,7 +164,8 @@ export const SETTING_LABELS: Record<string, string[]> = {
   "sync": [
     "Settings sync",
     "Status",
-    "Profile servers",
+    "Mustela servers",
+    "Mustela's server",
     "Profile in your banner",
     "Keep a copy in my banner",
     "Backup",
