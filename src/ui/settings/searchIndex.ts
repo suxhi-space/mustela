@@ -141,6 +141,8 @@ export const SETTING_LABELS: Record<string, string[]> = {
   "activity": [
     "Right now",
     "Nothing detected",
+    "Your games and apps",
+    "Add a program",
     "Sources",
     "Detect running games",
     "Discord Rich Presence",

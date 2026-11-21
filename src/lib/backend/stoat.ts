@@ -1074,7 +1074,7 @@ export class StoatBackend implements ChatBackend {
     // A Mustela server's copy wins over the banner strip: it's newer-capable and carries activity.
     const c = await fromCloud;
     if (c?.profile) info.config = c.profile;
-    if (c) info.activity = c.activity;
+    if (c) { info.activity = c.activity; info.activities = c.activities; }
     if (c && (Object.keys(c.servers ?? {}).length || Object.keys(c.images ?? {}).length)) {
       const servers: NonNullable<ProfileInfo["servers"]> = {};
       for (const [sid, l] of Object.entries(c.servers ?? {})) servers[sid] = { config: l.config, bio: l.bio };

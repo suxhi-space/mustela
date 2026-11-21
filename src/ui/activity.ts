@@ -13,24 +13,32 @@ import { backend, device, platform, settings } from "./store";
  * Rich Presence wins when both have something. Shared through your linked
  * Mustela servers, so other Mustela users see it on your profile.
  */
-export interface DetectedGame { id: string; name: string; icon?: string; startedAt: number; exe?: string }
-
+export interface DetectedGame { id: string; name: string; icon?: string; startedAt: number; exe?: string; kind?: Activity["kind"] }
 const [games, setGames] = createSignal<DetectedGame[]>([]);
-const [rpc, setRpc] = createSignal<Activity | null>(null);
-const [rpcApp, setRpcApp] = createSignal<string | null>(null);
+/** Rich Presence from every app reporting it right now (a game and a music player at once), newest first. */
+const [rpcs, setRpcs] = createSignal<{ key: number; app: string | null; activity: Activity }[]>([]);
 const [status, setStatus] = createSignal<{ rpc: "off" | "listening" | "busy" | "unsupported"; detect: "off" | "on" | "unsupported" }>({ rpc: "unsupported", detect: "unsupported" });
 
 export const desktopActivity = () => inTauri() && platform !== "android";
-
 export const activity = {
-  games, rpc, rpcApp, status,
-  current: createRoot(() => createMemo<Activity | null>(() => {
+  games, status,
+  /** The newest Rich Presence (Settings shows which app it's from). */
+  rpc: () => rpcs()[0]?.activity ?? null,
+  rpcApp: () => rpcs()[0]?.app ?? null,
+  /** Everything you're doing, like Discord: Rich Presence first (it says the most), then detected games and your own
+   * programs, without the same game twice. */
+  list: createRoot(() => createMemo<Activity[]>(() => {
     const hidden = new Set(device().activity.hidden);
-    const r = rpc();
-    if (r && device().activity.rpc && !hidden.has(r.name)) return r;
-    const g = device().activity.detect ? games().find((x) => !hidden.has(x.name)) : undefined;
-    return g ? { kind: "playing", name: g.name, startedAt: g.startedAt, image: g.icon, appId: g.id } : null;
+    const out: Activity[] = [];
+    if (device().activity.rpc) for (const r of rpcs()) if (!hidden.has(r.activity.name)) out.push(r.activity);
+    if (device().activity.detect) for (const g of games()) {
+      if (hidden.has(g.name) || out.some((a) => a.name === g.name || (a.appId && a.appId === g.id))) continue;
+      out.push({ kind: g.kind ?? "playing", name: g.name, startedAt: g.startedAt, image: g.icon, appId: g.id.startsWith("custom:") ? undefined : g.id });
+    }
+    return out.slice(0, 5);
   })),
+  /** The first of them (where there's room for one). */
+  current: () => activity.list()[0] ?? null,
 };
 
 let started = false;
@@ -42,7 +50,10 @@ export function startActivity() {
     const { invoke } = await import("@tauri-apps/api/core");
     const offs = await Promise.all([
       listen<DetectedGame[]>("activity://games", (e) => setGames(Array.isArray(e.payload) ? e.payload : [])),
-      listen<{ app: string | null; activity: Activity | null }>("activity://rpc", (e) => { setRpc(e.payload?.activity ?? null); setRpcApp(e.payload?.app ?? null); }),
+      listen<{ key?: number; app: string | null; activity: Activity | null }>("activity://rpc", (e) => {
+        const key = e.payload?.key ?? 0, a = e.payload?.activity ?? null;
+        setRpcs((list) => [...(a ? [{ key, app: e.payload?.app ?? null, activity: a }] : []), ...list.filter((x) => x.key !== key)]);
+      }),
     ]);
     onCleanup(() => offs.forEach((f) => f()));
 
@@ -53,6 +64,8 @@ export function startActivity() {
       catch { setStatus({ rpc: "unsupported", detect: "unsupported" }); }
     };
     createEffect(on(() => [device().activity.detect, device().activity.rpc] as const, () => void apply()));
+    // Your own programs (Settings > Activity), for the detection to look for.
+    createEffect(on(() => JSON.stringify(device().activity.custom), () => { void invoke("activity_custom", { list: device().activity.custom }).catch(() => {}); }));
     // While Discord holds the Rich Presence socket, try again now and then: it may be closed later.
     const retry = setInterval(() => { if (status().rpc === "busy") void apply(); }, 15_000);
     onCleanup(() => clearInterval(retry));
@@ -62,16 +75,16 @@ export function startActivity() {
     // didn't get through is tried again soon rather than at the next heartbeat.
     let timer: ReturnType<typeof setTimeout> | undefined;
     let sentSomething = false;
-    createEffect(on(() => [activity.current(), device().activity.share, backend(), settings().cloud.servers.join()] as const, ([a, share, b]) => {
+    createEffect(on(() => [JSON.stringify(activity.list()), device().activity.share, backend(), settings().cloud.servers.join()] as const, ([, share, b]) => {
       clearTimeout(timer);
       if (!b) return;
-      const out = share ? a : null;
-      if (!out && !sentSomething) return;
+      const out = share ? activity.list() : [];
+      if (!out.length && !sentSomething) return;
       const send = async () => {
         let ok = false;
         try { const r = await b.cloud.setActivity(out); ok = r.tried > 0 && r.failed < r.tried; } catch { /* retried below */ }
-        if (ok) sentSomething = !!out;
-        if (out || !ok) timer = setTimeout(() => void send(), ok ? 60_000 : 15_000);
+        if (ok) sentSomething = out.length > 0;
+        if (out.length || !ok) timer = setTimeout(() => void send(), ok ? 60_000 : 15_000);
       };
       void send();
     }));

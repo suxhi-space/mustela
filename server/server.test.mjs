@@ -55,6 +55,12 @@ test("link, publish, read, activity", async () => {
     await Promise.all(Array.from({ length: 120 }, () => fetch(`${base}/profile/${STRANGER}`)));
     assert.equal((await fetch(`${base}/activity`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ activity: { kind: "playing", name: "Celeste" } }) })).status, 204);
 
+    // 1.4: several activities at once; older apps still get the first as `activity`
+    await fetch(`${base}/activity`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ activities: [{ kind: "playing", name: "Celeste" }, { kind: "listening", name: "Spotify", details: "A song" }] }) });
+    const both = await (await fetch(`${base}/profile/${UID}`)).json();
+    assert.deepEqual(both.activities.map((a) => a.name), ["Celeste", "Spotify"]);
+    assert.equal(both.activity.name, "Celeste");
+
     // 1.4: many at once; people with nothing here are simply left out
     const many = await (await fetch(`${base}/profiles`, { method: "POST", body: JSON.stringify({ ids: [UID, STRANGER, "not-an-id", UID] }) })).json();
     assert.deepEqual(Object.keys(many.profiles), [UID]);

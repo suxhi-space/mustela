@@ -1106,6 +1106,15 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .add-server .text-input { flex: 1; width: auto; }
 .err.pad { padding: 0 14px 12px; }
 .act-now { display: flex; align-items: center; gap: 14px; padding: 14px; }
+.act-now + .act-now { border-top: 1px solid var(--edge); }
+/* Settings > Activity > Add a program */
+.act-pick { display: grid; gap: 10px; padding: 12px 14px; }
+.act-pick-list { max-height: 260px; overflow: auto; display: grid; gap: 2px; border-radius: 10px; background: var(--well); padding: 4px; }
+.act-pick-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--fg); }
+.act-pick-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
+.act-pick-row:hover { background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.act-pick-row.on { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.act-pick-opts { display: grid; gap: 8px; }
 .act-img { width: 64px; height: 64px; border-radius: 14px; object-fit: cover; flex: none; background: var(--s3); }
 .act-img.blank { display: grid; place-items: center; color: var(--fg2); }
 .act-text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 650; font-size: 13.5px; }

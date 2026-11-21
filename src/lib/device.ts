@@ -45,6 +45,8 @@ function sanitizeVoice(raw: unknown): VoicePrefs {
  * Settings that belong to one device and are never synced: a phone and a
  * desktop want different density, and window materials only exist on desktop.
  */
+/** A program you added yourself (Settings > Activity): its file name, what to call it, and how it reads. */
+export interface CustomProgram { exe: string; name: string; kind: "playing" | "listening" | "watching" }
 export type Density = "compact" | "default" | "comfy";
 export type MessageLayout = "cozy" | "compact";
 export type Style = "classic" | "flat";
@@ -101,7 +103,7 @@ export interface DeviceSettings {
   /** This device's own colours and theme, while syncLook is off (same shape as the synced look) */
   localLook: unknown;
   /** Game detection and Discord Rich Presence (desktop) */
-  activity: { detect: boolean; rpc: boolean; share: boolean; hidden: string[] };
+  activity: { detect: boolean; rpc: boolean; share: boolean; hidden: string[]; /** Programs you added (Settings > Activity), detected like games. */ custom: CustomProgram[] };
   /** Voice channels: show the text chat beside the call */
   voiceChat: boolean;
   /** Direct messages: show the other person's profile beside the chat */
@@ -144,7 +146,7 @@ export const defaultPerf = (): PerfPrefs => ({ anim: isLinux() ? "reduced" : "fu
 
 export const DEFAULT_DEVICE: DeviceSettings = {
   v: 1, density: "default", layout: "cozy", style: "classic",
-  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, closedNotify: true, sounds: { message: true, call: true, toggles: true, streams: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, appSize: 0, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, lookKind: false, localLook: null, miniCall: true, rearrange: false, voice: { ...DEFAULT_VOICE_PREFS },
+  colorSource: "theme", material: "none", opacity: 82, showMembers: true, callEngine: "web", callOverlay: "bubble", notifications: true, notifyPreview: true, closedNotify: true, sounds: { message: true, call: true, toggles: true, streams: true }, badge: true, activity: { detect: true, rpc: true, share: true, hidden: [], custom: [] }, closeToTray: true, autoUpdate: true, hideNoVideo: false, perf: defaultPerf(), titleBar: "mustela", voiceChat: true, dmProfile: true, text: { size: 15, spacing: 8, font: "" }, collapsed: [], backdrop: "plain", backdropBlur: false, panelOpacity: 80, panelBlur: true, a11y: { reduceMotion: "off", touchText: true, appSize: 0, underlineLinks: false, roleColors: true, readable: false }, syncLook: true, lookKind: false, localLook: null, miniCall: true, rearrange: false, voice: { ...DEFAULT_VOICE_PREFS },
 };
 
 const oneOf = <T extends string>(x: unknown, all: readonly T[], d: T): T => (all.includes(x as T) ? (x as T) : d);
@@ -195,6 +197,10 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     activity: {
       detect: (r.activity as any)?.detect !== false, rpc: (r.activity as any)?.rpc !== false, share: (r.activity as any)?.share !== false,
       hidden: Array.isArray((r.activity as any)?.hidden) ? ((r.activity as any).hidden as unknown[]).filter((x): x is string => typeof x === "string" && x.length < 200).slice(0, 200) : [],
+      custom: Array.isArray((r.activity as any)?.custom) ? ((r.activity as any).custom as any[]).flatMap((c): CustomProgram[] => {
+        const exe = typeof c?.exe === "string" ? c.exe.trim().slice(0, 255) : "", name = typeof c?.name === "string" ? c.name.trim().slice(0, 64) : "";
+        return exe && name ? [{ exe, name, kind: (["playing", "listening", "watching"] as const).includes(c.kind) ? c.kind : "playing" }] : [];
+      }).slice(0, 50) : [],
     },
     backdrop: oneOf(r.backdrop, ["stars", "plain", "gradient", "image"], d.backdrop),
     backdropBlur: r.backdropBlur === true,

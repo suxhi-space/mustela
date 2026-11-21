@@ -30,7 +30,7 @@ struct NoActivity { rpc: &'static str, detect: &'static str }
 #[tauri::command]
 fn activity_config(detect: bool, rpc: bool) -> NoActivity { let _ = (detect, rpc); NoActivity { rpc: "unsupported", detect: "unsupported" } }
 #[cfg(desktop)]
-use activity::activity_config;
+use activity::{activity_config, activity_custom, running_programs};
 
 use tauri::ipc::Response;
 use tauri::{Emitter, Manager};
@@ -642,7 +642,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![gif_store::warm_gifs, emoji_store::emoji_store_size, emoji_store::clear_emoji_store, material_support, set_material, fetch_image, preview::link_preview, close_popout, #[cfg(desktop)] popout_mode, #[cfg(desktop)] popout_prepare, #[cfg(desktop)] popout_discard, activity_config, fetch_audio, update_config, check_update, install_update,
+        .invoke_handler(tauri::generate_handler![gif_store::warm_gifs, emoji_store::emoji_store_size, emoji_store::clear_emoji_store, material_support, set_material, fetch_image, preview::link_preview, close_popout, #[cfg(desktop)] popout_mode, #[cfg(desktop)] popout_prepare, #[cfg(desktop)] popout_discard, activity_config, #[cfg(desktop)] activity_custom, #[cfg(desktop)] running_programs, fetch_audio, update_config, check_update, install_update,
             #[cfg(desktop)] screen_sources, #[cfg(desktop)] screen_permission, #[cfg(desktop)] screen_permission_request, #[cfg(desktop)] relaunch, #[cfg(desktop)] screen_start, #[cfg(desktop)] screen_ack, #[cfg(desktop)] screen_stop, #[cfg(desktop)] screen_audio,
             #[cfg(target_os = "linux")] call_linux::voice_start_call, #[cfg(target_os = "linux")] call_linux::voice_set_mic,
             #[cfg(target_os = "linux")] call_linux::voice_set_deaf, #[cfg(target_os = "linux")] call_linux::voice_end_call,

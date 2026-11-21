@@ -41,7 +41,7 @@ export interface Activity {
  * `servers`: their look per server; `images`: servers they have a banner for (with when it changed),
  * stored on `source`, the Mustela server this copy came from.
  */
-export interface CloudProfile { profile: ProfileConfig | null; activity: Activity | null; updatedAt: number; servers?: ServerLooks; images?: Record<string, number>; source?: string }
+export interface CloudProfile { profile: ProfileConfig | null; activity: Activity | null; /** Everything they're doing (servers 1.4+), the first one also as `activity`. */ activities: Activity[]; updatedAt: number; servers?: ServerLooks; images?: Record<string, number>; source?: string }
 export interface Health { ok: boolean; name?: string; version?: string; error?: string }
 
 const KEYS = "mustela.cloud.keys";
@@ -108,7 +108,7 @@ async function call<T>(url: string, init: RequestInit = {}): Promise<T> {
   } finally { clearTimeout(t); }
 }
 
-type RawProfile = { profile?: unknown; activity?: Activity | null; updatedAt?: number; images?: unknown };
+type RawProfile = { profile?: unknown; activity?: Activity | null; activities?: unknown; updatedAt?: number; images?: unknown };
 type Waiter = { resolve(v: RawProfile | null): void; reject(e: unknown): void };
 
 export class Cloud {
@@ -223,8 +223,10 @@ export class Cloud {
   }
 
   /** null clears it. Servers forget activity that isn't refreshed for a few minutes. */
-  setActivity(activity: Activity | null) {
-    return this.eachLinked((s, k) => call(`${s}/${PROTOCOL}/activity`, { method: "PUT", headers: { authorization: `Bearer ${k}` }, body: JSON.stringify({ activity }) }));
+  setActivity(activities: Activity[]) {
+    // `activity` for servers older than 1.4, which keep just one.
+    const body = JSON.stringify({ activity: activities[0] ?? null, activities });
+    return this.eachLinked((s, k) => call(`${s}/${PROTOCOL}/activity`, { method: "PUT", headers: { authorization: `Bearer ${k}` }, body }));
   }
 
   /** Signed in where we're linked, so private profiles we're allowed to see come back too. */
@@ -278,7 +280,9 @@ export class Cloud {
             const raw = v.profile && typeof v.profile === "object" ? (v.profile as { servers?: unknown }) : null;
             const images: Record<string, number> = {};
             if (v.images && typeof v.images === "object") for (const [k, t] of Object.entries(v.images as Record<string, unknown>)) if (typeof t === "number" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(k)) images[k] = t;
-            best = { profile: v.profile ? sanitizeProfile(v.profile) : null, activity: sanitizeActivity(v.activity), updatedAt: at, servers: sanitizeServerLooks(raw?.servers), images, source: s };
+            const one = sanitizeActivity(v.activity);
+            const many = Array.isArray(v.activities) ? v.activities.map(sanitizeActivity).filter((a): a is Activity => !!a).slice(0, 5) : [];
+            best = { profile: v.profile ? sanitizeProfile(v.profile) : null, activity: many[0] ?? one, activities: many.length ? many : one ? [one] : [], updatedAt: at, servers: sanitizeServerLooks(raw?.servers), images, source: s };
           }
           return best;
         });

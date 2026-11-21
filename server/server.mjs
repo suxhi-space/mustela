@@ -36,6 +36,7 @@ import { join } from "node:path";
 const VERSION = "1.4.0";
 const MAX_ALLOW = 5000;
 const MAX_BATCH = 100;
+const MAX_ACTIVITIES = 5;
 const PROTOCOL = "v1";
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -201,7 +202,8 @@ function profileFor(uid, viewer) {
   if (!u && !act) return null;
   // images: which servers have a banner here, and when it last changed (for cache-busting links).
   const images = u?.images ? Object.fromEntries(Object.entries(u.images).map(([k, v]) => [k, v.at])) : undefined;
-  return { profile: u?.profile ?? null, updatedAt: u?.updatedAt ?? 0, activity: act && act.expires > Date.now() ? act.a : null, ...(images ? { images } : {}) };
+  const live = act && act.expires > Date.now();
+  return { profile: u?.profile ?? null, updatedAt: u?.updatedAt ?? 0, activity: live ? act.a : null, activities: live ? act.all ?? [act.a] : [], ...(images ? { images } : {}) };
 }
 
 const routes = {
@@ -262,8 +264,9 @@ const routes = {
     const who = userFor(req);
     if (!who) return [401, { error: "Link this server again." }];
     const body = await readBody(req);
-    const a = cleanActivity(body.activity);
-    if (a) activity.set(who.uid, { a, expires: Date.now() + ACTIVITY_TTL }); else activity.delete(who.uid);
+    // 1.4: several at once (a game and music, like Discord). Older apps send just `activity`; they get the first back.
+    const list = (Array.isArray(body.activities) ? body.activities : [body.activity]).map(cleanActivity).filter(Boolean).slice(0, MAX_ACTIVITIES);
+    if (list.length) activity.set(who.uid, { a: list[0], all: list, expires: Date.now() + ACTIVITY_TTL }); else activity.delete(who.uid);
     return [204];
   },
 };

@@ -33,7 +33,14 @@ struct Game { id: String, name: String, icon: Option<String>, exes: Vec<String> 
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct Detected { id: String, name: String, icon: Option<String>, started_at: u64, exe: String }
+struct Detected { id: String, name: String, icon: Option<String>, started_at: u64, exe: String, #[serde(skip_serializing_if = "Option::is_none")] kind: Option<String> }
+
+/// A program you added yourself: its file name, what to call it, and "playing" / "listening" / "watching".
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct Custom { exe: String, name: String, kind: Option<String> }
+
+/// Each Rich Presence connection gets its own key, so several apps can show at once (a game and a music player).
+static RPC_CONN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 #[derive(Serialize, Clone)]
 pub struct Status { rpc: &'static str, detect: &'static str }
@@ -41,6 +48,8 @@ pub struct Status { rpc: &'static str, detect: &'static str }
 #[derive(Default)]
 pub struct ActivityState {
     games: Mutex<Option<Arc<Vec<Game>>>>,
+    /// Programs you added yourself (Settings > Activity), matched by file name like the game list.
+    custom: Mutex<Arc<Vec<Custom>>>,
     detect: Mutex<Option<watch::Sender<bool>>>,
     rpc: Mutex<Option<(watch::Sender<bool>, &'static str)>>,
     assets: Mutex<HashMap<String, HashMap<String, String>>>,
@@ -150,10 +159,19 @@ async fn detect_loop<R: Runtime>(app: AppHandle<R>, mut stop: watch::Receiver<bo
     loop {
         sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
         let mut found: HashMap<String, Detected> = HashMap::new();
+        let custom = app.state::<ActivityState>().custom.lock().unwrap().clone();
         for p in sys.processes().values() {
             let Some(exe) = p.exe() else { continue };
             let full = exe.to_string_lossy().to_lowercase().replace('\\', "/");
             let file = full.rsplit('/').next().unwrap_or(&full).to_string();
+            if let Some(c) = custom.iter().find(|c| c.exe.to_lowercase() == file) {
+                let started = p.start_time() * 1000;
+                let id = format!("custom:{}", c.exe.to_lowercase());
+                found.entry(id.clone()).and_modify(|d| d.started_at = d.started_at.min(started)).or_insert(Detected {
+                    id, name: c.name.clone(), icon: None, started_at: started, exe: file.clone(), kind: c.kind.clone(),
+                });
+                continue;
+            }
             let Some(cands) = by_file.get(&file) else { continue };
             for (i, suffix) in cands {
                 // "game.exe" matches any folder; "steamapps/common/x/game.exe" must match the tail on a folder boundary.
@@ -162,7 +180,7 @@ async fn detect_loop<R: Runtime>(app: AppHandle<R>, mut stop: watch::Receiver<bo
                     let g = &games[*i];
                     let started = p.start_time() * 1000;
                     found.entry(g.id.clone()).and_modify(|d| d.started_at = d.started_at.min(started)).or_insert(Detected {
-                        id: g.id.clone(), name: g.name.clone(), icon: g.icon.clone(), started_at: started, exe: file.clone(),
+                        id: g.id.clone(), name: g.name.clone(), icon: g.icon.clone(), started_at: started, exe: file.clone(), kind: None,
                     });
                 }
             }
@@ -281,6 +299,7 @@ async fn serve_client<R: Runtime, S: AsyncReadExt + AsyncWriteExt + Unpin + Send
     }, "nonce": null });
     if write_frame(&mut s, OP_FRAME, &ready).await.is_err() { return; }
     let app_name = { let g = load_games(&app).await; g.iter().find(|x| x.id == client_id).map(|x| x.name.clone()) };
+    let key = RPC_CONN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     // Discord wasn't running when the game connected. If it starts later, pass the game's Rich Presence on to it
     // from here, so friends on Discord still see it (the game's own connection stays with us).
     let (latest_tx, latest_rx) = watch::channel::<Option<Value>>(None);
@@ -297,7 +316,7 @@ async fn serve_client<R: Runtime, S: AsyncReadExt + AsyncWriteExt + Unpin + Send
                     let raw = msg.pointer("/args/activity").cloned().unwrap_or(Value::Null);
                     let act = to_activity(&app, &client_id, &raw).await;
                     had_activity = act.is_some();
-                    let _ = app.emit("activity://rpc", json!({ "app": app_name, "activity": act }));
+                    let _ = app.emit("activity://rpc", json!({ "key": key, "app": app_name, "activity": act }));
                     let _ = latest_tx.send(msg.get("args").cloned());
                     if write_frame(&mut s, OP_FRAME, &json!({ "cmd": cmd, "data": raw, "evt": null, "nonce": nonce })).await.is_err() { break; }
                 } else if write_frame(&mut s, OP_FRAME, &json!({ "cmd": cmd, "data": {}, "evt": null, "nonce": nonce })).await.is_err() { break; }
@@ -305,7 +324,7 @@ async fn serve_client<R: Runtime, S: AsyncReadExt + AsyncWriteExt + Unpin + Send
             _ => break,
         }
     }
-    if had_activity { let _ = app.emit("activity://rpc", json!({ "app": null, "activity": null })); }
+    if had_activity { let _ = app.emit("activity://rpc", json!({ "key": key, "app": null, "activity": null })); }
 }
 
 /// For a game that connected while Discord wasn't running: waits for Discord to start, then connects to it as that
@@ -346,6 +365,7 @@ where S: AsyncReadExt + AsyncWriteExt + Unpin + Send + 'static, U: AsyncReadExt 
     let (mut g_rd, mut g_wr) = tokio::io::split(game);
     let (mut u_rd, mut u_wr) = tokio::io::split(up);
     let app_name = { let g = load_games(&app).await; g.iter().find(|x| x.id == client_id).map(|x| x.name.clone()) };
+    let key = RPC_CONN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tap = app.clone();
     let id = client_id.clone();
     let upward = async move {
@@ -356,7 +376,7 @@ where S: AsyncReadExt + AsyncWriteExt + Unpin + Send + 'static, U: AsyncReadExt 
                 let raw = msg.pointer("/args/activity").cloned().unwrap_or(Value::Null);
                 let act = to_activity(&tap, &id, &raw).await;
                 had = act.is_some();
-                let _ = tap.emit("activity://rpc", json!({ "app": app_name, "activity": act }));
+                let _ = tap.emit("activity://rpc", json!({ "key": key, "app": app_name, "activity": act }));
             }
             if write_frame(&mut u_wr, op, &msg).await.is_err() || op == OP_CLOSE { break; }
         }
@@ -364,7 +384,7 @@ where S: AsyncReadExt + AsyncWriteExt + Unpin + Send + 'static, U: AsyncReadExt 
     };
     let downward = async move { let _ = tokio::io::copy(&mut u_rd, &mut g_wr).await; };
     let had = tokio::select! { h = upward => h, _ = downward => true };
-    if had { let _ = app.emit("activity://rpc", json!({ "app": null, "activity": null })); }
+    if had { let _ = app.emit("activity://rpc", json!({ "key": key, "app": null, "activity": null })); }
 }
 
 /// The real Discord (or another Rich Presence host), on any slot but ours.
@@ -447,6 +467,47 @@ async fn rpc_loop<R: Runtime>(app: AppHandle<R>, mut server: tokio::net::windows
 }
 
 /* ------------------------------------------------------------------ command */
+
+/// The programs you added yourself (Settings > Activity); detection picks them up on its next look.
+#[tauri::command]
+pub fn activity_custom<R: Runtime>(app: AppHandle<R>, list: Vec<Custom>) {
+    let clean: Vec<Custom> = list.into_iter().filter(|c| !c.exe.trim().is_empty() && c.exe.len() < 260).take(50)
+        .map(|c| Custom { exe: c.exe.trim().to_string(), name: c.name.trim().chars().take(64).collect(), kind: c.kind }).collect();
+    *app.state::<ActivityState>().custom.lock().unwrap() = Arc::new(clean);
+}
+
+#[derive(Serialize)]
+pub struct Running { exe: String, name: String }
+
+/// Programs running now that you could add (Settings > Activity > Add a program): one per program file, leaving out
+/// the system's own background ones.
+#[tauri::command]
+pub async fn running_programs() -> Vec<Running> {
+    tauri::async_runtime::spawn_blocking(|| {
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, UpdateKind};
+        let kind = ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet);
+        let mut sys = System::new_with_specifics(RefreshKind::nothing().with_processes(kind));
+        sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+        let me = std::env::current_exe().ok().and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_lowercase()));
+        let mut seen = std::collections::BTreeMap::new();
+        for p in sys.processes().values() {
+            let Some(exe) = p.exe() else { continue };
+            let full = exe.to_string_lossy().replace('\\', "/");
+            let low = full.to_lowercase();
+            if SYSTEM_DIRS.iter().any(|d| low.starts_with(d)) { continue; }
+            let Some(file) = exe.file_name().map(|f| f.to_string_lossy().to_string()) else { continue };
+            if Some(file.to_lowercase()) == me { continue; }
+            let stem = file.rsplit_once('.').map(|(a, _)| a).filter(|_| file.to_lowercase().ends_with(".exe")).unwrap_or(&file);
+            let name = stem.replace(['_', '-'], " ");
+            let name = name.split_whitespace().map(|w| { let mut c = w.chars(); c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default() }).collect::<Vec<_>>().join(" ");
+            seen.entry(file.to_lowercase()).or_insert(Running { exe: file, name });
+        }
+        seen.into_values().collect()
+    }).await.unwrap_or_default()
+}
+
+/// Where the system's own programs live (never offered as something you're "playing").
+const SYSTEM_DIRS: &[&str] = &["c:/windows/", "/usr/lib/", "/usr/libexec/", "/usr/sbin/", "/sbin/", "/lib/", "/usr/bin/gnome-", "/usr/bin/kde", "/system/", "/usr/libexec/", "/library/apple/", "/usr/bin/dbus", "/usr/bin/pipewire", "/usr/bin/wireplumber", "/usr/bin/xdg-"];
 
 /// Turns detection and Rich Presence on or off; returns what is actually running.
 #[tauri::command]

@@ -213,6 +213,8 @@ export interface ProfileInfo {
   bio?: string;
   /** What they're playing/listening to, from a Mustela server */
   activity?: Activity | null;
+  /** Everything they're doing at once (a game and music), newest Mustela servers; `activity` is the first. */
+  activities?: Activity[];
   /** Their look per server (over this main one); `bannerAt` is set when that server has a banner of its own */
   servers?: Record<string, { config?: ProfileConfig; bio?: string; bannerAt?: number }>;
 }

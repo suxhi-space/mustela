@@ -9,7 +9,7 @@ import { currentServer, openChannel, openProfileEditor, profileView, setProfileV
 import { attempt, openMenu, toast } from "./menu";
 import { userMenu } from "./menus";
 import { call, joinCall } from "./call/state";
-import type { Person, VoicePresence } from "../lib/backend/types";
+import type { Person, ProfileInfo, VoicePresence } from "../lib/backend/types";
 import { hex, mix, textOn, contrast } from "../lib/color";
 import { CANONICAL_HEIGHT, CANONICAL_WIDTH, markerHeight } from "../lib/marker/codec";
 import type { ProfileConfig } from "../lib/profile/model";
@@ -32,6 +32,14 @@ const PRESENCE_LABEL: Record<string, string> = { online: "Online", idle: "Idle",
  * with the person's effect drawn over it and their frame around it.
  * `profile` is passed directly for the live preview in settings.
  */
+/** Everything someone's doing (a game and music, like Discord). Yours from this device, or else from your other
+ * devices through your Mustela servers. */
+function activitiesOf(self: boolean, info: ProfileInfo | undefined): Activity[] {
+  const local = self ? activity.list() : [];
+  if (local.length) return local;
+  return info?.activities?.length ? info.activities : info?.activity ? [info.activity] : [];
+}
+
 export function ProfileCard(props: { person: Person; profile?: ProfileConfig | null; bio?: string; banner?: string; children?: JSX.Element; showRating?: boolean; marked?: boolean; compact?: boolean; noActivity?: boolean }) {
   const { profile, info, ref: seenRef } = createPerson(() => props.person, () => props.profile);
   const [size, sizeRef] = createSize();
@@ -67,7 +75,7 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
   // Activity: other people's from their Mustela servers; yours from this device, or else from your other devices
   // (through your servers, e.g. your computer's game on your phone). "In voice" from Stoat, yours included.
   const voice = () => backend()?.voiceOf(props.person.id) ?? null;
-  const act = () => (backend()?.me.id === props.person.id ? activity.current() ?? info()?.activity : info()?.activity) ?? null;
+  const acts = () => activitiesOf(backend()?.me.id === props.person.id, info());
   const [more, setMore] = createSignal(false);
   const long = () => (bio()?.length ?? 0) > 240 || (bio()?.split("\n").length ?? 0) > 5;
   const presence = () => (props.person.online ? props.person.presence ?? "online" : "offline");
@@ -109,7 +117,7 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
         </Show>
         {/* The full profile shows voice and activity in its Activity tab, so its card leaves them out (noActivity). */}
         <Show when={!props.noActivity && voice()}>{(v) => <VoiceBox person={props.person} v={v()} />}</Show>
-        <Show when={!props.noActivity && act()}>{(a) => <ActivityCard a={a()} />}</Show>
+        <Show when={!props.noActivity}><For each={acts()}>{(a) => <ActivityCard a={a} />}</For></Show>
         <Show when={props.showRating && profile()}>
           <section class="pc-section">
             <h3 class="label">Performance</h3>
@@ -389,7 +397,7 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
   const [tab, setTab] = createSignal<"activity" | "friends" | "servers">("activity");
   const [mutual] = createResource(() => props.person.id, (id) => mutualOf(id));
   const info = createProfileInfo(() => props.person.id);
-  const act = () => (self() ? activity.current() ?? info()?.activity : info()?.activity) ?? null;
+  const acts = () => activitiesOf(self(), info());
   const voice = () => backend()?.voiceOf(props.person.id) ?? null;
   async function message() {
     try { props.onMessage(await backend()!.openDM(props.person.id)); props.onClose(); } catch { toast("Couldn't open a conversation.", true); }
@@ -420,9 +428,9 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
           <div class="pf-body">
             <Switch>
               <Match when={tab() === "activity"}>
-                <Show when={voice() || act()} fallback={<p class="empty">Nothing going on right now.</p>}>
+                <Show when={voice() || acts().length} fallback={<p class="empty">Nothing going on right now.</p>}>
                   <Show when={voice()}>{(v) => <VoiceBox person={props.person} v={v()} onGo={props.onClose} />}</Show>
-                  <Show when={act()}>{(a) => <ActivityCard a={a()} />}</Show>
+                  <For each={acts()}>{(a) => <ActivityCard a={a} />}</For>
                 </Show>
               </Match>
               <Match when={tab() === "friends"}>
