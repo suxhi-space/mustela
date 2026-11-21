@@ -1,6 +1,8 @@
 # Makes a GitHub release with every platform's installer, the way the app's updater expects them.
 #
 #   Push a tag like v0.2.0 (or v0.2.0-beta.1), or run it by hand from the Actions tab with a version.
+#   Run by hand, "only" builds a single platform (like linux-arm64) without making a release: its file is under
+#   Artifacts on the run's page.
 #
 # Each platform builds on its own machine (Tauri can't cross-build installers), stamped with that version and
 # pointed at this repository for updates. The release starts as a draft so you can check it, then publish it:
@@ -15,6 +17,11 @@ on:
       version:
         description: "Version to release, like 0.2.0"
         required: true
+      only:
+        description: "Build just one platform (the rest are skipped)"
+        type: choice
+        default: all
+        options: [all, windows-x64, windows-arm64, macos-x64, linux-x64, linux-arm64, android-x64]
 
 permissions:
   contents: write
@@ -27,20 +34,35 @@ env:
   VERSION: ${{ inputs.version || github.ref_name }}
 
 jobs:
+  # Which platforms to build: all of them, or the one picked under "only" when run by hand.
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        shell: bash
+        env:
+          ONLY: ${{ inputs.only || 'all' }}
+        run: |
+          all='[
+            {"platform":"windows","arch":"x64","os":"windows-latest","artifacts":"release/windows/*"},
+            {"platform":"windows","arch":"arm64","os":"windows-latest","artifacts":"release/windows-arm64/*"},
+            {"platform":"macos","arch":"x64","os":"macos-latest","artifacts":"release/macos/*"},
+            {"platform":"linux","arch":"x64","os":"ubuntu-24.04","artifacts":"release/linux/*"},
+            {"platform":"linux","arch":"arm64","os":"ubuntu-24.04-arm","artifacts":"release/linux-arm64/*"},
+            {"platform":"android","arch":"x64","os":"ubuntu-22.04","artifacts":"release/android/*"}
+          ]'
+          # ARM Windows (Snapdragon laptops) is built on the x64 machine for the ARM chip; ARM Linux (Raspberry Pi 5,
+          # Asahi) on GitHub's free ARM machines for public repositories.
+          echo "matrix=$(echo "$all" | jq -c --arg only "$ONLY" '{include: [.[] | select($only == "all" or $only == "\(.platform)-\(.arch)")]}')" >> "$GITHUB_OUTPUT"
+
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { platform: windows, arch: x64,   os: windows-latest,   artifacts: "release/windows/*" }
-          # ARM Windows (Snapdragon laptops): built from the x64 machine for the ARM chip
-          - { platform: windows, arch: arm64, os: windows-latest,   artifacts: "release/windows-arm64/*" }
-          - { platform: macos,   arch: x64,   os: macos-latest,     artifacts: "release/macos/*" }
-          - { platform: linux,   arch: x64,   os: ubuntu-24.04,     artifacts: "release/linux/*" }
-          # ARM Linux (Raspberry Pi 5, Asahi): GitHub's free ARM machines for public repositories
-          - { platform: linux,   arch: arm64, os: ubuntu-24.04-arm, artifacts: "release/linux-arm64/*" }
-          - { platform: android, arch: x64,   os: ubuntu-22.04,     artifacts: "release/android/*" }
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -89,9 +111,12 @@ jobs:
           path: ${{ matrix.artifacts }}
           if-no-files-found: error
 
+  # Only for full builds: one platform on its own (the "only" choice) leaves your releases alone; download its file
+  # from the run's page (Artifacts) instead.
   release:
     name: Draft the release
     needs: build
+    if: ${{ (inputs.only || 'all') == 'all' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v4
