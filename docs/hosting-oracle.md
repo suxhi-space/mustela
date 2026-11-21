@@ -78,7 +78,7 @@ itself), restarts it after reboots, and keeps a daily backup of its data (the la
 ## 5. Check it
 
 Open `https://servers.yourdomain.com/v1/health` in a browser. It should show something like
-`{"name":"Mustela server","version":"1.4.0",...}`. (If the page doesn't load yet, the DNS record may need a few more
+`{"name":"Mustela server","version":"1.5.0",...}`. (If the page doesn't load yet, the DNS record may need a few more
 minutes; run `sudo bash setup.sh servers.yourdomain.com` again once it works, so the certificate is made.)
 
 Then in Mustela: **Settings > Sync & servers**, put `https://servers.yourdomain.com` in the box, and **Add server**.

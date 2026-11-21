@@ -26,6 +26,12 @@ if command -v ufw >/dev/null && ufw status | grep -q active; then ufw allow 80/t
 echo "== Settings"
 [ -f .env ] || cp .env.example .env
 sed -i "s/^DOMAIN=.*/DOMAIN=$DOMAIN/" .env
+# The key that encrypts stored profiles and banners: made once, kept in .env (not in data/ or the backups).
+if ! grep -q '^DATA_KEY=.\+' .env; then
+  sed -i '/^DATA_KEY=/d' .env
+  echo "DATA_KEY=$(head -c 32 /dev/urandom | base64)" >> .env
+  chmod 600 .env
+fi
 mkdir -p data && chown 1000:1000 data
 
 echo "== Start"

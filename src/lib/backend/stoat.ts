@@ -1139,6 +1139,29 @@ export class StoatBackend implements ChatBackend {
    * Uses `banner` if given, else the current banner, else a gradient from the profile colors.
    */
   /** Everyone allowed to see a private profile: friends, plus members of the chosen servers. */
+  /**
+   * Who may see what you're doing (Mustela servers 1.5+): your friends and the people you share a Stoat server with,
+   * as far as Mustela knows them (members it has seen, and every member of servers up to 1,000 people). Worked out
+   * again every 10 minutes at most; at most 5,000 people.
+   */
+  private actAudience: { at: number; ids: string[] } | null = null;
+  async activityAudience(): Promise<string[]> {
+    if (this.actAudience && Date.now() - this.actAudience.at < 10 * 60_000) return this.actAudience.ids;
+    const ids = new Set<string>();
+    for (const u of this.client.users.toList() as any[]) if (u.relationship === "Friend") ids.add(u.id);
+    for (const m of ((this.client as any).serverMembers?.toList?.() ?? []) as any[]) { const id = m.id?.user; if (id) ids.add(id); }
+    let fetched = 0;
+    for (const s of this.client.servers.toList() as any[]) {
+      if (ids.size >= 5000 || fetched >= 25) break;
+      if ((s.approximateMemberCount ?? 0) > 1000) continue;
+      fetched++;
+      try { const { members } = await s.fetchMembers(); for (const m of members as any[]) { const id = m.id?.user ?? m.userId; if (id) ids.add(id); } } catch { /* skip that server */ }
+    }
+    ids.delete(this.sess.user_id);
+    this.actAudience = { at: Date.now(), ids: [...ids].slice(0, 5000) };
+    return this.actAudience.ids;
+  }
+
   private async audienceList(privacy: ExtSettings["privacy"]): Promise<string[]> {
     const ids = new Set<string>();
     for (const u of this.client.users.toList() as any[]) if (u.relationship === "Friend") ids.add(u.id);

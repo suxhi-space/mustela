@@ -162,10 +162,15 @@ export class Cloud {
     this.saveKey(server, r.key);
   }
 
+  /** Unlink: the server deletes everything it keeps about you (profile, banners, activity, every device's link).
+   * Servers older than 1.5 only forget this device's link. */
   async unlink(server: string) {
     const key = this.keyFor(server);
     this.saveKey(server, null);
-    if (key) await call(`${clean(server)}/${PROTOCOL}/link`, { method: "DELETE", headers: { authorization: `Bearer ${key}` } }).catch(() => {});
+    if (!key) return;
+    const auth = { authorization: `Bearer ${key}` };
+    try { await call(`${clean(server)}/${PROTOCOL}/me`, { method: "DELETE", headers: auth }); }
+    catch { await call(`${clean(server)}/${PROTOCOL}/link`, { method: "DELETE", headers: auth }).catch(() => {}); }
   }
 
   /** Links again by itself (you linked this server before, so the same one-time check is fine to repeat). */
@@ -261,11 +266,21 @@ export class Cloud {
     return p;
   }
 
-  /** null clears it. Servers forget activity that isn't refreshed for a few minutes. */
-  setActivity(activities: Activity[]) {
-    // `activity` for servers older than 1.4, which keep just one.
-    const body = JSON.stringify({ activity: activities[0] ?? null, activities });
-    return this.eachLinked((s, k) => call(`${s}/${PROTOCOL}/activity`, { method: "PUT", headers: { authorization: `Bearer ${k}` }, body }));
+  /** The audience each server last took, so the (long) list is only sent again when it changed. */
+  private sentAllow = new Map<string, string>();
+  /**
+   * What you're doing. `allow`: who may see it (your friends and people you share a server with; servers 1.5+).
+   * An empty list clears it. Servers forget activity that isn't refreshed for a few minutes.
+   */
+  setActivity(activities: Activity[], allow?: string[]) {
+    const sig = allow ? `${allow.length}:${allow.join(",")}` : "";
+    return this.eachLinked(async (s, k) => {
+      // `activity` for servers older than 1.4, which keep just one.
+      const withAllow = allow && this.sentAllow.get(s) !== sig;
+      await call(`${s}/${PROTOCOL}/activity`, { method: "PUT", headers: { authorization: `Bearer ${k}` },
+        body: JSON.stringify({ activity: activities[0] ?? null, activities, ...(withAllow ? { allow } : {}) }) });
+      if (withAllow) this.sentAllow.set(s, sig);
+    });
   }
 
   /** Signed in where we're linked, so private profiles we're allowed to see come back too. */
@@ -284,9 +299,13 @@ export class Cloud {
   private single(s: string, userId: string): Promise<RawProfile | null> {
     return call<RawProfile>(`${s}/${PROTOCOL}/profile/${encodeURIComponent(userId)}`, { headers: this.auth(s) }).catch((e: Error) => {
       if (/No profile here/.test(e.message)) return null;
+      if (NEEDS_LINK.test(e.message)) { this.needsLink.add(s); return null; }
       throw e;
     });
   }
+  /** Servers (1.5+) that only answer linked people, and this device isn't linked there: not asked until it is. */
+  private needsLink = new Set<string>();
+  private readable = (s: string) => !this.needsLink.has(s) || this.linked(s);
   private async flush(s: string) {
     const q = this.queued.get(s);
     if (!q) return;
@@ -295,6 +314,7 @@ export class Cloud {
       const r = await call<{ profiles?: Record<string, RawProfile> }>(`${s}/${PROTOCOL}/profiles`, { method: "POST", headers: this.auth(s), body: JSON.stringify({ ids: [...q.keys()] }) });
       for (const [id, ws] of q) for (const w of ws) w.resolve(r.profiles?.[id] ?? null);
     } catch (e) {
+      if (NEEDS_LINK.test((e as Error).message)) { this.needsLink.add(s); for (const ws of q.values()) for (const w of ws) w.resolve(null); return; }
       if (!/^Not found\.?$/.test((e as Error).message)) { for (const ws of q.values()) for (const w of ws) w.reject(e); return; }
       // An older server: ask for each person on their own from now on.
       this.oneByOne.add(s);
@@ -308,7 +328,7 @@ export class Cloud {
     if (fresh) this.cache.delete(userId);
     let p = this.cache.get(userId);
     if (!p) {
-      p = Promise.allSettled(this.servers.map((s) => this.fromServer(s, userId).then((v) => { if (!v) throw new Error("none"); return { v, s }; })))
+      p = Promise.allSettled(this.servers.filter(this.readable).map((s) => this.fromServer(s, userId).then((v) => { if (!v) throw new Error("none"); return { v, s }; })))
         .then((rs) => {
           let best: CloudProfile | null = null;
           for (const r of rs) {
@@ -332,6 +352,8 @@ export class Cloud {
   }
 }
 
+/** A 1.5+ server that only answers people who linked it. */
+const NEEDS_LINK = /Link this server to see/;
 const https = (u: string | undefined) => (u && /^https:\/\//.test(u) ? u : undefined);
 function cleanButtons(b: unknown): Activity["buttons"] {
   if (!Array.isArray(b)) return undefined;

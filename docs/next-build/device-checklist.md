@@ -7,13 +7,17 @@ clock changed). These need the real thing. The build1 list below still applies (
 
 ## First: update your server
 - [ ] Push to GitHub, then on the server: `cd mustela/server/deploy && bash update.sh`
-- [ ] `https://mustela.suxhi.space/v1/health` shows `"version":"1.4.0"`
+- [ ] Run `bash update.sh` twice this time (the first run pulls the new script, the second makes the encryption key)
+- [ ] `https://mustela.suxhi.space/v1/health` shows `"version":"1.5.0"`
+- [ ] Copy the `DATA_KEY=` line from `mustela/server/deploy/.env` into a password manager (backups need it)
 
 ## Mustela servers (you and a friend, both on build2)
 - [ ] A fresh install already lists Mustela's server; you see each other's decorations and banners before linking
 - [ ] Link on both: each sees the other's activity (a game, and music at the same time) within about a minute
 - [ ] Close and reopen Mustela: still linked, nothing asks to link again
 - [ ] Remove Mustela's server on one device: it stays removed on your other devices; **Use** brings it back
+- [ ] **Unlink** asks first; after it, your friend no longer sees your extras; **Link** again brings them back (your other devices link again by themselves)
+- [ ] Windows: popping out a call opens Mustela's window by default
 
 ## Activity (computer)
 - [ ] Settings > Activity > Add a program: pick Krita (or any program), name it, choose Playing; it shows on your card and your friend's view

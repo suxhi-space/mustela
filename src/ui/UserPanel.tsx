@@ -153,11 +153,12 @@ function MeCard(props: { onClose(): void }) {
   let card!: HTMLDivElement;
   onMount(() => { if (MOBILE_UI) dragToClose(card, props.onClose, { full: true }); });
   // Computers: a click outside closes the card and still does what you clicked (a text box gets the cursor straight
-  // away). Menus opened from the card and the nameplate itself (which toggles the card) don't count as outside.
+  // away). Menus and the emoji picker opened from the card, and the nameplate itself (which toggles the card), don't
+  // count as outside.
   if (!MOBILE_UI) {
     const outside = (e: PointerEvent) => {
       const t = e.target as Element | null;
-      if (!t || card.contains(t) || t.closest(".up-me, .ctx, .ctx-scrim, .scrim, .modal, .toast")) return;
+      if (!t || card.contains(t) || t.closest(".up-me, .ctx, .ctx-scrim, .scrim, .modal, .toast, .emoji-scrim, .emoji-pop, .gif-pop")) return; // the status emoji picker belongs to the card
       props.onClose();
     };
     onMount(() => document.addEventListener("pointerdown", outside, true));

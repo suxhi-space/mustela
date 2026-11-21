@@ -375,6 +375,8 @@ export interface AccountApi {
 export interface ChatBackend {
   /** Mustela servers (profiles and activity beyond what Stoat stores) */
   readonly cloud: Cloud;
+  /** Who may see what you're doing on Mustela servers: your friends and people you share a server with. */
+  activityAudience?(): Promise<string[]>;
   /** Stoat account management; absent for accounts that have none (demo has a pretend one). */
   readonly account: AccountApi;
   readonly me: Person;

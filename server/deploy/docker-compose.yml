@@ -8,6 +8,8 @@ services:
       NAME: ${NAME:-Mustela server}
       TRUST_PROXY: "1"
       STOAT_APIS: ${STOAT_APIS:-https://stoat.chat/api}
+      # Encrypts the stored profiles and banners (made by setup.sh / update.sh, kept only in .env)
+      DATA_KEY: ${DATA_KEY:-}
     volumes:
       - ./data:/data
     expose:

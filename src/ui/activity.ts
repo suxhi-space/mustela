@@ -97,7 +97,11 @@ export function startActivity() {
       if (!out.length && !sentSomething) return;
       const send = async () => {
         let ok = false;
-        try { const r = await b.cloud.setActivity(out); ok = r.tried > 0 && r.failed < r.tried; } catch { /* retried below */ }
+        try {
+          // Only your friends and people you share a server with see it (Mustela servers 1.5+).
+          const allow = out.length ? await b.activityAudience?.().catch(() => undefined) : undefined;
+          const r = await b.cloud.setActivity(out, allow); ok = r.tried > 0 && r.failed < r.tried;
+        } catch { /* retried below */ }
         if (ok) sentSomething = out.length > 0;
         if (out.length || !ok) timer = setTimeout(() => void send(), ok ? 60_000 : 15_000);
       };

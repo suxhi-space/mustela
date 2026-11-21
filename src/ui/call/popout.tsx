@@ -99,17 +99,18 @@ function cleanup() {
 }
 
 /**
- * Windows: the pop-out is WebView2's own pop-up by default. Mustela's own window (src-tauri/src/lib.rs, popout_window)
- * froze when made during the pop-up request, so it's now made first (popout_prepare) and handed over; still an
- * experimental choice in Settings > Voice & Video until it's proven. Each try is noted first and
+ * Windows: the pop-out is Mustela's own window (src-tauri/src/lib.rs, popout_window). It froze when made during
+ * WebView2's pop-up request, so it's made first (popout_prepare) and handed over (tested working on Windows in
+ * 0.1.8-build2). Windows' own pop-up stays a choice in Settings > Voice & Video. Each try is noted first and
  * cleared once the window has worked for a few seconds: a note still there on the next try means the last one froze,
  * and it goes back to WebView2's pop-up.
  */
 const TRYING = "mustela:popout-trying", NATIVE = "mustela:popout-native";
 const store = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k: string, v: string | null) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* storage off */ } } };
-export const popoutKind = () => (platform !== "windows" || store.get(NATIVE) ? "mustela" : "system");
-export function setPopoutKind(k: "mustela" | "system") { store.set(NATIVE, k === "mustela" ? "1" : null); store.set(TRYING, null); }
+/** Mustela's window unless you picked Windows' pop-up (or it froze once and switched by itself): stored as "0". */
+export const popoutKind = () => (platform !== "windows" || store.get(NATIVE) !== "0" ? "mustela" : "system");
+export function setPopoutKind(k: "mustela" | "system") { store.set(NATIVE, k === "mustela" ? null : "0"); store.set(TRYING, null); }
 
 export async function showPopout() {
   if (win && !win.closed) { win.focus(); return; }

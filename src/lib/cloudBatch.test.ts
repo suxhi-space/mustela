@@ -65,3 +65,18 @@ describe("a Mustela server that forgot this device's link", () => {
     expect(c.keyFor("https://srv.example")).toBe("new-key");
   });
 });
+
+describe("a Mustela server that only answers linked people", () => {
+  it("shows no profile and stops asking until you link it", async () => {
+    let asked = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/profiles") || url.includes("/profile/")) { asked++; return json(401, { error: "Link this server to see profiles." }); }
+      return json(404, { error: "Not found." });
+    }));
+    const c = new Cloud("https://stoat.chat/api", () => "a-stoat-session-token", () => "me");
+    c.setServers(["https://locked.example"]);
+    expect(await c.fetchProfile("01ARZ3NDEKTSV4RRFFQ69G5FAV")).toBeNull();
+    expect(await c.fetchProfile("01BX5ZZKBKACTAV9WEVGEMMVRZ", true)).toBeNull();
+    expect(asked).toBe(1); // the second person wasn't asked for: the server needs a link first
+  });
+});

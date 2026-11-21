@@ -64,7 +64,7 @@ restarts it after reboots, and keeps a daily backup of its data (the last 14 day
 ## 5. Check it
 
 1. In a browser, open `https://servers.yourdomain.com/v1/health`. It should show a short line like
-   `{"name":"Mustela server","version":"1.4.0",...}`.
+   `{"name":"Mustela server","version":"1.5.0",...}`.
    - Doesn't load yet? The DNS record may need a few more minutes. Then run the setup line again
      (`sudo bash setup.sh servers.yourdomain.com`) so the certificate gets made.
 2. In Mustela: **Settings > Sync & servers**, put `https://servers.yourdomain.com` in the server box > **Add server** >
@@ -77,7 +77,7 @@ All from the `mustela/server/deploy` folder after logging in (`ssh root@THE_IP`,
 
 | To | Run |
 |---|---|
-| Update the server (after a Mustela release changes it) | `bash update.sh` |
+| Update the server (after a Mustela release changes it) | `bash update.sh` (the first time after 0.1.8-build2: run it twice) |
 | See what it's doing | `sudo docker compose logs --tail 50 mustela` |
 | Restart it | `sudo docker compose restart` |
 | Restore a backup | `sudo docker compose down`, then `sudo tar xzf backups/data-DATE.tgz`, then `sudo docker compose up -d` |
@@ -89,6 +89,10 @@ All from the `mustela/server/deploy` folder after logging in (`ssh root@THE_IP`,
   or what people send.
 - **What it keeps:** profile settings and per-server banners (pictures, 512 KB at most) in `data/`, and what people are
   playing (in memory only, gone after 3 minutes or a restart).
+- **Encrypted storage:** the setup makes a key (`DATA_KEY` in `mustela/server/deploy/.env`) and the server stores
+  profiles and banners encrypted with it, so the data folder and the daily backups can't be read on their own.
+  **Keep a copy of that line somewhere safe** (a password manager): without it, the backups can't be restored.
+- **Unlinking deletes:** when someone unlinks the server in Mustela, everything it keeps about them is deleted.
 - **Cost:** only the server rent. The HTTPS certificate is free and renews by itself.
 - **Free option:** Oracle Cloud's "Always Free" machine also works, but it's often "out of capacity". See
   [hosting-oracle.md](hosting-oracle.md).

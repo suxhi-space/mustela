@@ -131,9 +131,9 @@ export function VoiceVideo() {
 
       <Show when={platform === "windows" && inTauri()}>
         <Group title="Windows">
-          <Row label="Call pop-out" hint="Mustela's window (with Mustela's title bar) is still being fixed on Windows and can freeze Mustela. If it does, it goes back to Windows' pop-up by itself.">
+          <Row label="Call pop-out" hint="Mustela's window has Mustela's title bar and icon. If it ever freezes Mustela, the next start switches to Windows' pop-up by itself.">
             <Seg label="Call pop-out" value={popKind()} onChange={(k) => { setPopoutKind(k); setPopKind(k); }}
-              options={[{ v: "system", label: "Windows' pop-up" }, { v: "mustela", label: "Mustela's window (experimental)" }]} />
+              options={[{ v: "system", label: "Windows' pop-up" }, { v: "mustela", label: "Mustela's window" }]} />
           </Row>
         </Group>
       </Show>

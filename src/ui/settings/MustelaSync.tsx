@@ -10,8 +10,19 @@ import { backend, book, ext, settings, syncState, updateExt, updateSettings } fr
 const SYNC_TEXT = { local: "Saved on this device", syncing: "Syncing…", synced: "Synced to your Stoat account", error: "Sync paused. It retries on your next change." } as const;
 
 /** Mustela's own settings: where your extras are stored and how to back them up. */
+/** Who your extras show to, for the server line (from "Who can see my profile"). */
+const AUDIENCE: Record<string, string> = { everyone: "everyone", friends: "your friends", "friends+servers": "your friends and the servers you picked" };
+
 export function MustelaSync() {
   const b = () => backend()!;
+  /** Unlinking deletes what this server keeps about you, so it asks first. */
+  async function unlinkAsk(s: string) {
+    const name = s === OFFICIAL ? "Mustela's server" : new URL(s).host;
+    if (!(await confirmDialog(`Unlink ${name}?`, "It deletes your decorations, banners and activity from that server, for all your devices. Your profile stays on this device, and you can link again any time.", "Unlink and delete", true))) return false;
+    await b().cloud.unlink(s);
+    toast(`Unlinked. Your data is deleted from ${name}.`);
+    return true;
+  }
   const [url, setUrl] = createSignal("");
   const [err, setErr] = createSignal("");
   const [tick, setTick] = createSignal(0);
@@ -65,14 +76,14 @@ export function MustelaSync() {
           const [h] = createResource(() => [s, tick()] as const, ([u]) => b().cloud.health(u));
           const linked = () => (tick(), b().cloud.linked(s));
           return (
-            <Row icon="cloud" label={s === OFFICIAL ? "Mustela's server" : new URL(s).host} hint={h.loading ? "Checking…" : !h()?.ok ? h()?.error ?? "Not reachable" : `${h()?.name ?? "Mustela server"}${h()?.version ? ` ${h()!.version}` : ""}. ${linked() ? "Linked: publishing your profile" : "Reading only"}`}>
+            <Row icon="cloud" label={s === OFFICIAL ? "Mustela's server" : new URL(s).host} hint={h.loading ? "Checking…" : !h()?.ok ? h()?.error ?? "Not reachable" : `${h()?.name ?? "Mustela server"}${h()?.version ? ` ${h()!.version}` : ""}. ${linked() ? `Linked: your extras show to ${AUDIENCE[ext().privacy.mode] ?? "everyone"}` : "Not linked: press Link to see people's extras and share yours"}`}>
               <span class={`status-dot ${h()?.ok ? (linked() ? "ok" : "warn") : h.loading ? "" : "bad"}`} aria-hidden="true" />
               <Show when={!isDemo()}>
                 <Show when={linked()} fallback={<button class="btn small" onClick={() => void attempt(() => b().cloud.link(s), "Linked").then(() => setTick(tick() + 1))}>Link</button>}>
-                  <button class="btn small" onClick={() => void b().cloud.unlink(s).then(() => setTick(tick() + 1))}>Unlink</button>
+                  <button class="btn small" onClick={() => void unlinkAsk(s).then((ok) => ok && setTick(tick() + 1))}>Unlink</button>
                 </Show>
               </Show>
-              <button class="icon-btn" aria-label={`Remove ${s}`} title="Remove" onClick={() => { void b().cloud.unlink(s); setCloud({ servers: servers().filter((x) => x !== s) }); }}><Icon name="trash" size={16} /></button>
+              <button class="icon-btn" aria-label={`Remove ${s}`} title="Remove" onClick={() => void (async () => { if (b().cloud.linked(s) && !(await unlinkAsk(s))) return; if (!b().cloud.linked(s)) void b().cloud.unlink(s); setCloud({ servers: servers().filter((x) => x !== s) }); })()}><Icon name="trash" size={16} /></button>
             </Row>
           );
         }}</For>
@@ -89,7 +100,14 @@ export function MustelaSync() {
       </Group>
 
       <Group title="Profile in your banner" hint="Mustela can also hide your profile in a thin strip at the bottom of your Stoat banner. It works with no server at all, but other apps show the strip as a gray line.">
-        <Row label="Keep a copy in my banner"><Switch label="Keep a copy in my banner" on={settings().cloud.banner} onChange={(banner) => setCloud({ banner })} /></Row>
+        <Row label="Keep a copy in my banner" hint="People who haven't linked a Mustela server still see your profile from it. Off: only through your Mustela servers."><Switch label="Keep a copy in my banner" on={settings().cloud.banner} onChange={(banner) => setCloud({ banner })} /></Row>
+        <Show when={settings().cloud.banner}>
+          <p class="set-warn" role="note"><Icon name="info" size={16} />
+            <span><Show when={ext().privacy.mode === "everyone"} fallback={<><b>Not in your banner right now:</b> your profile is set to {ext().privacy.mode === "friends" ? "Friends" : "Friends + servers"}, and anyone can read a banner, so Mustela leaves it out. It goes back in if you choose Everyone.</>}>
+              <b>Anyone can see the copy in your banner,</b> even without Mustela, so "Who can see my profile" can't limit it. Choosing Friends or Friends + servers takes it out of your banner.
+            </Show></span>
+          </p>
+        </Show>
       </Group>
 
       <Group title="Backup" hint="A file with everything that syncs. Useful before trying lots of changes.">

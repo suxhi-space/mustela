@@ -25,16 +25,22 @@
  * owner can change their profile. A profile is public unless its owner chose an
  * audience ("friends", or friends and chosen servers): then it's only returned to
  * linked viewers on the owner's allow list, and everyone else gets "no profile".
- * Per-server banners follow the same rule. They're plain pictures (checked to be
+ * Reading anything needs a link too (1.5): a browser or anyone without one gets nothing. What someone is playing
+ * only goes to the people their app lists (friends, people they share a server with). Per-server banners follow
+ * the profile's rule. They're plain pictures (checked to be
  * PNG, JPEG, WebP or GIF, at most 512 KB), stored as files next to data.json.
+ * With DATA_KEY set, data.json and the banners are stored encrypted (AES-256-GCM). Link keys are kept only as
+ * SHA-256 hashes. Nothing about requests is logged. Unlinking from the app (DELETE /me) deletes everything kept
+ * about that person: profile, banners, activity and every device's link.
  */
 import { createServer } from "node:http";
-import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 const MAX_ALLOW = 5000;
+const NEED_LINK = "Link this server to see profiles.";
 const MAX_BATCH = 100;
 const MAX_ACTIVITIES = 5;
 const PROTOCOL = "v1";
@@ -55,9 +61,53 @@ mkdirSync(DATA_DIR, { recursive: true });
 const IMAGES = join(DATA_DIR, "images");
 mkdirSync(IMAGES, { recursive: true });
 const FILE = join(DATA_DIR, "data.json");
+
+/*
+ * Encryption on disk: with DATA_KEY set (32 random bytes, base64; setup.sh makes one and keeps it in .env, outside
+ * the data folder and its backups), data.json and every banner are stored sealed with AES-256-GCM. The files and the
+ * daily backups are unreadable without the key, and tampering is detected. Without DATA_KEY, plain files as before.
+ * Old plain files are read as they are and sealed the next time they're written (data.json and banners at start).
+ */
+const MAGIC = Buffer.from("MSE1");
+const DATA_KEY = (() => {
+  const k = process.env.DATA_KEY ? Buffer.from(process.env.DATA_KEY, "base64") : null;
+  if (k && k.length !== 32) { console.error("DATA_KEY must be 32 bytes, base64 (setup.sh makes one)."); process.exit(1); }
+  return k;
+})();
+const sealed = (b) => b.length > 32 && b.subarray(0, 4).equals(MAGIC);
+function seal(plain) {
+  if (!DATA_KEY) return plain;
+  const iv = randomBytes(12), c = createCipheriv("aes-256-gcm", DATA_KEY, iv);
+  const body = Buffer.concat([c.update(plain), c.final()]);
+  return Buffer.concat([MAGIC, iv, c.getAuthTag(), body]);
+}
+function unseal(b) {
+  if (!sealed(b)) return b;
+  if (!DATA_KEY) throw new Error("This data is encrypted: start the server with its DATA_KEY.");
+  const d = createDecipheriv("aes-256-gcm", DATA_KEY, b.subarray(4, 16));
+  d.setAuthTag(b.subarray(16, 32));
+  return Buffer.concat([d.update(b.subarray(32)), d.final()]);
+}
+const writeSealed = (file, bytes) => { const tmp = file + ".tmp"; writeFileSync(tmp, seal(bytes), { mode: 0o600 }); renameSync(tmp, file); };
+
 /** keys: sha256(key) -> userId; users: userId -> { profile, updatedAt, audience?, images? } (images: serverId -> { type, at }) */
 let db = { keys: {}, users: {} };
-try { db = { keys: {}, users: {}, ...JSON.parse(readFileSync(FILE, "utf8")) }; } catch { /* first run */ }
+let raw = null;
+try { raw = readFileSync(FILE); } catch { /* first run */ }
+if (raw) {
+  // A missing or wrong key stops here, before anything is overwritten.
+  try { db = { keys: {}, users: {}, ...JSON.parse(unseal(raw).toString("utf8")) }; }
+  catch (e) { console.error(sealed(raw) ? "Can't read data.json: DATA_KEY is missing or isn't the key it was saved with." : `Can't read data.json: ${e.message}`); process.exit(1); }
+}
+// Seal what was stored plain before DATA_KEY was set.
+if (DATA_KEY) {
+  if (raw && !sealed(raw)) writeSealed(FILE, Buffer.from(JSON.stringify(db)));
+  for (const f of readdirSync(IMAGES)) {
+    if (f.endsWith(".tmp")) continue;
+    const p = join(IMAGES, f), b = readFileSync(p);
+    if (!sealed(b)) writeSealed(p, b);
+  }
+}
 /** Activity lives in memory only: it's stale within minutes anyway. */
 const activity = new Map();
 
@@ -65,9 +115,7 @@ let saveTimer;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const tmp = FILE + ".tmp";
-    writeFileSync(tmp, JSON.stringify(db), { mode: 0o600 }); // only this server's user can read it
-    renameSync(tmp, FILE);
+    writeSealed(FILE, Buffer.from(JSON.stringify(db))); // sealed with DATA_KEY; only this server's user can read it
   }, 500);
 }
 
@@ -200,6 +248,9 @@ function profileFor(uid, viewer) {
   let u = db.users[uid];
   let act = activity.get(uid);
   if (u && !canSee(u, uid, viewer)) { u = undefined; act = undefined; }
+  // What you're doing: only your friends and people you share a Stoat server with (your app sends that list), even
+  // when your profile is for everyone. Apps from before 1.5 send no list: then linked viewers, as before.
+  if (act && viewer !== uid && u?.actAllow && !u.actAllow.includes(viewer)) act = undefined;
   if (!u && !act) return null;
   // images: which servers have a banner here, and when it last changed (for cache-busting links).
   const images = u?.images ? Object.fromEntries(Object.entries(u.images).map(([k, v]) => [k, v.at])) : undefined;
@@ -229,6 +280,19 @@ const routes = {
   "DELETE /link": async (req) => {
     const who = userFor(req);
     if (who) { delete db.keys[who.h]; save(); }
+    return [204];
+  },
+
+  /** Unlinking from the app: everything about this person goes (profile, banners, activity, every device's link). */
+  "DELETE /me": async (req) => {
+    const who = userFor(req);
+    if (!who) return [401, { error: "Link this server again." }];
+    for (const [h, uid] of Object.entries(db.keys)) if (uid === who.uid) delete db.keys[h];
+    const u = db.users[who.uid];
+    for (const sid of Object.keys(u?.images ?? {})) rmSync(join(IMAGES, `${who.uid}-${sid}`), { force: true });
+    delete db.users[who.uid];
+    activity.delete(who.uid);
+    save();
     return [204];
   },
 
@@ -262,6 +326,7 @@ const routes = {
     const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((x) => typeof x === "string" && ID_RE.test(x)))].slice(0, MAX_BATCH) : null;
     if (!ids) return [400, { error: "Missing ids." }];
     const viewer = userFor(req)?.uid;
+    if (!viewer) return [401, { error: NEED_LINK }];
     const profiles = {};
     for (const id of ids) { const p = profileFor(id, viewer); if (p) profiles[id] = p; }
     return [200, { profiles }];
@@ -274,6 +339,12 @@ const routes = {
     // 1.4: several at once (a game and music, like Discord). Older apps send just `activity`; they get the first back.
     const list = (Array.isArray(body.activities) ? body.activities : [body.activity]).map(cleanActivity).filter(Boolean).slice(0, MAX_ACTIVITIES);
     if (list.length) activity.set(who.uid, { a: list[0], all: list, expires: Date.now() + ACTIVITY_TTL }); else activity.delete(who.uid);
+    // 1.5: who may see it (friends and people you share a server with). Sent when it changes; kept until replaced.
+    if (Array.isArray(body.allow)) {
+      const u = (db.users[who.uid] ??= { profile: null, updatedAt: Date.now() });
+      u.actAllow = [...new Set(body.allow.filter((x) => typeof x === "string" && ID_RE.test(x)))].slice(0, MAX_ALLOW);
+      save();
+    }
     return [204];
   },
 };
@@ -310,9 +381,7 @@ const server = createServer(async (req, res) => {
       if (!type) return send(res, 415, { error: "Send a PNG, JPEG, WebP or GIF picture." });
       u.images ??= {};
       if (!u.images[sid] && Object.keys(u.images).length >= MAX_IMAGES_PER_USER) return send(res, 409, { error: "That's as many server banners as one person can have." });
-      const tmp = file + ".tmp";
-      writeFileSync(tmp, bytes);
-      renameSync(tmp, file);
+      writeSealed(file, bytes);
       u.images[sid] = { type, at: Date.now() };
       save();
       return send(res, 200, { at: u.images[sid].at });
@@ -323,9 +392,11 @@ const server = createServer(async (req, res) => {
       if (!ID_RE.test(uid) || !ID_RE.test(sid)) return send(res, 400, { error: "That isn't an id." });
       const u = db.users[uid];
       const meta = u?.images?.[sid];
-      if (!meta || !canSee(u, uid, userFor(req)?.uid)) return send(res, 404, { error: "No picture here." });
+      const viewer = userFor(req)?.uid;
+      if (!viewer) return send(res, 401, { error: NEED_LINK });
+      if (!meta || !canSee(u, uid, viewer)) return send(res, 404, { error: "No picture here." });
       let bytes;
-      try { bytes = readFileSync(join(IMAGES, `${uid}-${sid}`)); } catch { return send(res, 404, { error: "No picture here." }); }
+      try { bytes = unseal(readFileSync(join(IMAGES, `${uid}-${sid}`))); } catch { return send(res, 404, { error: "No picture here." }); }
       res.writeHead(200, {
         "content-type": meta.type, "content-length": bytes.length,
         "access-control-allow-origin": "*", "cache-control": u.audience ? "private, max-age=300" : "public, max-age=300",
@@ -337,7 +408,9 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && prof) {
       const uid = decodeURIComponent(prof[1]);
       if (!ID_RE.test(uid)) return send(res, 400, { error: "That isn't a user id." });
-      const p = profileFor(uid, userFor(req)?.uid);
+      const viewer = userFor(req)?.uid;
+      if (!viewer) return send(res, 401, { error: NEED_LINK });
+      const p = profileFor(uid, viewer);
       return p ? send(res, 200, p) : send(res, 404, { error: "No profile here." });
     }
     const h = routes[`${req.method} ${rest}`];
@@ -355,4 +428,4 @@ server.headersTimeout = 15_000;
 server.requestTimeout = 30_000;
 server.keepAliveTimeout = 5_000;
 server.listen(PORT, HOST, () => console.log(`${NAME} ${VERSION} on http://${HOST}:${PORT}/${PROTOCOL}/health · accounts from ${APIS.join(", ")}`));
-for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { clearTimeout(saveTimer); try { writeFileSync(FILE, JSON.stringify(db)); } catch { /* best effort */ } process.exit(0); });
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { clearTimeout(saveTimer); try { writeSealed(FILE, Buffer.from(JSON.stringify(db))); } catch { /* best effort */ } process.exit(0); });

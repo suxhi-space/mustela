@@ -623,8 +623,10 @@ a.em-title:hover { text-decoration: underline; }
 .pc-more { color: var(--pc-label); }
 .pc-actions { margin-top: 10px; display: flex; gap: 8px; position: relative; z-index: 6; }
 /* On someone's themed card the buttons are in their colours, not the app theme's (yours) */
-.pcard.themed .pc-actions .btn.primary { --face: var(--pc-btn); --ink: var(--pc-on-btn); background: var(--pc-btn); background-image: none; color: var(--pc-on-btn); } /* --face: the raised edge in the button's own colour, not the app's */
-.pcard.themed .pc-actions .btn.primary:hover { background: color-mix(in srgb, var(--pc-btn) 86%, var(--pc-on-btn)); }
+/* :root in front: beats the gradient theme's filled buttons (an equal-weight rule written later), so a card with
+   Profile colours always uses them for its buttons; cards without keep the app's look. */
+:root .pcard.themed .pc-actions .btn.primary { --face: var(--pc-btn); --ink: var(--pc-on-btn); background: var(--pc-btn); background-image: none; color: var(--pc-on-btn); } /* --face: the raised edge in the button's own colour, not the app's */
+:root .pcard.themed .pc-actions .btn.primary:hover { background: color-mix(in srgb, var(--pc-btn) 86%, var(--pc-on-btn)); }
 .pcard.themed .pc-actions .btn:not(.primary) { background: color-mix(in srgb, var(--pc-fg) 14%, transparent); color: var(--pc-fg); }
 .pcard.themed .pc-actions .btn:not(.primary):hover { background: color-mix(in srgb, var(--pc-fg) 22%, transparent); }
 .pcard .fx, .pcard canvas.fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
@@ -1380,18 +1382,23 @@ summary { cursor: pointer; color: var(--pri); font-weight: 800; margin-bottom: 6
 .up-btn.off { color: var(--busy); background: color-mix(in srgb, var(--busy) 16%, transparent); }
 .up-chev { width: 14px; height: 32px; margin: 0 2px 0 -2px; border-radius: 6px; border: 0; background: none; color: var(--fg2); display: grid; place-items: center; padding: 0; }
 .up-chev:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
-.mecard { position: fixed; left: 8px; bottom: 74px; width: 320px; max-height: calc(100vh - 100px); overflow-y: auto; scrollbar-width: none; border-radius: var(--rad); z-index: 71; animation: pop-in .12s ease-out; }
+.mecard { position: fixed; left: 8px; bottom: 74px; width: 320px; max-height: calc(100vh - 84px); overflow-y: auto; scrollbar-width: none; border-radius: var(--rad); z-index: 71; animation: pop-in .12s ease-out; }
 :root[data-titlebar] .mecard { bottom: 74px; }
 /* Your card: the controls stick to its bottom, with a soft blurred fade above them, so a long About me or a few
    activities scroll underneath instead of pushing them out of reach. The card clips its corners with "clip" here (not
    "hidden"), which is what lets them stick; engines without "clip" keep the plain layout. */
 .mecard .pcard { overflow: hidden; overflow: clip; }
-.me-dock { position: sticky; bottom: 0; z-index: 7; margin: 0 -18px -18px; padding: 0 18px 14px;
+.me-dock { position: sticky; bottom: 0; z-index: 7; margin: 34px -18px -18px; padding: 0 18px 14px; /* 34px: room to scroll the end of your profile clear of the fade */
   background: color-mix(in srgb, var(--pc-bg2) 84%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
 .me-dock::before { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 34px; pointer-events: none;
   background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--pc-bg2) 84%, transparent));
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000); mask-image: linear-gradient(to bottom, transparent, #000); }
+/* A warning in Settings (e.g. what "Keep a copy in my banner" means for who can see it). */
+.set-warn { display: flex; gap: 10px; align-items: flex-start; margin: 4px 12px 10px; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.45;
+  color: var(--fg); background: color-mix(in srgb, #f0b232 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, #f0b232 35%, transparent); }
+.set-warn .ic { flex: none; margin-top: 1px; color: #f0b232; }
+:root[data-mode="light"] .set-warn .ic { color: #a86e00; }
 .me-list { margin-top: 10px; border-radius: 12px; background: color-mix(in srgb, var(--pc-fg) 7%, transparent); padding: 4px; position: relative; z-index: 6; display: flex; flex-direction: column; }
 .me-row { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: 9px; border: 0; background: none; color: var(--pc-fg); font-weight: 750; text-align: left; }
 .me-row span:not(.pdot) { flex: 1; }
