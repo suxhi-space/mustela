@@ -322,6 +322,7 @@ async function playEntrySound(h: VoiceHandle) {
 export function applyVoicePrefs() {
   const h = handle(), v = device().voice;
   h?.setOutputVolume?.(v.outputVolume);
+  h?.setSoundsHeard?.(v.soundsHeard);
   h?.setInputVolume?.(v.inputVolume);
   h?.setSensitivity?.(v.autoSensitivity, v.threshold);
 }
@@ -351,8 +352,12 @@ async function nativeCmd<T = void>(name: string, args?: Record<string, unknown>)
 export const [overlayAllowed, setOverlayAllowed] = createSignal(false);
 export async function checkOverlay() { setOverlayAllowed(!!(await nativeCmd<{ allowed: boolean }>("overlay_allowed"))?.allowed); }
 export async function requestOverlay() { setOverlayAllowed(!!(await nativeCmd<{ allowed: boolean }>("request_overlay"))?.allowed); }
-/** The bubble, when you've allowed it and want it; picture-in-picture otherwise. */
-const bubble = () => overlayAllowed() && device().callOverlay !== "pip";
+/** Watching someone's stream right now. */
+const watchingStream = () => (tick(), call.streams().some((s) => s.watching));
+/** The bubble, when you've allowed it and want it ("Streams in PiP": unless you're watching a stream). */
+const bubble = () => overlayAllowed() && (device().callOverlay === "bubble" || (device().callOverlay === "streams" && !watchingStream()));
+/** Picture-in-picture when leaving the app: whenever there's no bubble, except "Streams in PiP" with no stream. */
+const pipOnLeave = () => !bubble() && (device().callOverlay !== "streams" || watchingStream());
 
 if (android()) {
   void checkOverlay();
@@ -373,8 +378,8 @@ createRoot(() => {
   });
   // The floating window's settings only when they change (square or wide, on or off). Sending them on every call
   // update (several a second while people talk) made Android snap the window back, so it couldn't be resized.
-  const pipShape = createMemo(() => (android() ? `${handle() !== null && !bubble()}:${pipWide()}` : ""));
-  createEffect(whenChanged(pipShape, (k) => { if (k) void pip(false, handle() !== null && !bubble()); }));
+  const pipShape = createMemo(() => (android() ? `${handle() !== null && pipOnLeave()}:${pipWide()}` : ""));
+  createEffect(whenChanged(pipShape, (k) => { if (k) void pip(false, handle() !== null && pipOnLeave()); }));
 });
 
 /* ---------- pop-out (desktop) ---------- */

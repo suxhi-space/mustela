@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createRoot, createSignal, on, onCleanup } from "solid-js";
 import type { Activity } from "../lib/cloud";
 import { inTauri } from "../lib/platform";
-import { backend, device, platform } from "./store";
+import { backend, device, platform, settings } from "./store";
 
 /**
  * Your activity ("Playing …"), kept apart from your status and status message
@@ -57,16 +57,25 @@ export function startActivity() {
     const retry = setInterval(() => { if (status().rpc === "busy") void apply(); }, 15_000);
     onCleanup(() => clearInterval(retry));
 
-    // Share it: immediately on change, then a heartbeat so servers know it's still true.
-    let timer: ReturnType<typeof setInterval> | undefined;
-    createEffect(on(() => [activity.current(), device().activity.share, backend()] as const, ([a, share, b]) => {
-      clearInterval(timer);
+    // Share it: immediately on change, then a heartbeat so servers know it's still true. A device with nothing to
+    // show only clears what it sent itself, so it never wipes what your other computer is sharing. A send that
+    // didn't get through is tried again soon rather than at the next heartbeat.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let sentSomething = false;
+    createEffect(on(() => [activity.current(), device().activity.share, backend(), settings().cloud.servers.join()] as const, ([a, share, b]) => {
+      clearTimeout(timer);
       if (!b) return;
-      const send = () => void b.cloud.setActivity(share ? a : null).catch(() => {});
-      send();
-      if (share && a) timer = setInterval(send, 60_000);
+      const out = share ? a : null;
+      if (!out && !sentSomething) return;
+      const send = async () => {
+        let ok = false;
+        try { const r = await b.cloud.setActivity(out); ok = r.tried > 0 && r.failed < r.tried; } catch { /* retried below */ }
+        if (ok) sentSomething = !!out;
+        if (out || !ok) timer = setTimeout(() => void send(), ok ? 60_000 : 15_000);
+      };
+      void send();
     }));
-    onCleanup(() => clearInterval(timer));
+    onCleanup(() => clearTimeout(timer));
   });
 }
 

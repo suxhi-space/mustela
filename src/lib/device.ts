@@ -17,7 +17,7 @@ export interface A11yPrefs {
 
 export const DEFAULT_VOICE_PREFS: VoicePrefs = {
   inputDevice: "", outputDevice: "", videoDevice: "", echoCancellation: true, noiseSuppression: true, autoGain: true,
-  outputVolume: 100, inputVolume: 100, screenQuality: "720p30", joinMuted: false, joinDeafened: false, autoSensitivity: true, threshold: -55, soundboardVolume: 80, entrySound: "",
+  outputVolume: 100, inputVolume: 100, screenQuality: "720p30", joinMuted: false, joinDeafened: false, autoSensitivity: true, threshold: -55, soundboardVolume: 80, entrySound: "", soundsHeard: 100,
 };
 
 function sanitizeVoice(raw: unknown): VoicePrefs {
@@ -36,6 +36,7 @@ function sanitizeVoice(raw: unknown): VoicePrefs {
     autoSensitivity: r.autoSensitivity !== false,
     threshold: typeof r.threshold === "number" && Number.isFinite(r.threshold) ? Math.max(-100, Math.min(0, Math.round(r.threshold))) : d.threshold,
     soundboardVolume: typeof r.soundboardVolume === "number" && Number.isFinite(r.soundboardVolume) ? Math.max(0, Math.min(100, Math.round(r.soundboardVolume))) : d.soundboardVolume,
+    soundsHeard: typeof r.soundsHeard === "number" && Number.isFinite(r.soundsHeard) ? Math.max(0, Math.min(100, Math.round(r.soundsHeard))) : d.soundsHeard,
     entrySound: str(r.entrySound),
   };
 }
@@ -65,7 +66,8 @@ export interface DeviceSettings {
   showMembers: boolean;
   callEngine: CallEngine;
   /** Android: leaving the app mid-call shows the voice bubble, or floats the call (picture-in-picture) */
-  callOverlay: "bubble" | "pip";
+  /** Leaving the app in a call (Android): the bubble, picture-in-picture, or PiP only while watching a stream. */
+  callOverlay: "bubble" | "pip" | "streams";
   /** Desktop/phone notifications for DMs and mentions */
   notifications: boolean;
   /** Show the message text in notifications (off = "New message" only) */
@@ -161,7 +163,7 @@ export function sanitizeDevice(raw: unknown): DeviceSettings {
     opacity: typeof r.opacity === "number" && Number.isFinite(r.opacity) ? Math.min(100, Math.max(40, Math.round(r.opacity))) : d.opacity,
     showMembers: r.showMembers !== false,
     callEngine: oneOf(r.callEngine, ["native", "web"], d.callEngine),
-    callOverlay: oneOf(r.callOverlay, ["bubble", "pip"], d.callOverlay),
+    callOverlay: oneOf(r.callOverlay, ["bubble", "pip", "streams"], d.callOverlay),
     notifications: r.notifications !== false,
     notifyPreview: r.notifyPreview !== false,
     closedNotify: r.closedNotify !== false,

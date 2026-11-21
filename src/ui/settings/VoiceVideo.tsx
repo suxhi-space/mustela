@@ -124,7 +124,8 @@ export function VoiceVideo() {
       </Group>
 
       <Group title="Soundboard">
-        <Row icon="music" label="Soundboard volume"><Slider label="Soundboard volume" min={0} max={100} value={v().soundboardVolume} suffix="%" onChange={(soundboardVolume) => set({ soundboardVolume })} /></Row>
+        <Row icon="music" label="Your sounds" hint="How loud sounds you play are, for everyone."><Slider label="Your sounds" min={0} max={100} value={v().soundboardVolume} suffix="%" onChange={(soundboardVolume) => set({ soundboardVolume })} /></Row>
+        <Row icon="music" label="Other people's sounds" hint="Just for you. While someone's sound plays, they're turned down to this (their voice too, for those few seconds). 0% mutes them."><Slider label="Other people's sounds" min={0} max={100} value={v().soundsHeard} suffix="%" onChange={(soundsHeard) => set({ soundsHeard })} /></Row>
         <Row label="Soundboard settings" hint="Your entry sound, and each sound's emoji, name and volume" chevron onClick={() => openSettings("soundboard")} />
       </Group>
 
@@ -139,10 +140,10 @@ export function VoiceVideo() {
 
       <Show when={platform === "android" && inTauri()}>
         <Group title="Android" hint="Calls keep going when you leave the app or lock your phone, with a notification to come back or leave. In a call, the volume keys set call volume.">
-          <Row label="When you leave the app in a call" hint={overlayAllowed() ? "The bubble floats over other apps: tap it to come back, hold it to mute." : "The bubble needs \"Display over other apps\". Without it, the call floats in picture-in-picture."}>
+          <Row label="When you leave the app in a call" hint={overlayAllowed() ? "The bubble floats over other apps: tap it to come back, hold it to mute. Streams in PiP: picture-in-picture while you watch a stream, the bubble the rest of the time." : "The bubble needs \"Display over other apps\". Without it, the call floats in picture-in-picture."}>
             <Show when={overlayAllowed()} fallback={<button class="btn small" onClick={() => void requestOverlay()}>Allow the bubble</button>}>
               <Seg label="When you leave the app in a call" value={device().callOverlay} onChange={(callOverlay) => updateDevice({ callOverlay })}
-                options={[{ v: "bubble", label: "Bubble" }, { v: "pip", label: "Picture-in-picture" }]} />
+                options={[{ v: "bubble", label: "Bubble" }, { v: "pip", label: "Picture-in-picture" }, { v: "streams", label: "Streams in PiP" }]} />
             </Show>
           </Row>
         </Group>

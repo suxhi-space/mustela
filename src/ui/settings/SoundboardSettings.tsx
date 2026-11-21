@@ -47,7 +47,8 @@ export function SoundboardSettings() {
     <div class="page">
       <button class="link small sub-back" onClick={() => openSettings("voice")}><Icon name="back" size={14} />Voice &amp; video</button>
       <Group title="Soundboard" hint="Sounds added from a link (and your entry sound) follow you to every device; sounds added from a file stay on this one.">
-        <Row icon="music" label="Soundboard volume"><Slider label="Soundboard volume" min={0} max={100} value={v().soundboardVolume} suffix="%" onChange={(soundboardVolume) => set({ soundboardVolume })} /></Row>
+        <Row icon="music" label="Your sounds" hint="How loud sounds you play are, for everyone."><Slider label="Your sounds" min={0} max={100} value={v().soundboardVolume} suffix="%" onChange={(soundboardVolume) => set({ soundboardVolume })} /></Row>
+        <Row icon="music" label="Other people's sounds" hint="Just for you. While someone's sound plays, they're turned down to this (their voice too, for those few seconds). 0% mutes them."><Slider label="Other people's sounds" min={0} max={100} value={v().soundsHeard} suffix="%" onChange={(soundsHeard) => set({ soundsHeard })} /></Row>
         <Row label="Entry sound" hint="Plays for everyone when you join a call">
           <Select label="Entry sound" value={ext().entrySound ?? v().entrySound} onChange={(entrySound) => { set({ entrySound }); updateExt((x) => ({ ...x, entrySound })); }}
             options={[{ v: "", label: "None" }, ...(sounds() ?? []).map((s) => ({ v: s.id, label: `${/^:\w+:$/.test(s.emoji) ? "" : s.emoji + " "}${s.name}` }))]} />

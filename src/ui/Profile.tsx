@@ -64,9 +64,10 @@ export function ProfileCard(props: { person: Person; profile?: ProfileConfig | n
     setTallPos(`center ${Math.max(0, Math.min(100, (((picture - band) / 2) / Math.max(1, h - band)) * 100)).toFixed(1)}%`);
   };
 
-  // Activity: yours comes straight from this app; other people's from their Mustela servers.
-  const voice = () => (backend()?.me.id === props.person.id ? null : backend()?.voiceOf(props.person.id) ?? null);
-  const act = () => (backend()?.me.id === props.person.id ? activity.current() : info()?.activity) ?? null;
+  // Activity: other people's from their Mustela servers; yours from this device, or else from your other devices
+  // (through your servers, e.g. your computer's game on your phone). "In voice" from Stoat, yours included.
+  const voice = () => backend()?.voiceOf(props.person.id) ?? null;
+  const act = () => (backend()?.me.id === props.person.id ? activity.current() ?? info()?.activity : info()?.activity) ?? null;
   const [more, setMore] = createSignal(false);
   const long = () => (bio()?.length ?? 0) > 240 || (bio()?.split("\n").length ?? 0) > 5;
   const presence = () => (props.person.online ? props.person.presence ?? "online" : "offline");
@@ -388,8 +389,8 @@ function ProfileFull(props: { person: Person; onClose(): void; onMessage(cid: st
   const [tab, setTab] = createSignal<"activity" | "friends" | "servers">("activity");
   const [mutual] = createResource(() => props.person.id, (id) => mutualOf(id));
   const info = createProfileInfo(() => props.person.id);
-  const act = () => (self() ? activity.current() : info()?.activity) ?? null;
-  const voice = () => (self() ? null : backend()?.voiceOf(props.person.id) ?? null);
+  const act = () => (self() ? activity.current() ?? info()?.activity : info()?.activity) ?? null;
+  const voice = () => backend()?.voiceOf(props.person.id) ?? null;
   async function message() {
     try { props.onMessage(await backend()!.openDM(props.person.id)); props.onClose(); } catch { toast("Couldn't open a conversation.", true); }
   }

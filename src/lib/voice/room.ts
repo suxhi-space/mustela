@@ -73,15 +73,22 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
   sink.hidden = true;
   document.body.appendChild(sink);
   const ua = loadUA();
+  /** Who's playing a sound right now (you, and other Mustela users who said so), for the ring colour. */
+  const soundUntil = new Map<string, number>();
   const audioOf = (id: string): UserAudio => ua[id] ?? { v: 1, m: false, sv: 1, sm: false };
   let deaf = false;
   let outVolume = prefs.outputVolume / 100;
   const vol = (x: number) => x; // the Web Audio mix goes to 200%
+  /** Other people's soundboard (your setting): while someone's sound plays, their microphone (where the sound
+   * travels) is turned down to it. Sounds on their own track (older Mustela) follow it too. */
+  let soundsHeard = (prefs.soundsHeard ?? 100) / 100;
+  const playingSound = (id: string) => (soundUntil.get(id) ?? 0) > performance.now();
   const applyVolume = (p: RemoteParticipant) => {
     const a = audioOf(p.identity);
-    p.setVolume(deaf || a.m ? 0 : vol(outVolume * a.v), Track.Source.Microphone);
+    const duck = playingSound(p.identity) ? soundsHeard : 1;
+    p.setVolume(deaf || a.m ? 0 : vol(outVolume * a.v * duck), Track.Source.Microphone);
     p.setVolume(deaf || a.sm ? 0 : vol(outVolume * a.sv), Track.Source.ScreenShareAudio);
-    for (const pub of p.audioTrackPublications.values()) if (pub.source === Track.Source.Unknown) (pub as RemoteTrackPublication).audioTrack && ((pub as RemoteTrackPublication).track as any)?.setVolume?.(deaf ? 0 : vol(outVolume)); // soundboards
+    for (const pub of p.audioTrackPublications.values()) if (pub.source === Track.Source.Unknown) (pub as RemoteTrackPublication).audioTrack && ((pub as RemoteTrackPublication).track as any)?.setVolume?.(deaf ? 0 : vol(outVolume * soundsHeard)); // soundboards
   };
   const applyAll = () => room.remoteParticipants.forEach(applyVolume);
 
@@ -280,12 +287,13 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
   room.on(RoomEvent.LocalTrackPublished, (pub) => { if (pub.source === Track.Source.Microphone) void attachMixer(); });
   void attachMixer();
 
-  /** Who's playing a sound right now (you, and other Mustela users who said so), for the ring colour. */
-  const soundUntil = new Map<string, number>();
   const announceSound = (id: string, seconds: number) => {
     soundUntil.set(id, performance.now() + seconds * 1000);
     ping();
     setTimeout(ping, seconds * 1000 + 30);
+    // Someone else's sound: turn them down to your setting for as long as it plays, then back.
+    const p = room.remoteParticipants.get(id);
+    if (p && soundsHeard < 1) { applyVolume(p); setTimeout(() => { const q = room.remoteParticipants.get(id); if (q) applyVolume(q); }, seconds * 1000 + 30); }
   };
   room.on(RoomEvent.DataReceived, (payload: Uint8Array, p?: RemoteParticipant, _k?: unknown, topic?: string) => {
     if (topic !== "mustela.sound" || !p) return;
@@ -378,6 +386,7 @@ export async function connectVoice(url: string, token: string, me: Person, nameO
       ping();
     },
     setOutputVolume: (v) => { outVolume = v / 100; applyAll(); },
+    setSoundsHeard: (v) => { soundsHeard = Math.max(0, Math.min(1, v / 100)); applyAll(); },
     setInputVolume: (v) => {
       inVolume = Math.max(0, Math.min(2, v / 100));
       if (mixer) mixer.level.gain.value = inVolume;

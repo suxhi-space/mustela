@@ -81,13 +81,17 @@ function userFor(req) {
 
 /* ---------------------------------------------------------------- limits */
 const buckets = new Map();
-function allowed(ip, cost = 1) {
-  const now = Date.now();
-  const b = buckets.get(ip) ?? { t: now, n: 60 };
-  b.n = Math.min(60, b.n + ((now - b.t) / 1000) * 2); // 60 burst, 2/s refill
+// Reading and writing are counted apart, so opening a big member list (lots of reads) can never use up what's
+// needed to publish your own profile or activity. Everyone behind one home connection shares an address, so the
+// read allowance is generous: 300 at once, 10 more a second.
+const LIMITS = { read: { burst: 300, rate: 10 }, write: { burst: 30, rate: 1 } };
+function allowed(ip, cost = 1, kind = "read") {
+  const now = Date.now(), lim = LIMITS[kind], key = `${kind}:${ip}`;
+  const b = buckets.get(key) ?? { t: now, n: lim.burst };
+  b.n = Math.min(lim.burst, b.n + ((now - b.t) / 1000) * lim.rate);
   b.t = now;
-  if (b.n < cost) { buckets.set(ip, b); return false; }
-  b.n -= cost; buckets.set(ip, b);
+  if (b.n < cost) { buckets.set(key, b); return false; }
+  b.n -= cost; buckets.set(key, b);
   return true;
 }
 setInterval(() => { const cut = Date.now() - 120_000; for (const [k, v] of buckets) if (v.t < cut) buckets.delete(k); for (const [k, v] of activity) if (v.expires < Date.now()) activity.delete(k); }, 60_000).unref();
@@ -272,7 +276,9 @@ const server = createServer(async (req, res) => {
   if (!path.startsWith(`/${PROTOCOL}/`)) return send(res, 404, { error: "Not found." });
   const rest = path.slice(PROTOCOL.length + 1);
   // Linking asks Stoat each time, so it costs more.
-  if (!allowed(ip, req.method === "GET" ? 1 : rest === "/link" && req.method === "POST" ? 10 : 3)) return send(res, 429, { error: "Slow down a little." });
+  // Reading (profiles, pictures, many profiles at once) is cheap; linking asks Stoat each time, so it costs more.
+  const reading = req.method === "GET" || (req.method === "POST" && rest === "/profiles");
+  if (!allowed(ip, reading ? 1 : rest === "/link" && req.method === "POST" ? 5 : 1, reading ? "read" : "write")) return send(res, 429, { error: "Slow down a little." });
   try {
     // Per-server banners (1.2): PUT/DELETE /image/<serverId> as the owner, GET /image/<userId>/<serverId>.
     const own = /^\/image\/([^/]+)$/.exec(rest);

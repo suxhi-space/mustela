@@ -281,6 +281,10 @@ async fn serve_client<R: Runtime, S: AsyncReadExt + AsyncWriteExt + Unpin + Send
     }, "nonce": null });
     if write_frame(&mut s, OP_FRAME, &ready).await.is_err() { return; }
     let app_name = { let g = load_games(&app).await; g.iter().find(|x| x.id == client_id).map(|x| x.name.clone()) };
+    // Discord wasn't running when the game connected. If it starts later, pass the game's Rich Presence on to it
+    // from here, so friends on Discord still see it (the game's own connection stays with us).
+    let (latest_tx, latest_rx) = watch::channel::<Option<Value>>(None);
+    tauri::async_runtime::spawn(relay_to_discord(own, hello.clone(), latest_rx));
     loop {
         let (op, msg) = match read_frame(&mut s).await { Ok(f) => f, Err(_) => break };
         match op {
@@ -294,6 +298,7 @@ async fn serve_client<R: Runtime, S: AsyncReadExt + AsyncWriteExt + Unpin + Send
                     let act = to_activity(&app, &client_id, &raw).await;
                     had_activity = act.is_some();
                     let _ = app.emit("activity://rpc", json!({ "app": app_name, "activity": act }));
+                    let _ = latest_tx.send(msg.get("args").cloned());
                     if write_frame(&mut s, OP_FRAME, &json!({ "cmd": cmd, "data": raw, "evt": null, "nonce": nonce })).await.is_err() { break; }
                 } else if write_frame(&mut s, OP_FRAME, &json!({ "cmd": cmd, "data": {}, "evt": null, "nonce": nonce })).await.is_err() { break; }
             }
@@ -301,6 +306,36 @@ async fn serve_client<R: Runtime, S: AsyncReadExt + AsyncWriteExt + Unpin + Send
         }
     }
     if had_activity { let _ = app.emit("activity://rpc", json!({ "app": null, "activity": null })); }
+}
+
+/// For a game that connected while Discord wasn't running: waits for Discord to start, then connects to it as that
+/// game (same client id) and passes on its newest Rich Presence and every change after. When the game goes away (the
+/// sender is dropped), the connection to Discord closes, which clears it there too.
+async fn relay_to_discord(own: u32, hello: Value, mut latest: watch::Receiver<Option<Value>>) {
+    let up = loop {
+        if latest.has_changed().is_err() { return; } // the game left before Discord showed up
+        if let Some(u) = connect_discord(own).await { break u; }
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+            r = latest.changed() => { if r.is_err() { return; } }
+        }
+    };
+    let (mut rd, mut wr) = tokio::io::split(up);
+    if write_frame(&mut wr, OP_HANDSHAKE, &hello).await.is_err() { return; }
+    if read_frame(&mut rd).await.is_err() { return; } // READY
+    // Discord's answers aren't needed; read them so its side never backs up.
+    let drain = tauri::async_runtime::spawn(async move { while read_frame(&mut rd).await.is_ok() {} });
+    let mut n = 0u64;
+    loop {
+        let args = latest.borrow_and_update().clone();
+        if let Some(args) = args {
+            n += 1;
+            if write_frame(&mut wr, OP_FRAME, &json!({ "cmd": "SET_ACTIVITY", "args": args, "nonce": format!("mustela-{n}") })).await.is_err() { break; }
+        }
+        if latest.changed().await.is_err() { break; }
+    }
+    let _ = write_frame(&mut wr, OP_CLOSE, &json!({})).await;
+    drain.abort();
 }
 
 /// Passes a game's connection through to Discord, reading SET_ACTIVITY on the way.
@@ -448,4 +483,41 @@ pub async fn activity_config<R: Runtime>(app: AppHandle<R>, detect: bool, rpc: b
         }
     };
     Status { rpc: rpc_status, detect: detect_status }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// A game that connected before Discord was running: once Discord starts, its Rich Presence is passed on, and
+    /// cleared when the game goes away.
+    #[test]
+    fn passes_rich_presence_on_when_discord_starts_later() {
+        let dir = std::env::temp_dir().join(format!("mustela-ipc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("XDG_RUNTIME_DIR", &dir);
+        tauri::async_runtime::block_on(async {
+            let (tx, rx) = watch::channel::<Option<Value>>(None);
+            tauri::async_runtime::spawn(relay_to_discord(0, json!({ "v": 1, "client_id": "123456" }), rx));
+            tx.send(Some(json!({ "pid": 42, "activity": { "details": "Level 3" } }))).unwrap();
+            // Discord starts a second later, on slot 1.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let l = tokio::net::UnixListener::bind(dir.join("discord-ipc-1")).unwrap();
+            let (mut s, _) = tokio::time::timeout(Duration::from_secs(10), l.accept()).await.expect("relay connected").unwrap();
+            let (op, hello) = read_frame(&mut s).await.unwrap();
+            assert_eq!((op, hello["client_id"].as_str()), (OP_HANDSHAKE, Some("123456")));
+            write_frame(&mut s, OP_FRAME, &json!({ "cmd": "DISPATCH", "evt": "READY" })).await.unwrap();
+            let (op, f) = read_frame(&mut s).await.unwrap();
+            assert_eq!((op, f["cmd"].as_str(), f["args"]["activity"]["details"].as_str()), (OP_FRAME, Some("SET_ACTIVITY"), Some("Level 3")));
+            // A change is passed on too.
+            tx.send(Some(json!({ "pid": 42, "activity": { "details": "Level 4" } }))).unwrap();
+            let (_, f) = read_frame(&mut s).await.unwrap();
+            assert_eq!(f["args"]["activity"]["details"].as_str(), Some("Level 4"));
+            // The game closes: the relay says goodbye, which clears it in Discord.
+            drop(tx);
+            let (op, _) = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut s)).await.unwrap().unwrap();
+            assert_eq!(op, OP_CLOSE);
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

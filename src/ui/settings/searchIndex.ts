@@ -43,7 +43,8 @@ export const SETTING_LABELS: Record<string, string[]> = {
     "Preview",
     "Screen share quality",
     "Soundboard",
-    "Soundboard volume",
+    "Your sounds",
+    "Other people's sounds",
     "Soundboard settings",
     "Windows",
     "Call pop-out",
@@ -52,11 +53,11 @@ export const SETTING_LABELS: Record<string, string[]> = {
   ],
   "soundboard": [
     "Soundboard",
-    "Soundboard volume",
+    "Your sounds",
+    "Other people's sounds",
     "Entry sound",
     "Add a sound",
-    "From a file",
-    "Your sounds"
+    "From a file"
   ],
   "appearance": [
     "Theme settings",

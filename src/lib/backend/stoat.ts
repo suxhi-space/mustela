@@ -1052,7 +1052,10 @@ export class StoatBackend implements ChatBackend {
   profileOf(userId: string, fresh = false): Promise<ProfileInfo> {
     let p = this.profiles.get(userId);
     const meta = this.profileAt.get(userId);
-    const stale = !meta || (meta.failed && Date.now() - meta.at > 60_000) || (fresh && Date.now() - meta.at > 5_000);
+    // Read again after a couple of minutes when something asks (what people are playing changes); the Stoat part
+    // stays cached for a day, so that's mostly one small request to the Mustela servers.
+    const age = meta ? Date.now() - meta.at : Infinity;
+    const stale = !meta || (meta.failed && age > 60_000) || (fresh && age > 5_000) || age > 110_000;
     if (!p || stale) {
       this.profileAt.set(userId, { at: Date.now(), failed: false });
       p = profileLimit(() => this.readProfile(userId, fresh)).catch((): ProfileInfo => {

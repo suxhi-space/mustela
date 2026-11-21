@@ -76,10 +76,13 @@ export function createSize(): [Accessor<{ w: number; h: number }>, (el: Element)
 /** Someone's published profile. Mine comes straight from settings, so edits show instantly. */
 /** Bumped per person when their profile has been read again, so every place showing it updates. */
 const [epochs, setEpochs] = createSignal<Record<string, number>>({});
+/** Profiles on screen look again every minute, so what people are playing (and changes) shows without reopening. */
+const [tick, setTick] = createSignal(0);
+if (typeof window !== "undefined") setInterval(() => setTick((t) => t + 1), 60_000);
 /** Opening someone's card or full profile reads it again (not a background job), like the user asked. */
 export async function refreshProfile(userId: string) {
   const b = backend();
-  if (!b || userId === b.me.id) return;
+  if (!b) return;
   await b.profileOf(userId, true);
   setEpochs({ ...epochs(), [userId]: (epochs()[userId] ?? 0) + 1 });
 }
@@ -108,9 +111,9 @@ const keepOnDevice = (b: ChatBackend, uid: string) => !MOBILE_UI || b.person(uid
 
 export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolean> = () => true, server: Accessor<string | null | undefined> = currentServer): Accessor<ProfileInfo | undefined> {
   const [res] = createResource(
-    () => (enabled() && backend() ? `${id()}:${epochs()[id()] ?? 0}` : null),
+    () => (enabled() && backend() ? `${id()}:${epochs()[id()] ?? 0}:${tick()}` : null),
     async (key) => {
-      const uid = key.slice(0, key.lastIndexOf(":")), b = backend();
+      const uid = key.split(":")[0]!, b = backend();
       const info = await b?.profileOf(uid);
       if (info && b) seenProfiles.set(`${b.me.id}:${uid}`, info);
       if (info && b && keepOnDevice(b, uid) && b.session() && (info.config || info.bio || info.bannerUrl)) saveProfile(b.me.id, uid, info);
@@ -129,7 +132,8 @@ export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolea
       // Yours straight from settings, so edits show at once.
       const servers: NonNullable<ProfileInfo["servers"]> = {};
       for (const [sid, l] of Object.entries(ext().serverLooks)) servers[sid] = { config: l.config, bio: l.bio, bannerAt: l.banner };
-      return { config: settings().profile, bio: res()?.bio, bannerUrl: res()?.bannerUrl, servers };
+      // Activity from your other devices (your computer's game on your phone), through your servers.
+      return { config: settings().profile, bio: res()?.bio, bannerUrl: res()?.bannerUrl, activity: res()?.activity, servers };
     }
     return res() ?? (res.loading ? saved() ?? undefined : undefined);
   };

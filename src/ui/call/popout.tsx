@@ -100,7 +100,8 @@ function cleanup() {
 
 /**
  * Windows: the pop-out is WebView2's own pop-up by default. Mustela's own window (src-tauri/src/lib.rs, popout_window)
- * still freezes on Windows, so it's an experimental choice in Settings > Voice & Video. Each try is noted first and
+ * froze when made during the pop-up request, so it's now made first (popout_prepare) and handed over; still an
+ * experimental choice in Settings > Voice & Video until it's proven. Each try is noted first and
  * cleared once the window has worked for a few seconds: a note still there on the next try means the last one froze,
  * and it goes back to WebView2's pop-up.
  */
@@ -114,10 +115,22 @@ export async function showPopout() {
   if (win && !win.closed) { win.focus(); return; }
   if (platform === "windows" && inTauri()) {
     if (store.get(TRYING)) { setPopoutKind("system"); toast("The call window froze Mustela last time, so it opens as a Windows pop-up for now. You can switch back in Settings > Voice & Video."); }
-    try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("popout_mode", { native: popoutKind() === "mustela" }); } catch { /* older shell */ }
-    if (popoutKind() === "mustela") store.set(TRYING, "1");
+    let native = popoutKind() === "mustela";
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      // Mustela's window is made first (hidden); the pop-up request then only hands it over.
+      if (native) native = await invoke<boolean>("popout_prepare").catch(() => false);
+      await invoke("popout_mode", { native });
+    } catch { native = false; /* older shell */ }
+    if (native) store.set(TRYING, "1");
   }
-  const w = window.open("about:blank", "mustela-call", "popup,width=800,height=500");
+  let w = window.open("about:blank", "mustela-call", "popup,width=800,height=500");
+  if (!w && platform === "windows" && inTauri() && store.get(TRYING)) {
+    // Windows didn't take the prepared window: Windows' own pop-up instead, right away.
+    store.set(TRYING, null);
+    try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("popout_discard"); await invoke("popout_mode", { native: false }); } catch { /* older shell */ }
+    w = window.open("about:blank", "mustela-call", "popup,width=800,height=500");
+  }
   // Still running a few seconds later (with the call drawn in it): this try didn't freeze.
   if (store.get(TRYING)) setTimeout(() => store.set(TRYING, null), 4000);
   if (!w) { store.set(TRYING, null); throw new Error("The call window was blocked."); }

@@ -174,7 +174,25 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
   // A phone held either way (sideways it's wider than the phone layout, but still a phone).
   const touchPhoneMq = (() => { const mq = matchMedia(PHONE_QUERY + ", (pointer: coarse) and (max-height: 500px)"); const [m, setM] = createSignal(mq.matches); const f = () => setM(mq.matches); mq.addEventListener("change", f); onCleanup(() => mq.removeEventListener("change", f)); return m; })();
   const touchPhone = () => touchPhoneMq() || phone();
-  let swipe: { x: number; y: number } | null = null;
+  let swipe: { x: number; y: number; t: number; down: boolean } | null = null;
+  const still = () => document.documentElement.hasAttribute("data-reduce-motion");
+  /** Pull the call down to minimise it: phones, the call screen itself (not the pop-out or a sideways tablet in full
+   * screen), and only while the controls sheet is put away (a swipe down closes the sheet first). */
+  const canSwipeAway = () => phone() && !props.popout && !(tabletFull() && tabletMode()) && !document.querySelector(".call-sheet.open");
+  const resetStage = () => { stage.style.transition = ""; stage.style.transform = ""; stage.style.borderRadius = ""; stage.style.opacity = ""; };
+  function springBack() {
+    if (still()) return resetStage();
+    stage.style.transition = "transform .22s cubic-bezier(.2,.8,.2,1), border-radius .22s";
+    stage.style.transform = ""; stage.style.borderRadius = "";
+    setTimeout(resetStage, 240);
+  }
+  function swipeAway() {
+    if (still()) { resetStage(); backToList(); return; }
+    stage.style.transition = "transform .22s cubic-bezier(.4,0,1,1), opacity .22s, border-radius .22s";
+    stage.style.transform = `translateY(${innerHeight}px) scale(.9)`;
+    stage.style.opacity = "0.4";
+    setTimeout(() => { backToList(); requestAnimationFrame(resetStage); }, 200);
+  }
   let chromeTimer: ReturnType<typeof setTimeout> | undefined;
   let swallow = false; // the tap that brings the controls back doesn't also press what's under it
   onMount(() => stage.addEventListener("click", (e) => { if (swallow) { swallow = false; e.stopPropagation(); } }, true));
@@ -349,14 +367,32 @@ export function CallStage(props: { channel: ChannelInfo; compact?: boolean; chat
 
   return (
     <section ref={stage} class="cstage" classList={{ "has-sheet": phone() && !props.popout && here() && (!call.popped() || !!props.popout), compact: !!props.compact, full: full() || fill(), "stage-fill": fill(), "chrome-off": !chrome() }} aria-label="Call"
-      onTouchStart={(e) => { const t = e.touches[0]; swipe = t && !(e.target as Element).closest(".call-sheet, .ctx, .soundboard, input, textarea") ? { x: t.clientX, y: t.clientY } : null; }}
+      onTouchStart={(e) => { const t = e.touches[0]; swipe = t && !(e.target as Element).closest(".call-sheet, .ctx, .soundboard, input, textarea, input[type=range]") ? { x: t.clientX, y: t.clientY, t: Date.now(), down: false } : null; }}
+      onTouchMove={(e) => {
+        // Phones: pulling the call down (with the controls sheet put away) follows the finger, then minimises it.
+        const t = e.touches[0], s0 = swipe;
+        if (!s0 || !t || !canSwipeAway()) return;
+        const dx = t.clientX - s0.x, dy = t.clientY - s0.y;
+        if (!s0.down) { if (dy < 14 || dy < Math.abs(dx) * 1.5) return; s0.down = true; }
+        if (still()) return;
+        const d = Math.max(0, dy);
+        stage.style.transition = "none";
+        stage.style.transform = `translateY(${d}px) scale(${Math.max(0.9, 1 - d / 2500)})`;
+        stage.style.borderRadius = `${Math.min(24, d / 6)}px`;
+      }}
       onTouchEnd={(e) => {
         // Phones: swipe up on the call to bring up all the controls (swipe down puts them away), like Discord.
         const t = e.changedTouches[0], s0 = swipe; swipe = null;
         if (!s0 || !t || !phone()) return;
         const dx = t.clientX - s0.x, dy = t.clientY - s0.y;
+        if (s0.down) {
+          const fast = dy / Math.max(1, Date.now() - s0.t) > 0.6;
+          if (dy > innerHeight * 0.18 || (fast && dy > 60)) return void swipeAway();
+          return springBack();
+        }
         if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx) * 1.5) { wake(); dispatchEvent(new CustomEvent("mustela:call-sheet", { detail: dy < 0 })); }
       }}
+      onTouchCancel={() => { if (swipe?.down) springBack(); swipe = null; }}
       onPointerDown={(e) => {
         const t = e.target as Element | null;
         if (t?.closest("button, a, input, textarea, .call-sheet, .call-top, .cbar, .ctx, .soundboard")) { wake(); return; }

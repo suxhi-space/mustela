@@ -51,6 +51,10 @@ test("link, publish, read, activity", async () => {
     assert.equal(got.activity.image, undefined); // only https images
     assert.deepEqual(got.activity.buttons, [{ label: "Join", url: "https://example.com/j" }, { label: "Three", url: "https://x.y" }]);
 
+    // A busy member list (lots of reads from one address) never blocks publishing your own activity.
+    await Promise.all(Array.from({ length: 120 }, () => fetch(`${base}/profile/${STRANGER}`)));
+    assert.equal((await fetch(`${base}/activity`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ activity: { kind: "playing", name: "Celeste" } }) })).status, 204);
+
     // 1.4: many at once; people with nothing here are simply left out
     const many = await (await fetch(`${base}/profiles`, { method: "POST", body: JSON.stringify({ ids: [UID, STRANGER, "not-an-id", UID] }) })).json();
     assert.deepEqual(Object.keys(many.profiles), [UID]);

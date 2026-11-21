@@ -280,6 +280,9 @@ export interface VoicePrefs {
   /** Soundboard volume 0-100, and the sound played for everyone when you join a call */
   soundboardVolume: number;
   entrySound: string;
+  /** How loud other people's soundboard sounds are for you, 0-100 (0 mutes them). Their voice is turned down with
+   * it while a sound plays, since the sound travels in their microphone. */
+  soundsHeard: number;
 }
 
 export interface VoiceHandle {
@@ -297,6 +300,8 @@ export interface VoiceHandle {
   /** Optional extras the web engine supports */
   setDeaf?(on: boolean): Promise<void>;
   setOutputVolume?(v: number): void;
+  /** Other people's soundboard sounds, 0-100. */
+  setSoundsHeard?(v: number): void;
   /** Your microphone's volume, 0-200 (100 = as it comes) */
   setInputVolume?(v: number): void;
   /** Input sensitivity: auto, or a gate at `threshold` dB */
