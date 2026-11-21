@@ -1,10 +1,7 @@
 import { gifsMove, StillImg } from "../StillImg";
-import { PACKED_EMOJI_RE } from "../../lib/emoji";
-import { UEmoji } from "./UEmoji";
-import { createEffect, createMemo, createSignal, For, Match, Switch, type JSX } from "solid-js";
-import { stillOf } from "../stillImage";
+import { createMemo, createSignal, For, Match, Switch, type JSX } from "solid-js";
 import { formatTime, isJumbo, parse, plain, type Block, type Inline } from "../../lib/markdown";
-import { backend, device } from "../store";
+import { backend } from "../store";
 
 export interface MdCtx {
   onUser?(id: string): void;

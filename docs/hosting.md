@@ -64,7 +64,7 @@ restarts it after reboots, and keeps a daily backup of its data (the last 14 day
 ## 5. Check it
 
 1. In a browser, open `https://servers.yourdomain.com/v1/health`. It should show a short line like
-   `{"name":"Mustela server","version":"1.3.0",...}`.
+   `{"name":"Mustela server","version":"1.4.0",...}`.
    - Doesn't load yet? The DNS record may need a few more minutes. Then run the setup line again
      (`sudo bash setup.sh servers.yourdomain.com`) so the certificate gets made.
 2. In Mustela: **Settings > Sync & servers**, put `https://servers.yourdomain.com` in the server box > **Add server** >

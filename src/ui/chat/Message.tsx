@@ -22,7 +22,6 @@ import { justReacted, markReacted, reactBurst } from "./reactFx";
 import { doubleTapEmoji, isFav, openEmojiPicker, openGallery, openLightbox, toggleFav } from "./overlays";
 import { openOutside } from "./Gallery";
 import { messageMenu } from "../menus";
-import { copy } from "../menu";
 import { UEmoji } from "./UEmoji";
 import { FRAME_SANDBOX, VideoBox, ytEmbed } from "./videoFull";
 

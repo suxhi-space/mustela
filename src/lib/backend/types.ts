@@ -471,6 +471,11 @@ export interface ChatBackend {
   categories(serverId: string): CategoryInfo[];
   saveCategories(serverId: string, cats: CategoryInfo[]): Promise<void>;
   serverDetails(serverId: string): ServerDetails | null;
+  /** View a server as if you only had these roles (Stoat's role preview): channels and permissions follow them, and
+   * the server can't be changed meanwhile. null stops it. */
+  viewAs?(serverId: string | null, roleIds?: string[]): void;
+  /** What you're previewing as, if anything. */
+  viewingAs?(): { serverId: string; roleIds: string[] } | null;
   editServerExtras(serverId: string, p: { systemMessages?: ServerDetails["systemMessages"] }): Promise<void>;
   /** roleId "default" sets what everyone may do (a plain bit field) */
   setServerPermissions(serverId: string, roleId: string, o: Override | number): Promise<void>;

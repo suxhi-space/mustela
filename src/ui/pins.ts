@@ -77,19 +77,22 @@ function customColor(current: string, apply: (hex: string) => void, name: string
   return { label: "Custom color…", icon: "plus", checked: custom, onSelect: () => openColorPickerHere(custom ? current : undefined, apply, `${name} color`) };
 }
 
+/** The "Color" submenu of a group or category heading: no colour, the preset colours, or your own. */
+const colorItem = (g: { name: string; color: string }, set: (color: string) => void): MenuItem => ({ label: "Color", icon: "palette", sub: [
+  { label: "No color", checked: g.color === "none", onSelect: () => set("none") },
+  { sep: true },
+  ...PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => set(c) })),
+  { sep: true },
+  customColor(g.color, set, g.name),
+] });
+
 /** Right-click a group heading. */
 export function groupItems(g: PinGroup): MenuItem[] {
   const edit = (patch: Partial<PinGroup>) => updateSettings((s) => ({ ...s, pins: { ...s.pins, groups: s.pins.groups.map((x) => (x.id === g.id ? { ...x, ...patch } : x)) } }));
   const list = settings().pins.groups, i = list.findIndex((x) => x.id === g.id);
   return [
     { label: "Rename group", icon: "pencil", onSelect: async () => { const v = await promptDialog("Rename group", "Group name", "Save", g.name, { max: 40 }); if (v?.trim()) edit({ name: v.trim() }); } },
-    { label: "Color", icon: "palette", sub: [
-      { label: "No color", checked: g.color === "none", onSelect: () => edit({ color: "none" }) },
-      { sep: true },
-      ...PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => edit({ color: c }) })),
-      { sep: true },
-      customColor(g.color, (color) => edit({ color }), g.name),
-    ] },
+    colorItem(g, (color) => edit({ color })),
     ...(i > 0 ? [{ label: "Move up", icon: "up", onSelect: () => movePinGroup(g.id, list[i - 1]!.id) } as MenuItem] : []),
     ...(i >= 0 && i < list.length - 1 ? [{ label: "Move down", icon: "down", onSelect: () => movePinGroup(g.id, list[i + 2]?.id ?? null) } as MenuItem] : []),
     { label: "New group…", icon: "plus", onSelect: () => newPinGroup() },
@@ -136,17 +139,13 @@ export function favGroupItems(g: FavGroup): MenuItem[] {
     [l[i], l[j]] = [l[j]!, l[i]!];
     return { ...s, favGroups: l };
   });
+  const at = ext().favGroups.findIndex((x) => x.id === g.id);
   return [
     { label: "Rename category", icon: "pencil", onSelect: async () => { const v = await promptDialog("Rename category", "Category name", "Save", g.name, { max: 40 }); if (v?.trim()) edit({ name: v.trim() }); } },
-    { label: "Color", icon: "palette", sub: [
-      { label: "No color", checked: g.color === "none", onSelect: () => edit({ color: "none" }) },
-      { sep: true },
-      ...PIN_COLORS.map((c, i): MenuItem => ({ label: COLOR_NAMES[i]!, checked: g.color === c, onSelect: () => edit({ color: c }) })),
-      { sep: true },
-      customColor(g.color, (color) => edit({ color }), g.name),
-    ] },
-    { label: "Move up", icon: "up", onSelect: () => move(-1) },
-    { label: "Move down", icon: "down", onSelect: () => move(1) },
+    colorItem(g, (color) => edit({ color })),
+    // Like pinned groups: only the moves that can happen (not "Move up" on the first one).
+    ...(at > 0 ? [{ label: "Move up", icon: "up", onSelect: () => move(-1) } as MenuItem] : []),
+    ...(at >= 0 && at < ext().favGroups.length - 1 ? [{ label: "Move down", icon: "down", onSelect: () => move(1) } as MenuItem] : []),
     { label: "New category…", icon: "plus", onSelect: () => newFavGroup() },
     { sep: true },
     { label: "Delete category", icon: "trash", danger: true, onSelect: async () => {

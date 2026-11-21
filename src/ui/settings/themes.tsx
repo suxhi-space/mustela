@@ -7,7 +7,6 @@ import { Group } from "../controls";
 import { Icon } from "../icons";
 import { confirmDialog, openMenu, promptDialog, toast } from "../menu";
 import { backdropImage, device, ext, look, materials, setBackdropDataUrl, updateDevice, updateExt, updateLook } from "../store";
-import { MOBILE_UI } from "../target";
 
 /**
  * Themes, like Windows' (and Discord's): one tap sets a whole look.

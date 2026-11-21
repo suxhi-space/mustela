@@ -198,7 +198,7 @@ pub fn appimage_status() -> AppImageStatus {
             (Some(p), Some(h)) => p.starts_with(h.join("Applications")) && h.join(".local/share/applications").join(ENTRY).exists(),
             _ => false,
         };
-        return AppImageStatus { is_app_image: path.is_some(), installed, path: path.map(|p| p.to_string_lossy().into_owned()) };
+        AppImageStatus { is_app_image: path.is_some(), installed, path: path.map(|p| p.to_string_lossy().into_owned()) }
     }
     #[cfg(not(target_os = "linux"))]
     AppImageStatus { is_app_image: false, installed: false, path: None }
@@ -242,7 +242,7 @@ pub fn appimage_install(desktop_shortcut: bool) -> Result<String, String> {
             }
         }
         let _ = std::process::Command::new("update-desktop-database").arg(&app_dir).status();
-        return Ok(dest.to_string_lossy().into_owned());
+        Ok(dest.to_string_lossy().into_owned())
     }
     #[cfg(not(target_os = "linux"))]
     { let _ = desktop_shortcut; Err("Only for the Linux AppImage.".into()) }
@@ -256,7 +256,7 @@ pub fn relaunch_installed<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         let p = home().ok_or("No home folder.")?.join("Applications/Mustela.AppImage");
         std::process::Command::new(&p).spawn().map_err(|e| e.to_string())?;
         app.exit(0);
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "linux"))]
     { let _ = app; Err("Only for the Linux AppImage.".into()) }

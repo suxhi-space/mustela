@@ -4,7 +4,7 @@ import type { ServerLooks } from "../profile/servers";
 import { Client } from "stoat.js";
 import type { VoicePresence, AccountApi, BotRow, MfaProof, InviteOptions,
   Attachment, ChannelInfo, ChatBackend, ChatEvent, Embed, Friends, MemberGroup, Msg, Person, ProfileInfo, Reaction,
-  BanRow, CategoryInfo, ChannelDetails, ChannelRules, CustomEmoji, DiscoverState, Override, ServerDetails, WebhookRow, ServerFolder, GifCategory, InviteRow, NotifyLevel, Role, ServerInfo, GifResult, InviteInfo, MeUpdate, SendOptions, Space, StoredSession, VoiceEngine, VoiceHandle, VoicePrefs, SearchSort,
+  CategoryInfo, ChannelDetails, ChannelRules, CustomEmoji, DiscoverState, Override, ServerDetails, WebhookRow, ServerFolder, GifCategory, NotifyLevel, Role, ServerInfo, GifResult, InviteInfo, MeUpdate, SendOptions, Space, StoredSession, VoiceEngine, VoiceHandle, VoicePrefs, SearchSort,
 } from "./types";
 import { SEARCH_BATCH } from "./types";
 import { sanitizeProfile, type ProfileConfig } from "../profile/model";
@@ -131,7 +131,13 @@ export function systemText(sm: any, name: (id?: string) => string): string {
     case "channel_ownership_changed": return `${name(sm.fromId)} gave ownership to ${name(sm.toId)}`;
     case "message_pinned": return `${name(sm.byId)} pinned a message`;
     case "message_unpinned": return `${name(sm.byId)} unpinned a message`;
-    case "call_started": return `${name(sm.byId)} started a call`;
+    case "call_started": {
+      // Stoat 0.15+: when the call ended too, say how long it lasted.
+      const start = Date.parse(String(sm.startedAt ?? sm.started_at ?? "")), end = Date.parse(String(sm.finishedAt ?? sm.finished_at ?? ""));
+      const mins = Number.isFinite(start) && Number.isFinite(end) && end > start ? Math.round((end - start) / 60_000) : null;
+      return mins === null ? `${name(sm.byId ?? sm.by)} started a call`
+        : `${name(sm.byId ?? sm.by)} started a call that lasted ${mins < 1 ? "less than a minute" : mins < 60 ? `${mins} minute${mins === 1 ? "" : "s"}` : `${Math.floor(mins / 60)} h ${mins % 60} min`}`;
+    }
     default: return "System message";
   }
 }
@@ -552,10 +558,21 @@ export class StoatBackend implements ChatBackend {
     if (ch) this.readUpTo(ch, ulidBefore(messageId));
   }
 
+  private refreshLists?: () => void;
+  viewAs(serverId: string | null, roleIds: string[] = []) {
+    (this.client as any).setViewAs?.(serverId ?? undefined, roleIds);
+    this.refreshLists?.();
+  }
+  viewingAs() {
+    const v = (this.client as any).viewAs?.();
+    return v?.server ? { serverId: v.server as string, roleIds: (v.roles ?? []) as string[] } : null;
+  }
+
   onEvent(cb: (e: ChatEvent) => void) {
     const c: any = this.client;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const activity = () => { clearTimeout(timer); timer = setTimeout(() => cb({ t: "activity" }), 250); }; // presence storms
+    this.refreshLists = () => cb({ t: "activity" });
     const typing = (ch: any) => cb({ t: "typing", channelId: ch.id, people: (ch.typing ?? []).filter((u: any) => u.id !== this.sess.user_id).map((u: any) => personOf(u)) });
     const h: [string, (...a: any[]) => void][] = [
       ["messageCreate", (m) => { cb({ t: "message", m: this.toMsg(m) }); activity(); }],

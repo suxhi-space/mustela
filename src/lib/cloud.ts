@@ -166,9 +166,46 @@ export class Cloud {
     if (key) await call(`${clean(server)}/${PROTOCOL}/link`, { method: "DELETE", headers: { authorization: `Bearer ${key}` } }).catch(() => {});
   }
 
+  /** Links again by itself (you linked this server before, so the same one-time check is fine to repeat). */
+  private relinking = new Map<string, Promise<boolean>>();
+  private relink(server: string): Promise<boolean> {
+    let p = this.relinking.get(server);
+    if (!p) {
+      p = this.link(server).then(() => true, () => {
+        // Couldn't: stop looking linked, and say so, so Settings offers "Link" again.
+        this.saveKey(server, null);
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("mustela:link-lost", { detail: server }));
+        return false;
+      }).finally(() => setTimeout(() => this.relinking.delete(server), 60_000));
+      this.relinking.set(server, p);
+    }
+    return p;
+  }
+
+  /** Once per session for each linked server: does it still know us? (Its data may have been reset.) If not, link
+   * again by itself. Servers older than 1.4 can't be asked; for them the first refused update does the same. */
+  private checked = new Set<string>();
+  checkLinks() {
+    for (const s of this.servers) {
+      const key = this.keyFor(s);
+      if (!key || this.checked.has(s)) continue;
+      this.checked.add(s);
+      void call(`${s}/${PROTOCOL}/me`, { headers: { authorization: `Bearer ${key}` } }).catch((e: Error) => {
+        if (/Link this server again/.test(e.message)) void this.relink(s);
+      });
+    }
+  }
+
   private async eachLinked(f: (server: string, key: string) => Promise<unknown>) {
     const jobs = this.servers.map((s) => [s, this.keyFor(s)] as const).filter((x): x is readonly [string, string] => !!x[1]);
-    const res = await Promise.allSettled(jobs.map(([s, k]) => f(s, k)));
+    const res = await Promise.allSettled(jobs.map(async ([s, k]) => {
+      try { return await f(s, k); }
+      catch (e) {
+        // The server no longer knows our key (its data was reset): link again by itself and try once more.
+        if (!/Link this server again/.test((e as Error)?.message ?? "") || !(await this.relink(s))) throw e;
+        return f(s, this.keyFor(s)!);
+      }
+    }));
     return { tried: jobs.length, failed: res.filter((r) => r.status === "rejected").length };
   }
 

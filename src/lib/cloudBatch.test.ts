@@ -43,3 +43,25 @@ describe("profile requests to Mustela servers", () => {
     expect(calls.filter((x) => x.endsWith("/profiles")).length).toBe(1);
   });
 });
+
+describe("a Mustela server that forgot this device's link", () => {
+  it("links again by itself and sends the update again", async () => {
+    const mem = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) });
+    let keyOk = "old-key", puts = 0, links = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const auth = (init?.headers as Record<string, string> | undefined)?.authorization ?? "";
+      if (url.endsWith("/link")) { links++; keyOk = "new-key"; return json(200, { key: "new-key", userId: "me" }); }
+      if (url.endsWith("/activity")) { puts++; return auth === `Bearer ${keyOk}` && keyOk === "new-key" ? new Response(null, { status: 204 }) : json(401, { error: "Link this server again." }); }
+      return json(404, { error: "Not found." });
+    }));
+    const c = new Cloud("https://stoat.chat/api", () => "a-stoat-session-token", () => "me");
+    c.setServers(["https://srv.example"]);
+    (c as unknown as { saveKey(s: string, k: string): void }).saveKey("https://srv.example", "old-key");
+    const r = await c.setActivity([{ kind: "playing", name: "Celeste" }]);
+    expect(links).toBe(1);
+    expect(puts).toBe(2);       // refused, then sent again after relinking
+    expect(r.failed).toBe(0);
+    expect(c.keyFor("https://srv.example")).toBe("new-key");
+  });
+});

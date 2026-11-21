@@ -1,3 +1,4 @@
+import { viewServerAs } from "./viewAs";
 import { cropImage } from "./Cropper";
 import { createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch as Pick, type JSX } from "solid-js";
 import { dragSort, moved } from "./dragSort";
@@ -320,6 +321,7 @@ function Roles(props: { info: ServerInfo }) {
             <Switch label={`Show ${r.name} separately in the member list`} on={r.hoist} onChange={(v) => void attempt(() => b().editRole(props.info.id, r.id, { hoist: v })).then(bump)} />
             <ColorInput label={`${r.name} colour`} value={r.colour && /^#[0-9a-f]{6}$/i.test(r.colour) ? r.colour : "#999999"} onChange={(hex) => void attempt(() => b().editRole(props.info.id, r.id, { colour: hex }), "Colour saved").then(later)} />
             <button class="btn small" aria-expanded={open() === r.id} onClick={() => toggle(r.id)}>Permissions</button>
+            <button class="icon-btn" aria-label={`View the server as ${r.name}`} title="View the server as this role" onClick={() => { viewServerAs(props.info.id, props.info.name, r.id, r.name); setServerSettings(null); }}><Icon name="eye" size={16} /></button>
             <button class="icon-btn" aria-label={`Rename ${r.name}`} title="Rename" onClick={async () => {
               const v = await promptDialog("Rename role", "Role name", "Save", r.name, { max: 32 });
               if (v?.trim()) await attempt(() => b().editRole(props.info.id, r.id, { name: v.trim() }), "Saved").then(bump);

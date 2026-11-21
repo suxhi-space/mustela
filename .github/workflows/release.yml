@@ -33,10 +33,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: windows, os: windows-latest, artifacts: "release/windows/*" }
-          - { platform: macos,   os: macos-latest,   artifacts: "release/macos/*" }
-          - { platform: linux,   os: ubuntu-24.04,   artifacts: "release/linux/*" }
-          - { platform: android, os: ubuntu-22.04,   artifacts: "release/android/*" }
+          - { platform: windows, arch: x64,   os: windows-latest,   artifacts: "release/windows/*" }
+          # ARM Windows (Snapdragon laptops): built from the x64 machine for the ARM chip
+          - { platform: windows, arch: arm64, os: windows-latest,   artifacts: "release/windows-arm64/*" }
+          - { platform: macos,   arch: x64,   os: macos-latest,     artifacts: "release/macos/*" }
+          - { platform: linux,   arch: x64,   os: ubuntu-24.04,     artifacts: "release/linux/*" }
+          # ARM Linux (Raspberry Pi 5, Asahi): GitHub's free ARM machines for public repositories
+          - { platform: linux,   arch: arm64, os: ubuntu-24.04-arm, artifacts: "release/linux-arm64/*" }
+          - { platform: android, arch: x64,   os: ubuntu-22.04,     artifacts: "release/android/*" }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +71,7 @@ jobs:
       - name: Build
         shell: bash
         # The tag's leading "v" is dropped: v0.2.0 builds 0.2.0.
-        run: node scripts/build.mjs --platform ${{ matrix.platform }} --version "${VERSION#v}" --repo "${{ github.repository }}" --yes
+        run: node scripts/build.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }} --version "${VERSION#v}" --repo "${{ github.repository }}" --yes
         env:
           CI: "true"
           # Android signing (optional: without these the APK is signed with a debug key). See README "Releases".
@@ -81,7 +85,7 @@ jobs:
           # empty Apple identity would make the macOS build try to sign with nothing.
       - uses: actions/upload-artifact@v4
         with:
-          name: mustela-${{ matrix.platform }}
+          name: mustela-${{ matrix.platform }}-${{ matrix.arch }}
           path: ${{ matrix.artifacts }}
           if-no-files-found: error
 

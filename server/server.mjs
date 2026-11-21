@@ -249,6 +249,12 @@ const routes = {
     return [204];
   },
 
+  // 1.4: "do you still know me?", so the app can relink by itself when this server's data was reset.
+  "GET /me": async (req) => {
+    const who = userFor(req);
+    return who ? [200, { userId: who.uid }] : [401, { error: "Link this server again." }];
+  },
+
   // 1.4: many profiles in one request (a member list, a busy chat), so a server for many people stays light.
   "POST /profiles": async (req) => {
     const body = await readBody(req);

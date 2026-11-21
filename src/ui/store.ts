@@ -490,7 +490,7 @@ async function refreshPictureSeed(src: string | null) {
 export function startAppearance() {
   createRoot(() => {
     // Keep the backend's sync-server list in step with settings.
-    createEffect(() => { const b = backend(); if (b) b.cloud.setServers(settings().cloud.servers); });
+    createEffect(() => { const b = backend(); if (b) { b.cloud.setServers(settings().cloud.servers); (b.cloud as { checkLinks?(): void }).checkLinks?.(); } });
     const mq = matchMedia("(prefers-color-scheme: dark)");
     const [sysDark, setSysDark] = createSignal(mq.matches);
     mq.addEventListener("change", (e) => setSysDark(e.matches));

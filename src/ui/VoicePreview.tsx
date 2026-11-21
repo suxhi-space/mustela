@@ -27,6 +27,7 @@ export function VoicePreview(props: { channel: ChannelInfo; where?: string; onCl
       <div class="scrim vp-scrim" onClick={props.onClose}>
         <div class="modal sheet panel vp-sheet" role="dialog" aria-label={`${props.channel.name}, voice`} onClick={(e) => e.stopPropagation()}
           ref={(el) => onMount(() => dragToClose(el, props.onClose))}>
+          <div class="grab-strip" aria-hidden="true" />
           <header class="vp-head">
             <button class="icon-btn vp-down" aria-label="Close" onClick={props.onClose}><Icon name="down" size={20} /></button>
             <button class="vp-title" onClick={() => { props.onOpen(); props.onClose(); }}>

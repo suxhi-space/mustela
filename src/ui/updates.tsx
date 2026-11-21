@@ -1,4 +1,4 @@
-import { createRoot, createSignal, onCleanup, Show } from "solid-js";
+import { createRoot, createSignal, Show } from "solid-js";
 import { inTauri } from "../lib/platform";
 import { Group, Row, Switch } from "./controls";
 import { Icon } from "./icons";

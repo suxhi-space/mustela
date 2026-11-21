@@ -407,12 +407,11 @@ function LazyGrid(props: { count: number; root: HTMLElement | undefined; now?: b
   const show = () => seen() || !!props.now;
   let el!: HTMLDivElement;
   onMount(() => {
-    let done = false;
     // Drawn when it comes near (a screen or so ahead), not all in the background after opening: filling in every
     // section kept the phone busy for a second or more after the card opened, which felt like lag.
-    const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { done = true; setShow(true); io.disconnect(); } }, { root: props.root ?? null, rootMargin: "700px 0px" });
+    const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { setShow(true); io.disconnect(); } }, { root: props.root ?? null, rootMargin: "700px 0px" });
     io.observe(el);
-    onCleanup(() => { done = true; io.disconnect(); });
+    onCleanup(() => io.disconnect());
   });
   return (
     <div ref={el} class="emoji-grid" style={show() ? undefined : { "aspect-ratio": `8 / ${Math.ceil(props.count / 8)}` }}>

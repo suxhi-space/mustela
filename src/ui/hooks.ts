@@ -135,7 +135,10 @@ export function createProfileInfo(id: Accessor<string>, enabled: Accessor<boolea
       // Activity from your other devices (your computer's game on your phone), through your servers.
       return { config: settings().profile, bio: res()?.bio, bannerUrl: res()?.bannerUrl, activity: res()?.activity, servers };
     }
-    return res() ?? (res.loading ? saved() ?? undefined : undefined);
+    // This session's copy straight away: a row that appears again (switching Friends tabs) would otherwise show
+    // the plain name for a frame or two, until it's on screen and the saved copy has been looked up.
+    const mem = b ? seenProfiles.get(`${b.me.id}:${id()}`) : undefined;
+    return res() ?? mem ?? (res.loading ? saved() ?? undefined : undefined);
   };
   const look = () => { const s = server(); return s ? base()?.servers?.[s] : undefined; };
   const [banner] = createResource(

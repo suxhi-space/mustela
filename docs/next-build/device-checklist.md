@@ -1,4 +1,41 @@
-# 0.1.8-build1: what to check on a real device
+# 0.1.8-build2: what to check on a real device
+
+Checked here: Mustela server 1.4 (batched profiles, separate read/write limits, several activities, the link check),
+linking again by itself when a server forgot this device, Rich Presence passed on to a stand-in Discord, unit tests,
+the Rust code compiling, and the desktop and phone sweeps with no errors (before and after the style clean-up, only the
+clock changed). These need the real thing. The build1 list below still applies (it was never released on its own).
+
+## First: update your server
+- [ ] Push to GitHub, then on the server: `cd mustela/server/deploy && bash update.sh`
+- [ ] `https://mustela.suxhi.space/v1/health` shows `"version":"1.4.0"`
+
+## Mustela servers (you and a friend, both on build2)
+- [ ] A fresh install already lists Mustela's server; you see each other's decorations and banners before linking
+- [ ] Link on both: each sees the other's activity (a game, and music at the same time) within about a minute
+- [ ] Close and reopen Mustela: still linked, nothing asks to link again
+- [ ] Remove Mustela's server on one device: it stays removed on your other devices; **Use** brings it back
+
+## Activity (computer)
+- [ ] Settings > Activity > Add a program: pick Krita (or any program), name it, choose Playing; it shows on your card and your friend's view
+- [ ] A game plus music (Rich Presence) show together, on your card and in Active now
+- [ ] Start a game with Rich Presence first, then Discord: Discord shows the game; close the game and it clears
+- [ ] Your phone shows your computer's activity, and "In voice" on your own card while you're in a call
+
+## Voice
+- [ ] Settings > Voice & Video > Other people's sounds at 20%: a friend's soundboard sound is quieter for you only
+- [ ] Phone: swipe the open call down; it follows the finger and minimises; a short pull springs back
+- [ ] Android: Streams in PiP on; leave the app while watching a stream (PiP) and while not (the bubble)
+
+## Windows
+- [ ] Pop-out try 2: Settings > Voice & Video > Call pop-out > Mustela's window (experimental), then pop a call out. Mustela's title bar, no address bar, nothing freezes. If it falls back, send `popout.log`
+- [ ] Windows on ARM (if you can borrow one): installs, calls and screen share work
+
+## Server roles
+- [ ] Server settings > Roles > the eye button: channels you'd lose with that role disappear, the bar shows, sending is paused; Stop brings everything back
+
+---
+
+# 0.1.8-build1: what to check on a real device (also for build2)
 
 Checked here: Linux screen-share sound against a real PipeWire (the app's sound, its child processes, another app left
 out, silence while quiet), the share picker, the update button, light-mode names and profile cards, invite limits,

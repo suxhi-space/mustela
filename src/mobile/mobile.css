@@ -22,8 +22,7 @@
 .app:is(.swiping, .swiped) :is(.side, .main, .chans, .rail) { animation: none !important; }
 .app.swiping .rail, .app.swiping .side { display: flex !important; }
 .app.swiping .userpanel { display: flex !important; }
-.app.swiping .main { display: flex; position: absolute; inset: var(--sa-top) var(--sa-right) 0 var(--sa-left); z-index: 30;
-  box-shadow: -14px 0 32px -8px rgba(0, 0, 0, .45); will-change: transform; }
+.app.swiping .main { display: flex; position: absolute; inset: var(--sa-top) var(--sa-right) 0 var(--sa-left); z-index: 30; }
 
 /* ---------- profile card: centred on screen, everything on it (mutuals included), scrolls inside itself ---------- */
 .profile-pop { inset: 0 !important; left: 0 !important; top: 0 !important; transform: none !important; width: 100% !important; height: 100%; max-height: none !important;
@@ -55,13 +54,13 @@
    pull it down to close (sheetDrag.ts). Sideways it stays centred. */
 @media (orientation: portrait), (max-width: 700px) {
   .profile-pop { place-items: end center; padding: calc(40px + var(--sa-top)) 0 0; }
-  .profile-pop .pp-sheet { width: min(600px, 100%); height: fit-content; align-self: end; max-height: calc(100% - 8px); border-radius: 22px 22px 0 0; padding-bottom: var(--sa-bottom);
+  .profile-pop .pp-sheet { width: min(600px, 100%); height: fit-content; align-self: end; max-height: calc(100% - 8px); border-radius: 24px 24px 0 0; padding-bottom: var(--sa-bottom);
     animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
   .profile-full .pcard, .pf-card .pcard, .dm-profile .pcard { min-height: 0; height: auto; }
   .modal.sheet { height: auto; max-height: min(80vh, calc(100% - var(--sa-top) - 8px)); align-self: end; }
-  .profile-pop .pcard { border-radius: 22px 22px 0 0; }
-  .profile-pop .pp-sheet::before { display: block; content: ""; position: absolute; top: 7px; left: 50%; z-index: 9; width: 40px; height: 5px; margin-left: -20px;
-    border-radius: 3px; background: rgba(255, 255, 255, .6); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+  .profile-pop .pcard { border-radius: 24px 24px 0 0; }
+  .profile-pop .pp-sheet::before { display: block; content: ""; position: absolute; top: 8px; left: 50%; z-index: 9; width: 40px; height: 5px; margin-left: -20px;
+    border-radius: 999px; background: rgba(255, 255, 255, .55); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); }
 }
 @keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
 
@@ -71,16 +70,15 @@
 
 /* ---------- your own card (the bar at the bottom): a sheet from the bottom like everyone else's card ---------- */
 .pop-scrim:has(> .mecard) { background: rgba(0, 0, 0, .45); }
-.mecard { left: 0; right: 0; bottom: 0; width: auto; max-width: 600px; margin: 0 auto; max-height: calc(100% - var(--sa-top) - 40px);
-  border-radius: 22px 22px 0 0; padding-bottom: var(--sa-bottom); overscroll-behavior: contain; animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
-.mecard .pcard { border-radius: 22px 22px 0 0; }
-.mecard::before { content: ""; position: absolute; top: 7px; left: 50%; z-index: 9; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px;
-  background: rgba(255, 255, 255, .6); box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+.mecard { bottom: 0; width: auto; max-width: 600px; margin: 0 auto; max-height: calc(100% - var(--sa-top) - 40px);
+  border-radius: 24px 24px 0 0; padding-bottom: var(--sa-bottom); overscroll-behavior: contain; animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
+.mecard .pcard { border-radius: 24px 24px 0 0; }
+.mecard::before { content: ""; position: absolute; top: 8px; left: 50%; z-index: 9; width: 40px; height: 5px; margin-left: -20px; border-radius: 999px;
+  background: rgba(255, 255, 255, .55); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); }
 
 /* ---------- in a call: the voice bar sits on the profile bar as one card, with bigger buttons ---------- */
 @media (max-width: 700px) {
-  .callpanel { left: 10px; width: calc(100% - 20px); height: 63px; bottom: calc(10px + var(--sa-bottom) + 68px); padding: 8px 10px 6px 16px; gap: 8px;
-    border-radius: 18px 18px 0 0; box-shadow: inset 0 -1px 0 var(--edge); }
+  .callpanel { left: 10px; width: calc(100% - 20px); height: 63px; bottom: calc(10px + var(--sa-bottom) + 68px); padding: 8px 10px 6px 16px; gap: 8px; box-shadow: inset 0 -1px 0 var(--edge); }
   .callpanel .icon-btn { width: 44px; height: 44px; border-radius: 13px; }
   .callpanel .icon-btn .ic { width: 21px; height: 21px; stroke-width: 2.3; }
   .cp-text strong { font-size: 15.5px; }
@@ -129,7 +127,8 @@
 .mp-head:has(.mp-search) > .grow { display: none; }
 .mp-search { height: 46px !important; border-radius: 14px; }
 .mp-search input { font-size: 16px; }
-.mp-tabs button { min-height: 40px; padding: 8px 16px; font-size: calc(14px * var(--ui-text, 1)); }
+/* One size for every row of tabs on phones. */
+:root :is(.mp-tabs, .friends-tabs, .gif-tabs, .inbox-tabs, .pf-tabs) button { min-height: 40px; padding: 8px 16px; font-size: calc(14px * var(--ui-text, 1)); }
 .mp-filters .select, .mp-filters select, .mp-date { min-height: 44px; }
 .mp-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .mp-filters > * { flex: 0 0 auto !important; }
@@ -222,9 +221,7 @@ body, .settings, .settings-card { background-attachment: scroll !important; }
   border-radius: 24px 24px 0 0 !important; padding: 18px 8px calc(10px + var(--sa-bottom)) !important; overflow-y: auto; overscroll-behavior: contain;
   animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1); }
 .members-sheet { padding-top: 0 !important; }
-.members-sheet::before { content: ""; position: sticky; top: 0; z-index: 4; display: block; height: 20px; margin: 0 -8px 2px; background-color: inherit;
-  background-image: linear-gradient(color-mix(in srgb, var(--fg) 35%, transparent), color-mix(in srgb, var(--fg) 35%, transparent));
-  background-size: 40px 5px; background-position: center 8px; background-repeat: no-repeat; border-radius: 24px 24px 0 0; }
+.members-sheet > .grab-strip { margin: 0 -8px 2px; }
 
 /* Search media: three across, like a phone gallery. */
 .mp-list.gallery { grid-template-columns: repeat(3, 1fr); gap: 3px; padding-inline: 4px; }
@@ -278,7 +275,7 @@ body, .settings, .settings-card { background-attachment: scroll !important; }
   :root.call-phone .cgrid .ctile .ctile-name { left: 50%; right: auto; transform: translateX(-50%); bottom: 12px; padding: 5px 12px; border-radius: 12px; font-size: 16px; background: rgba(0,0,0,.55); max-width: calc(100% - 24px); }
   :root.call-phone .cgrid .ctile:not(.video) .av { transform: scale(1.35); }
   :root.call-phone .sheet-main .cbtn.leave { border-radius: 16px; width: 64px; }
-  :root.call-phone .call-sheet { border-radius: 22px 22px 0 0; max-width: 620px; margin: 0 auto; left: 0; right: 0; }
+  :root.call-phone .call-sheet { border-radius: 24px 24px 0 0; max-width: 620px; margin: 0 auto; left: 0; right: 0; }
 }
 
 /* Bigger tablets held sideways, in the desktop-look call: the same, made for fingers. */
@@ -335,7 +332,7 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
 .mecard { left: 0; right: 0; }
 /* Opened full height: the card itself reaches the bottom (no lighter strip under its content) */
 .mecard.sheet-full { display: flex; flex-direction: column; }
-.mecard.sheet-full > .pcard { flex: 1 0 auto; border-radius: 22px 22px 0 0; }
+.mecard.sheet-full > .pcard { flex: 1 0 auto; border-radius: 24px 24px 0 0; }
 
 /* The + button's card (Composer.tsx AttachCard): big tiles to tap, like Discord's */
 .att-scrim { position: fixed; inset: 0; z-index: 95; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .4); }
@@ -349,10 +346,9 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
 /* The handle is a band across the card's top that stays put while it scrolls, so what scrolls never runs into the card's
    rounded edge (the same band tops the hold cards and the member list). */
 .att-handle { position: sticky; top: -10px; z-index: 4; align-self: stretch; height: 22px; margin: -10px -14px -10px; background: inherit; border-radius: 24px 24px 0 0; }
-.att-handle::after, .ctx-sheet > .ctx-grab::after { content: ""; position: absolute; left: 50%; top: 9px; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px;
-  background: color-mix(in srgb, var(--fg) 35%, transparent); }
+.att-handle::after, .ctx-sheet > .ctx-grab::after { content: ""; position: absolute; left: 50%; top: 8px; width: 40px; height: 5px; margin-left: -20px; border-radius: 999px;
+  background: color-mix(in srgb, currentColor 35%, transparent); }
 .ctx-sheet > .ctx-grab { position: sticky; top: -6px; z-index: 4; align-self: stretch; width: auto; height: 20px; margin: -6px -12px 0; border-radius: 24px 24px 0 0; background: inherit; }
-.ctx-sheet > .ctx-grab::after { top: 8px; }
 .att-big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .att-big button { aspect-ratio: 1 / .82; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 18px;
   background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); font-weight: 800; font-size: 15px; }
@@ -370,10 +366,10 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
   /* The chat header's buttons sit close together so the name gets the room (like Discord's) */
   .main-bar { gap: 0; }
   .main-bar .icon-btn { width: 40px; height: 44px; }
-  .main-bar h2, .main-bar .chat-title { min-width: 0; }
+  .main-bar h2 { min-width: 0; }
   .main-bar > :is(svg.ic, .av, img) { margin-right: 8px; }
   .main-bar > .back { margin-right: 4px; }
-  .composer > .icon-btn, .composer .c-actions .icon-btn { margin: 0 3px; }
+  .composer > .icon-btn { margin: 0 3px; }
 }
 
 /* ---------- The keyboard never hides what you're typing in ----------
@@ -415,8 +411,7 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
   .friends > .bar h2 { display: block !important; }
   .friends > .bar .friends-tabs { order: 10; flex: 1 0 100%; max-width: none; margin: 0; display: flex; flex-wrap: nowrap; gap: 4px; overflow-x: auto; scrollbar-width: none;
     padding: 0; background: none; box-shadow: none; border-radius: 0; height: auto; }
-  .friends > .bar .friends-tabs button { flex: none; min-height: 38px; padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 800; color: var(--fg2); background: none; box-shadow: none; }
-  .friends > .bar .friends-tabs button.on { background: color-mix(in srgb, var(--pri) 22%, transparent); color: var(--fg); }
+  .friends > .bar .friends-tabs button { flex: none; }
 }
 
 /* Swiping back from a chat: the list underneath eases in with the chat (a little parallax and fade), like Discord's,

@@ -8,6 +8,7 @@
  * Platforms: windows, macos, linux, android, web
  * Options:
  *   --version 1.2.3    the version to stamp on this build (asked if not given)
+ *   --arch x64|arm64   which chip (Windows and Linux): see chosenArch
  *   --server URL       Mustela's own server, offered in Settings (default: the last one used, or DEFAULT_SERVER; none for none)
  *   --repo owner/repo  the GitHub repository the app checks for updates (default suxhi-space/mustela; a github.com link
  *                      works too; "none" turns it off)
@@ -423,8 +424,8 @@ async function icons() {
   await androidIcon();
 }
 
-function collect(platform, files) {
-  const dest = join(OUT, platform);
+function collect(platform, files, folder = platform) {
+  const dest = join(OUT, folder);
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
   const out = [];
@@ -434,7 +435,10 @@ function collect(platform, files) {
     // "universal" tag, so copying it second replaced the icon-stamped image.
     if (baseName.startsWith("rw.")) continue;
     const ext = f.endsWith(".app") ? ".app" : /\.(tar\.gz|[^.]+)$/.exec(f)?.[0] ?? "";
-    const tag = /(arm64|aarch64|x86_64|amd64|x64|universal)/i.exec(f)?.[1];
+    // The chip from the file's own name first: a build for a chosen chip sits in a folder named after it
+    // (target/x86_64-pc-windows-msvc/...), which would otherwise rename Windows' "x64" to "x86_64".
+    const chip = /(arm64|aarch64|x86_64|amd64|x64|universal)/i;
+    const tag = (chip.exec(baseName) ?? chip.exec(f))?.[1];
     const name = `Mustela_${VERSION}_${platform}${tag ? `_${tag}` : ""}${f.includes("debug") ? "_debug" : ""}${ext}`;
     const target = join(dest, name);
     if (existsSync(target)) continue;
@@ -491,11 +495,34 @@ function macGlassIcon() {
   return conf;
 }
 
+/**
+ * Which chip to build for (Windows and Linux; the Mac build already covers both, and Android every phone):
+ *   --arch x64    most PCs (the default on an x64 computer)
+ *   --arch arm64  Snapdragon laptops, Raspberry Pi 5, Asahi Linux (the default on an ARM computer)
+ * Windows can build ARM from an x64 PC (needs Visual Studio's "ARM64 build tools"); Linux builds for the chip it's on.
+ */
+function chosenArch(platform) {
+  const host = process.arch === "arm64" ? "arm64" : "x64";
+  const want = (opt("arch") ?? process.env.MUSTELA_ARCH ?? host).toLowerCase().replace("aarch64", "arm64").replace("amd64", "x64").replace("x86_64", "x64");
+  if (!["x64", "arm64"].includes(want)) fail(`Unknown chip "${want}".`, "Use --arch x64 or --arch arm64.");
+  if (platform === "linux" && want !== host) fail(`Linux for ${want} has to be built on a ${want} computer.`, "Build it on that kind of machine, or let GitHub's release workflow build it (it has ARM machines).");
+  return { want, cross: want !== host };
+}
+const WIN_TARGET = { x64: "x86_64-pc-windows-msvc", arm64: "aarch64-pc-windows-msvc" };
+
 function buildDesktop(platform) {
   const p = PLATFORMS[platform];
   const bundles = opt("bundles") ?? p.bundles;
   const a = ["tauri", "build", "--bundles", bundles];
   if (platform === "macos") a.push("--target", "universal-apple-darwin");
+  const arch = platform === "macos" ? null : chosenArch(platform);
+  let targetDir = platform === "macos" ? "universal-apple-darwin" : "";
+  if (platform === "windows" && arch?.cross) {
+    tc.ensureRustTargets([WIN_TARGET[arch.want]]);
+    a.push("--target", WIN_TARGET[arch.want]);
+    targetDir = WIN_TARGET[arch.want];
+  }
+  if (arch) ok(`Chip: ${arch.want === "arm64" ? "ARM (arm64)" : "x64"}`);
   if (platform === "macos" && !flag("skip-icons")) { const conf = macGlassIcon(); if (conf) a.push("--config", conf); }
   if (DEBUG) a.push("--debug");
   // Code signing with a certificate, when one is set up (otherwise unsigned, as before):
@@ -510,14 +537,14 @@ function buildDesktop(platform) {
   // AppImage tooling needs FUSE unless told to unpack itself; this works everywhere.
   const env = { ...releaseEnv(), ...(platform === "linux" ? { APPIMAGE_EXTRACT_AND_RUN: "1", NO_STRIP: "true" } : {}) };
   must(npx(a, { env }), "The build", "Scroll up for the first error. Most often it's a missing system library (see https://tauri.app/start/prerequisites/).");
-  const base = join(TAURI, "target", platform === "macos" ? "universal-apple-darwin" : "", DEBUG ? "debug" : "release", "bundle");
+  const base = join(TAURI, "target", targetDir, DEBUG ? "debug" : "release", "bundle");
   if (platform === "macos") {
     // The disk-image script leaves an uncompressed rw.*.dmg beside the app. It shares the
     // "universal" name, so copying every .dmg put that 39 MB file into release/ over the real one.
     for (const f of findFiles(base, /^rw\..*\.dmg$/i)) rmSync(f, { force: true });
     stampSharedDmgIcon(base);
   }
-  return collect(platform, platform === "macos" ? macReleaseFiles(base) : findFiles(base, /\.(AppImage|deb|rpm|exe|msi|dmg)$|\.app$/));
+  return collect(platform, platform === "macos" ? macReleaseFiles(base) : findFiles(base, /\.(AppImage|deb|rpm|exe|msi|dmg)$|\.app$/), arch?.want === "arm64" ? `${platform}-arm64` : platform);
 }
 
 /** The compressed image in bundle/dmg, plus the .app. Nothing else named .dmg. */

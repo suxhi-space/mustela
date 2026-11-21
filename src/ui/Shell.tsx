@@ -35,6 +35,7 @@ import { HomeSearch, noteVisit, QuickSwitcher } from "./HomeSearch";
 import { dragToClose } from "./sheetDrag";
 import { phoneVoiceChat, setPhoneVoiceChat, VOICE_MIME } from "./Voice";
 import { ScreenPickerHost } from "./call/ScreenPicker";
+import { ViewAsBar } from "./viewAs";
 import { call, callBanner, checkLastCall, joinCall, setCallBanner, toggleCall } from "./call/state";
 import { Chat } from "./Chat";
 import { EmojiPicker, GifPicker, Lightbox, warmFavGifs, warmGifs, warmLikelyEmoji } from "./chat/overlays";
@@ -48,7 +49,7 @@ const Discover = lazy(() => import("./Discover").then((m) => ({ default: m.Disco
 import { GroupInvite } from "./GroupInvite";
 import { Inbox } from "./Inbox";
 import { CallStage } from "./call/CallStage";
-import { favGroupItems, groupItems, moveFavGroup, movePin, movePinGroup, newFavGroup, newPinGroup, reorderPinned, setChannelPinned, setFavGroup, setPin } from "./pins";
+import { favGroupItems, groupItems, moveFavGroup, movePin, movePinGroup, newFavGroup, reorderPinned, setChannelPinned, setFavGroup, setPin } from "./pins";
 import { moveCategory, moveChannel } from "../lib/channelOrder";
 import { hasTitleBar } from "./TitleBar";
 import { attempt, openMenu, toast } from "./menu";
@@ -67,7 +68,7 @@ import { MessagePanel, type Panel } from "./chat/MessagePanel";
 import { HeaderSearch } from "./chat/HeaderSearch";
 import { shownName } from "./nicks";
 import { sessionName } from "../lib/deviceName";
-import { channelSettings, setChannelSettings, setCurrentServer, setProfileView, inboxBadge, inboxOpen, setInboxOpen, setInboxBadge, setLocation, profileOpen, registerNav, serverSettings, setProfileOpen, setServerSettings, setSettingsOpen, settingsOpen } from "./nav";
+import { channelSettings, setChannelSettings, setCurrentServer, setProfileView, inboxBadge, inboxOpen, setInboxOpen, setInboxBadge, setLocation, registerNav, serverSettings, setProfileOpen, setServerSettings, setSettingsOpen, settingsOpen } from "./nav";
 const ServerSettings = lazy(() => import("./ServerSettings").then((m) => ({ default: m.ServerSettings })));
 const ChannelSettings = lazy(() => import("./ChannelSettings").then((m) => ({ default: m.ChannelSettings })));
 
@@ -136,10 +137,9 @@ export function Shell() {
   const [spaceId, setSpaceId] = createSignal<string>("home");
   const [channelId, setChannelId] = createSignal<string | undefined>();
   const [view, setView] = createSignal<"nav" | "chat">("nav");
-  const [menu, setMenu] = createSignal(false);
   const showSettings = () => settingsOpen() !== false;
   const setShowSettings = (v: boolean) => setSettingsOpen(v ? "account" : false);
-  const profile = profileOpen, setProfile = setProfileOpen;
+  const setProfile = setProfileOpen;
   const [sheetMembers, setSheetMembers] = createSignal(false);
   const [joining, setJoining] = createSignal(false);
   const [panel, setPanel] = createSignal<Panel | null>(null);
@@ -244,6 +244,10 @@ export function Shell() {
   };
   // Sounds you added on your other devices come down as soon as the app opens (not when the soundboard does).
   startSoundSync();
+  // A Mustela server forgot this device's link (its data was reset): say so once, with where to fix it.
+  const lost = (e: Event) => { try { toast(`Couldn't link ${new URL(String((e as CustomEvent).detail)).host} again by itself. Link it in Settings > Sync & servers.`, true); } catch { /* not a URL */ } };
+  addEventListener("mustela:link-lost", lost);
+  onCleanup(() => removeEventListener("mustela:link-lost", lost));
   registerNav({
     channel: (id) => { void refetch(); setTimeout(() => openChannelById(id), 150); }, list: () => setView("nav"),
     chat: () => { if (!channel() && !discover()) return false; setView("chat"); return true; },
@@ -837,6 +841,7 @@ export function Shell() {
       <Show when={sheetMembers() && chanSpace()}>
         <div class="scrim" onClick={() => setSheetMembers(false)}>
           <div class="modal sheet panel members-sheet" onClick={(e) => e.stopPropagation()} ref={(el) => { if (MOBILE_UI) queueMicrotask(() => dragToClose(el, () => setSheetMembers(false))); }}>
+            {MOBILE_UI && <div class="grab-strip" aria-hidden="true" />}
             <Members spaceId={chanSpace()!.id} onOpen={(p) => { setSheetMembers(false); setProfile(p); }} />
           </div>
         </div>
@@ -856,6 +861,7 @@ export function Shell() {
       <EmojiInfo />
       <MeCardHost />
       <ScreenPickerHost hidden={call.popped()} />
+      <ViewAsBar />
       <Show when={showMini()}>
         <MiniCall onOpen={() => { const cc = call.channel(); setPhoneVoiceChat(false); if (cc) openChannelById(cc.id); }} />
       </Show>

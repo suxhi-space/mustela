@@ -294,9 +294,6 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
   /** A result: on computers it's shown where it was in the chat, like Discord; phones and tablets show it in context here first. */
   const openResult = (m: Msg) => (MOBILE_UI ? setPreview(m) : jumpTo(m));
   const submit = (e: Event) => { e.preventDefault(); apply(draft().trim()); if (!draft().trim() && tab() === "messages") setTab("media"); };
-  /** Taking a filter off (its chip's ×) also takes its words out of the box. */
-  const unset = (key: RegExp, clear: () => void) => { clear(); setDraft(draft().replace(new RegExp(`(^|\\s)${key.source}:(?:"[^"]*"|\\S*)`, "gi"), " ").replace(/\s+/g, " ").trim()); };
-  let searchInput: HTMLInputElement | undefined;
 
   const filterCount = () => [from(), mentions(), hasF(), when(), kind()].filter(Boolean).length;
   const [filtersOpen, setFiltersOpen] = createSignal(props.panel.kind === "search" && !!props.panel.filters);
@@ -347,7 +344,7 @@ export function MessagePanel(props: { panel: Panel; channel: ChannelInfo; spaceI
         <Show when={!pins() && ownBox()} fallback={<h3>{title()}</h3>}>
           <form class="search-box wide mp-search" role="search" onSubmit={submit}>
             <input name="q" value={draft()} placeholder={`Search ${props.channel.name}`} aria-label={`Search in ${props.channel.name}`} autocomplete="off"
-              ref={(el) => { searchInput = el; if (!draft()) queueMicrotask(() => el.focus()); }} onInput={(e) => setDraft(e.currentTarget.value)} enterkeyhint="search" />
+              ref={(el) => { if (!draft()) queueMicrotask(() => el.focus()); }} onInput={(e) => setDraft(e.currentTarget.value)} enterkeyhint="search" />
             <Show when={draft()}><button type="button" class="mp-clear" aria-label="Clear" onClick={() => { setDraft(""); apply(""); }}><Icon name="close" size={14} /></button></Show>
           </form>
         </Show>

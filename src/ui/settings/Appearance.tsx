@@ -1,5 +1,4 @@
 import { createSignal, For, Show } from "solid-js";
-import { RATING_ORDER, type Rating } from "../../lib/decor/spec";
 import { THEMES, buildRoles, type Variant } from "../../lib/theme/palette";
 import { Icon } from "../icons";
 import { UEmoji } from "../chat/UEmoji";

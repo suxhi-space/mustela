@@ -157,6 +157,13 @@ Installed copies check the repository's published releases and read the version 
 (`Mustela_0.1.3-build6_windows_x64.exe`), not from the tag, so keep the file names the build script gives you.
 Windows, macOS and the AppImage update themselves; `.deb` and `.rpm` open the download; Android installs it after you confirm.
 
+### ARM computers
+
+Windows on ARM (Snapdragon laptops) and Linux on ARM (Raspberry Pi 5, Asahi Linux) have their own downloads, with
+`arm64` (or `aarch64`) in the name; Mustela's updates pick the right one by themselves. To build them yourself:
+`node scripts/build.mjs --platform windows --arch arm64` works from a normal x64 Windows PC (with Visual Studio's
+"ARM64 build tools"); Linux for ARM is built on an ARM machine. The release workflow builds both.
+
 ### Signed updates
 
 Installed copies can check that an update really comes from you, not just from GitHub. Set it up once:

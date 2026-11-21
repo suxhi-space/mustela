@@ -51,6 +51,10 @@ test("link, publish, read, activity", async () => {
     assert.equal(got.activity.image, undefined); // only https images
     assert.deepEqual(got.activity.buttons, [{ label: "Join", url: "https://example.com/j" }, { label: "Three", url: "https://x.y" }]);
 
+    // 1.4: the app can ask whether the server still knows its link
+    assert.equal((await (await fetch(`${base}/me`, { headers: { authorization: `Bearer ${key}` } })).json()).userId, UID);
+    assert.equal((await fetch(`${base}/me`, { headers: { authorization: "Bearer not-a-key" } })).status, 401);
+
     // A busy member list (lots of reads from one address) never blocks publishing your own activity.
     await Promise.all(Array.from({ length: 120 }, () => fetch(`${base}/profile/${STRANGER}`)));
     assert.equal((await fetch(`${base}/activity`, { method: "PUT", headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ activity: { kind: "playing", name: "Celeste" } }) })).status, 204);
